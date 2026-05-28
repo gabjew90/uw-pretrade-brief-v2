@@ -19,4 +19,5 @@ RUN mkdir -p /data
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Honor Railway's $PORT (set dynamically per deploy); fall back to 8000 locally.
+CMD ["sh", "-c", "uv run uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
