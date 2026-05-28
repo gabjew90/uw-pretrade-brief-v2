@@ -103,7 +103,7 @@ _cache = TTLCache()
 _TTL_HOT_SECONDS = 60         # hot_15 tickers
 _TTL_SLEEPER_SECONDS = 300    # non-hot tracked tickers (5 min)
 _TTL_QUASI_STATIC_SECONDS = 21600  # earnings (6h)
-_QUASI_STATIC_ENDPOINTS = {"earnings"}
+_QUASI_STATIC_ENDPOINTS = {"earnings", "ticker_info"}
 
 # UW Basic tier = 120 req/min. With ~50 tracked tickers × 6 endpoints =
 # ~300 calls per cycle, parallelism must be capped or we'll burn the budget
@@ -203,6 +203,36 @@ def fetch_flow_alerts(limit: int = 100):
     # is on the critical path every snapshot.
     return _through("flow_alerts", None, {"limit": limit}, True,
                     lambda: uw.fetch_flow_alerts(limit=limit))
+
+
+def fetch_market_tide():
+    """Cross-market net-flow tide. Cached at sleeper TTL (5min) — market-level
+    flow doesn't change minute-by-minute."""
+    return _through("market_tide", None, None, False,
+                    lambda: uw.fetch_market_tide())
+
+
+def fetch_sector_tide(sector: str):
+    """Per-sector tide. Sleeper TTL (5min)."""
+    return _through("sector_tide", sector, None, False,
+                    lambda: uw.fetch_sector_tide(sector))
+
+
+def fetch_news_headlines(ticker: str | None = None, limit: int = 10):
+    """News headlines, optionally per-ticker. Sleeper TTL (5min)."""
+    params = {"limit": limit}
+    if ticker:
+        params["ticker"] = ticker
+    return _through("news_headlines", ticker, params, False,
+                    lambda: uw.fetch_news_headlines(ticker=ticker, limit=limit))
+
+
+def fetch_ticker_info(ticker: str):
+    """Ticker metadata (sector etc). Quasi-static — 6h TTL."""
+    # Reuse the earnings tier (6h TTL) via the _QUASI_STATIC_ENDPOINTS set
+    # treatment if we add 'ticker_info' there; otherwise it's just sleeper.
+    return _through("ticker_info", ticker, None, False,
+                    lambda: uw.fetch_ticker_info(ticker))
 
 
 # ── Snapshot JSONL appender ───────────────────────────────────────────────────

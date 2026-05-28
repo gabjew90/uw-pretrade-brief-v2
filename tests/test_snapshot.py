@@ -41,6 +41,16 @@ def stub_uw(monkeypatch):
                         lambda t: {"data": [{"price": 100, "size": 1000}]})
     monkeypatch.setattr(uw, "fetch_earnings",
                         lambda t: {"data": [{"report_date": "2026-07-15"}]})
+    monkeypatch.setattr(uw, "fetch_ticker_info",
+                        lambda t: {"data": [{"sector": "Technology"}]})
+    monkeypatch.setattr(uw, "fetch_news_headlines",
+                        lambda ticker=None, limit=10: {"data": [
+                            {"headline": "Test news", "source": "AP",
+                             "published_at": "2026-05-28T10:30:00Z"}]})
+    monkeypatch.setattr(uw, "fetch_market_tide",
+                        lambda date=None: {"data": [{"tide": 0.3}]})
+    monkeypatch.setattr(uw, "fetch_sector_tide",
+                        lambda sector, date=None: {"data": [{"tide": 0.25}]})
 
 
 async def test_refresh_snapshot_happy_path_assembles_15_rows(stub_uw, fresh_storage_state, tmp_data_dir):

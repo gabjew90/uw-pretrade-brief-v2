@@ -132,6 +132,36 @@ def fetch_option_contracts(ticker: str, limit: int = 500) -> dict:
     return _get(f"/api/stock/{ticker}/option-contracts", params={"limit": limit})
 
 
+def fetch_market_tide(date: str | None = None) -> dict:
+    """Aggregated cross-market net-flow tide. Returns time-series of net
+    call/put premium across the entire market for context. Used as a
+    fallback sector-tide when per-sector data isn't available."""
+    params = {"date": date} if date else None
+    return _get("/api/market/market-tide", params=params)
+
+
+def fetch_sector_tide(sector: str, date: str | None = None) -> dict:
+    """Per-sector net-flow tide. `sector` is UW's slug (e.g., 'technology',
+    'healthcare', 'semiconductors'). Falls back to market_tide if 404."""
+    params = {"date": date} if date else None
+    return _get(f"/api/market/{sector}/sector-tide", params=params)
+
+
+def fetch_news_headlines(ticker: str | None = None, limit: int = 10) -> dict:
+    """Recent news headlines. With `ticker`: filtered. Without: cross-ticker
+    most-recent. Used for Tile 5's news count + headline list."""
+    params: dict = {"limit": limit}
+    if ticker:
+        params["ticker"] = ticker
+    return _get("/api/news/headlines", params=params)
+
+
+def fetch_ticker_info(ticker: str) -> dict:
+    """Basic ticker metadata including sector classification. Used to map
+    ticker → sector slug for fetch_sector_tide."""
+    return _get(f"/api/stock/{ticker}/info")
+
+
 # ---------- Shape normalizers ----------
 
 def _unwrap(payload):

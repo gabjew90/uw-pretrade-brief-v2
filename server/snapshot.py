@@ -18,7 +18,7 @@ from functools import partial
 from typing import Any
 
 from server import gates, insights, storage, uw, universe
-from server.schema import (DarkPool, Flow, Insights, OI,
+from server.schema import (DarkPool, Flow, Insights, NewsItem, OI,
                             OIStrike, Regime, Row, Snapshot)
 
 log = logging.getLogger(__name__)
@@ -101,6 +101,8 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     ivr_data = await loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot))
     dp_data = await loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot))
     earn_data = await loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot))
+    info_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ticker_info, ticker))
+    news_data = await loop.run_in_executor(_POOL, partial(storage.fetch_news_headlines, ticker, 10))
 
     failures = [r.endpoint for r in (spot_data, oi_data, vol_data, ivr_data, dp_data, earn_data)
                 if isinstance(r, storage.UWFailure)]
@@ -115,6 +117,13 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     dp = _extract_darkpool(dp_data)
     days_to_earn = _extract_days_to_earnings(earn_data)
     flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b = _extract_gex(spot_data, spot)
+    sector = _extract_sector(info_data, flow_info)
+    news_items = _extract_news_items(news_data)
+    # Sector-tide is a chained call once we know the sector; missing sector → skip.
+    sector_tide_value = 0.0
+    if sector:
+        tide_data = await loop.run_in_executor(_POOL, partial(storage.fetch_sector_tide, sector))
+        sector_tide_value = _extract_sector_tide_value(tide_data)
 
     # Direction inference: positive net dealer γ (gex_sign=POS) means dealers
     # are long γ → they sell into rallies, buy dips → suppresses upside
@@ -170,7 +179,10 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         ivr=ivr,
         days_to_earnings=days_to_earn,
         iv_term_curve=iv_term,
+        sector=sector,
+        sector_tide_value=sector_tide_value,
         dark_pool=dp,
+        news_items=news_items,
         _failures=failures,
     )
 
@@ -353,6 +365,70 @@ def _extract_gex(spot_data: Any, spot: float) -> tuple[float, float, float, str,
             (spot - wall_dn_strike) / spot * 100,
             "POS" if agg >= 0 else "NEG",
             agg)
+
+
+def _extract_sector(info_data: Any, flow_info: dict) -> str:
+    """Resolve a sector slug for the ticker. Prefer the ticker_info endpoint;
+    fall back to whatever sector was on the flow_alerts row (often null for
+    indices). Return empty string when unknown — Tile 5 handles that case."""
+    if isinstance(info_data, dict):
+        rows = info_data.get("data")
+        first = rows[0] if isinstance(rows, list) and rows else (rows if isinstance(rows, dict) else {})
+        sec = (first.get("sector") if isinstance(first, dict) else None)
+        if sec:
+            return str(sec).strip().lower().replace(" ", "-")
+    sec2 = flow_info.get("sector")
+    return str(sec2).strip().lower().replace(" ", "-") if sec2 else ""
+
+
+def _extract_news_items(data: Any) -> list[NewsItem]:
+    """Up to 5 most-recent headlines. UW news row shape varies but commonly
+    includes {headline|title, source|publisher, published_at|date|time}."""
+    if isinstance(data, storage.UWFailure) or not isinstance(data, dict):
+        return []
+    rows = data.get("data") or []
+    out: list[NewsItem] = []
+    for r in rows[:5]:
+        try:
+            headline = r.get("headline") or r.get("title") or ""
+            source = r.get("source") or r.get("publisher") or "UW"
+            ts = r.get("published_at") or r.get("date") or r.get("time") or ""
+            # If ts is an ISO datetime, take HH:MM; if already short, keep as-is.
+            time_str = str(ts)[11:16] if "T" in str(ts) and len(str(ts)) > 15 else str(ts)[:5]
+            if headline:
+                out.append(NewsItem(time=time_str, source=str(source)[:20], headline=str(headline)[:200]))
+        except (TypeError, ValueError, KeyError):
+            continue
+    return out
+
+
+def _extract_sector_tide_value(data: Any) -> float:
+    """Sector tide is a time-series; we want the most recent net direction
+    normalized to roughly [-1, +1]. UW sector-tide rows commonly have
+    `net_call_premium`, `net_put_premium`, or a derived `tide` field.
+    Return 0.0 on missing data."""
+    if isinstance(data, storage.UWFailure) or not isinstance(data, dict):
+        return 0.0
+    rows = data.get("data") or []
+    if not rows:
+        return 0.0
+    # Take latest (last entry) — UW typically returns chronological order
+    latest = rows[-1] if isinstance(rows[-1], dict) else {}
+    # Try a few shapes
+    direct = latest.get("tide")
+    if direct is not None:
+        try:
+            return max(-1.0, min(1.0, float(direct)))
+        except (TypeError, ValueError):
+            pass
+    try:
+        ncp = float(latest.get("net_call_premium") or 0)
+        npp = float(latest.get("net_put_premium") or 0)
+        net = ncp - npp
+        gross = abs(ncp) + abs(npp)
+        return round(net / gross, 2) if gross else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _current_regime() -> Regime:
