@@ -622,7 +622,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110.0" },
-    { name = "google-genai", specifier = ">=0.3.0" },
+    { name = "google-genai", specifier = ">=2.0.0" },
     { name = "pyarrow", specifier = ">=15.0.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "requests", specifier = ">=2.31.0" },
