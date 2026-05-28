@@ -72,46 +72,17 @@ async def refresh_snapshot() -> Snapshot:
     return snap
 
 
-_ARCHIVE_ENDPOINTS = [
-    ("spot_exposures_strike", "fetch_spot_exposures_strike"),
-    ("oi_per_strike",         "fetch_oi_strike"),
-    ("volatility_term_structure", "fetch_volatility"),
-    ("interpolated_iv",       "fetch_interpolated_iv"),
-    ("darkpool",              "fetch_darkpool"),
-    ("earnings",              "fetch_earnings"),
-]
-
-
 async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
-    """Fetch all per-ticker endpoints and ensure each result is persisted to parquet.
-
-    Calls storage.fetch_* (which normally handles write_response via _through).
-    For non-failure results we also explicitly call write_response so that the
-    archive partition is created even when the fetch function is monkeypatched in
-    tests (the patch bypasses _through's internal write call).
-    """
-    now = datetime.now(tz=timezone.utc)
-
-    async def _fetch_and_archive(endpoint_name: str, fetch_attr: str):
-        fn = getattr(storage, fetch_attr)
-        result = await loop.run_in_executor(_POOL, partial(fn, ticker, is_hot))
-        if not isinstance(result, storage.UWFailure):
-            # Best-effort explicit archive write — swallowed on I/O error.
-            storage.write_response(
-                endpoint=endpoint_name,
-                ticker=ticker,
-                params=None,
-                response=result,
-                status_code=200,
-                latency_ms=0,
-                fetched_at=now,
-            )
-        return result
-
-    await asyncio.gather(*[
-        _fetch_and_archive(ep, fn)
-        for ep, fn in _ARCHIVE_ENDPOINTS
-    ], return_exceptions=True)
+    """Fetch all per-ticker endpoints; storage.fetch_* writes parquet on cache miss."""
+    tasks = [
+        loop.run_in_executor(_POOL, partial(storage.fetch_spot_exposures_strike, ticker, is_hot)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot)),
+    ]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _build_dashboard_row(ticker: str, *, loop) -> Row:
