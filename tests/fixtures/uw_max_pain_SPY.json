@@ -1,0 +1,285 @@
+{
+  "data": [
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-05-22",
+      "max_pain": "737",
+      "next_upper_strike": "738",
+      "next_lower_strike": "736"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-05-26",
+      "max_pain": "739",
+      "next_upper_strike": "740",
+      "next_lower_strike": "738"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-05-27",
+      "max_pain": "739",
+      "next_upper_strike": "740",
+      "next_lower_strike": "738"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-05-28",
+      "max_pain": "740",
+      "next_upper_strike": "741",
+      "next_lower_strike": "739"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-05-29",
+      "max_pain": "725",
+      "next_upper_strike": "726",
+      "next_lower_strike": "724"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-01",
+      "max_pain": "740",
+      "next_upper_strike": "741",
+      "next_lower_strike": "739"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-02",
+      "max_pain": "740",
+      "next_upper_strike": "741",
+      "next_lower_strike": "739"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-03",
+      "max_pain": "740",
+      "next_upper_strike": "741",
+      "next_lower_strike": "739"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-04",
+      "max_pain": "745",
+      "next_upper_strike": "750",
+      "next_lower_strike": "740"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-05",
+      "max_pain": "733",
+      "next_upper_strike": "734",
+      "next_lower_strike": "732"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-12",
+      "max_pain": "730",
+      "next_upper_strike": "731",
+      "next_lower_strike": "729"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-18",
+      "max_pain": "710",
+      "next_upper_strike": "711",
+      "next_lower_strike": "709"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-26",
+      "max_pain": "741",
+      "next_upper_strike": "742",
+      "next_lower_strike": "740"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-06-30",
+      "max_pain": "700",
+      "next_upper_strike": "701",
+      "next_lower_strike": "699"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-07-02",
+      "max_pain": "744",
+      "next_upper_strike": "745",
+      "next_lower_strike": "743"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-07-17",
+      "max_pain": "720",
+      "next_upper_strike": "721",
+      "next_lower_strike": "719"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-07-31",
+      "max_pain": "703",
+      "next_upper_strike": "704",
+      "next_lower_strike": "702"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-08-21",
+      "max_pain": "710",
+      "next_upper_strike": "715",
+      "next_lower_strike": "705"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-08-31",
+      "max_pain": "690",
+      "next_upper_strike": "691",
+      "next_lower_strike": "689"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-09-18",
+      "max_pain": "700",
+      "next_upper_strike": "705",
+      "next_lower_strike": "695"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-09-30",
+      "max_pain": "680",
+      "next_upper_strike": "681",
+      "next_lower_strike": "679"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-10-16",
+      "max_pain": "730",
+      "next_upper_strike": "735",
+      "next_lower_strike": "725"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-10-30",
+      "max_pain": "730",
+      "next_upper_strike": "731",
+      "next_lower_strike": "729"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-11-20",
+      "max_pain": "740",
+      "next_upper_strike": "745",
+      "next_lower_strike": "735"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-12-18",
+      "max_pain": "675",
+      "next_upper_strike": "680",
+      "next_lower_strike": "670"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2026-12-31",
+      "max_pain": "685",
+      "next_upper_strike": "686",
+      "next_lower_strike": "684"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2027-01-15",
+      "max_pain": "685",
+      "next_upper_strike": "690",
+      "next_lower_strike": "680"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2027-03-19",
+      "max_pain": "695",
+      "next_upper_strike": "700",
+      "next_lower_strike": "690"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2027-03-31",
+      "max_pain": "690",
+      "next_upper_strike": "695",
+      "next_lower_strike": "685"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2027-06-17",
+      "max_pain": "700",
+      "next_upper_strike": "705",
+      "next_lower_strike": "695"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2027-09-17",
+      "max_pain": "680",
+      "next_upper_strike": "685",
+      "next_lower_strike": "675"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2027-12-17",
+      "max_pain": "645",
+      "next_upper_strike": "650",
+      "next_lower_strike": "640"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2028-01-21",
+      "max_pain": "685",
+      "next_upper_strike": "690",
+      "next_lower_strike": "680"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2028-06-16",
+      "max_pain": "680",
+      "next_upper_strike": "685",
+      "next_lower_strike": "675"
+    },
+    {
+      "close": "745.64",
+      "open": "746.24",
+      "expiry": "2028-12-15",
+      "max_pain": "685",
+      "next_upper_strike": "690",
+      "next_lower_strike": "680"
+    }
+  ],
+  "date": "2026-05-22"
+}
