@@ -205,3 +205,58 @@ def test_load_sticky_returns_empty_on_corrupt_file(tmp_data_dir, caplog):
     result = storage.load_sticky()
     assert result == {}
     assert "sticky.json corrupt" in caplog.text.lower()
+
+
+# ── Parquet read-through tests ────────────────────────────────────────────────
+
+
+def test_parquet_read_returns_fresh_row(tmp_data_dir, fresh_cache):
+    """Write a recent row; _read_latest_from_parquet returns it."""
+    from datetime import datetime, timezone
+    storage.write_response(
+        endpoint="spot_exposures_strike", ticker="NVDA", params=None,
+        response={"data": [{"strike": 100}]},
+        status_code=200, latency_ms=100,
+        fetched_at=datetime.now(tz=timezone.utc),
+    )
+    hit = storage._read_latest_from_parquet(
+        "spot_exposures_strike", "NVDA", None, max_age_seconds=300
+    )
+    assert hit == {"data": [{"strike": 100}]}
+
+
+def test_parquet_read_skips_stale_rows(tmp_data_dir, fresh_cache):
+    """Row older than max_age_seconds should be ignored."""
+    from datetime import datetime, timedelta, timezone
+    storage.write_response(
+        endpoint="oi_per_strike", ticker="TSLA", params=None,
+        response={"data": [{"strike": 250}]},
+        status_code=200, latency_ms=80,
+        fetched_at=datetime.now(tz=timezone.utc) - timedelta(minutes=30),
+    )
+    # Asking for max-age 5min should reject the 30-min-old row
+    hit = storage._read_latest_from_parquet(
+        "oi_per_strike", "TSLA", None, max_age_seconds=300
+    )
+    assert hit is None
+
+
+def test_through_skips_uw_when_parquet_has_fresh_row(tmp_data_dir, fresh_cache, monkeypatch):
+    """The whole point: parquet hit means UW is NOT called."""
+    from datetime import datetime, timezone
+    storage.write_response(
+        endpoint="spot_exposures_strike", ticker="NVDA", params=None,
+        response={"data": [{"strike": 100, "from_parquet": True}]},
+        status_code=200, latency_ms=100,
+        fetched_at=datetime.now(tz=timezone.utc),
+    )
+    calls = []
+    def fake_uw_fetch(ticker):
+        calls.append(ticker)
+        return {"data": [{"strike": 100, "from_uw": True}]}
+    monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
+
+    result = storage.fetch_spot_exposures_strike("NVDA", is_hot=True)
+
+    assert result == {"data": [{"strike": 100, "from_parquet": True}]}
+    assert calls == [], "UW must not be called when parquet has a fresh row"

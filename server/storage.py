@@ -20,11 +20,12 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from server import uw
@@ -135,19 +136,93 @@ def _make_key(endpoint: str, ticker: str | None, params: dict | None) -> tuple:
     return (endpoint, ticker, json.dumps(params or {}, sort_keys=True))
 
 
+def _read_latest_from_parquet(
+    endpoint: str, ticker: str | None, params: dict | None, max_age_seconds: float
+) -> Any | None:
+    """Look for the most recent matching row in the parquet archive whose
+    fetched_at is within `max_age_seconds` of now. Returns the deserialized
+    response if a fresh row exists, else None.
+
+    Scans today's hour-partition files newest-first; also peeks at the most
+    recent file from yesterday's partition if today's holds nothing fresh
+    (covers the midnight rollover case for long-TTL endpoints like earnings).
+    """
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(seconds=max_age_seconds)
+    params_key = json.dumps(params or {}, sort_keys=True)
+
+    def _candidate_dirs() -> list[Path]:
+        today = now.date().isoformat()
+        yesterday = (now.date() - timedelta(days=1)).isoformat()
+        dirs: list[Path] = []
+        for dt in (today, yesterday):
+            parts = [_data_dir(), "raw", f"endpoint={endpoint}", f"dt={dt}"]
+            if ticker:
+                parts.append(f"ticker={ticker}")
+            d = Path(*parts)
+            if d.is_dir():
+                dirs.append(d)
+        return dirs
+
+    for d in _candidate_dirs():
+        # Newest hour-file first (lexicographic sort on "part-HHMM.parquet"
+        # matches chronological order within a day, so reverse=True puts the
+        # most recent hour first).
+        files = sorted(d.glob("part-*.parquet"), reverse=True)
+        for path in files[:2]:  # current + previous hour cover all per-hour TTLs
+            try:
+                table = pq.read_table(path)
+                if table.num_rows == 0:
+                    continue
+                mask_params = pc.equal(table["params_json"], params_key)
+                # fetched_at is timestamp("us", tz="UTC"); compare against cutoff.
+                cutoff_pa = pa.scalar(cutoff, type=pa.timestamp("us", tz="UTC"))
+                mask_time = pc.greater_equal(table["fetched_at"], cutoff_pa)
+                filtered = table.filter(pc.and_(mask_params, mask_time))
+                if filtered.num_rows == 0:
+                    continue
+                # Take the latest row by fetched_at
+                latest_idx = pc.sort_indices(
+                    filtered.select(["fetched_at"]),
+                    sort_keys=[("fetched_at", "descending")],
+                )[0].as_py()
+                response_str = filtered["response"][latest_idx].as_py()
+                return json.loads(response_str)
+            except Exception as e:
+                log.warning("parquet read failed: %s/%s @ %s: %s",
+                            endpoint, ticker, path.name, e)
+                continue
+    return None
+
+
 def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: bool,
              uw_call):
-    """Generic read-through path:
-      1. cache hit  → return cached
-      2. cache miss → call UW
-         a. on success → write parquet, cache, return response
-         b. on UWError → return UWFailure (not cached)
+    """Read-through cache with parquet persistence:
+      1. RAM cache hit               → return cached
+      2. parquet hit within TTL      → hydrate RAM cache, return parquet row
+      3. miss everywhere             → call UW
+         a. success → write parquet, cache, return response
+         b. UWError → return UWFailure (not cached)
+
+    The parquet check makes the cache persistent across container restarts and
+    deduplicates UW calls across processes/redeploys. Without it, every cold
+    start hammers UW for the full snapshot universe.
     """
-    from datetime import timezone   # local import to avoid name shadowing
     key = _make_key(endpoint, ticker, params)
+    ttl = _ttl_seconds(endpoint, is_hot)
+
+    # 1. RAM cache (fastest path)
     cached = _cache.get(key)
     if cached is not None:
         return cached
+
+    # 2. Parquet cache (persistent, survives restarts)
+    parquet_hit = _read_latest_from_parquet(endpoint, ticker, params, max_age_seconds=ttl)
+    if parquet_hit is not None:
+        _cache.set(key, parquet_hit, ttl_seconds=ttl)
+        return parquet_hit
+
+    # 3. UW (only when nothing fresh exists)
     started_at = time.monotonic()
     try:
         with _uw_call_gate:
@@ -160,7 +235,7 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
         status_code=200, latency_ms=latency_ms,
         fetched_at=datetime.now(tz=timezone.utc),
     )
-    _cache.set(key, response, ttl_seconds=_ttl_seconds(endpoint, is_hot))
+    _cache.set(key, response, ttl_seconds=ttl)
     return response
 
 
