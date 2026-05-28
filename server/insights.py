@@ -1,0 +1,146 @@
+"""Gemini wrapper for chart insights with 5-min cache + deterministic fallback.
+
+Two prompts:
+  - structural (3 sentences, Tile 3)
+  - curve (1 sentence, Tile 4)
+
+Cache key is lossy on purpose: insights only re-fire when the underlying
+state moves enough to matter (gate flip, flip-distance ±0.5%, walls ±1).
+"""
+from __future__ import annotations
+import logging
+import os
+from pathlib import Path
+
+from server.cache import TTLCache
+
+log = logging.getLogger(__name__)
+
+_INSIGHT_TTL_SECONDS = 300  # 5 min
+_insight_cache = TTLCache()
+
+
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_STRUCTURAL_TEMPLATE = (_PROMPTS_DIR / "structural.txt").read_text(encoding="utf-8")
+_CURVE_TEMPLATE = (_PROMPTS_DIR / "curve.txt").read_text(encoding="utf-8")
+
+
+def generate_insights(row: dict) -> dict[str, str | None]:
+    return {
+        "structural": _generate_or_cache(row, "structural"),
+        "curve": _generate_or_cache(row, "curve"),
+    }
+
+
+def _generate_or_cache(row: dict, kind: str) -> str:
+    key = _cache_key(row, kind)
+    cached = _insight_cache.get(key)
+    if cached is not None:
+        return cached
+    text = _generate(row, kind)
+    _insight_cache.set(key, text, ttl_seconds=_INSIGHT_TTL_SECONDS)
+    return text
+
+
+def _generate(row: dict, kind: str) -> str:
+    if not os.environ.get("GEMINI_API_KEY"):
+        return _fallback(row, kind)
+    try:
+        client = _get_client()
+        prompt = _render_prompt(row, kind)
+        return client.generate(prompt)
+    except Exception as e:
+        log.warning("Gemini call failed for %s/%s: %s — using fallback",
+                    row.get("ticker"), kind, e)
+        return _fallback(row, kind)
+
+
+def _render_prompt(row: dict, kind: str) -> str:
+    if kind == "structural":
+        flip = row.get("flip_dist_pct", 0.0)
+        return _STRUCTURAL_TEMPLATE.format(
+            ticker=row.get("ticker", "TICKER"),
+            direction=row.get("direction", "calls"),
+            flip_pct=f"{abs(flip):.1f}",
+            flip_side="above" if flip >= 0 else "below",
+            wall_up_pct=f"{row.get('wall_up_dist_pct', 0):.1f}",
+            wall_dn_pct=f"{row.get('wall_dn_dist_pct', 0):.1f}",
+        )
+    # curve
+    curve = row.get("iv_term_curve") or [0, 0]
+    front_iv = curve[0] * 100 if curve else 0
+    back_iv = curve[-1] * 100 if curve else 0
+    spread_pts = front_iv - back_iv
+    shape = "inverted" if spread_pts > 3 else "normal"
+    return _CURVE_TEMPLATE.format(
+        ticker=row.get("ticker", "TICKER"),
+        front_iv=f"{front_iv:.0f}",
+        back_iv=f"{back_iv:.0f}",
+        curve_shape=shape,
+        spread_pts=f"{abs(spread_pts):.1f}",
+    )
+
+
+def _cache_key(row: dict, kind: str) -> tuple:
+    """Lossy: same key shared across small numeric jitter."""
+    if kind == "structural":
+        return (
+            "structural",
+            row.get("ticker"),
+            row.get("gates", {}).get("structural", "?"),
+            round(row.get("flip_dist_pct", 0) * 2) / 2,
+            round(row.get("wall_up_dist_pct", 0)),
+            round(row.get("wall_dn_dist_pct", 0)),
+        )
+    curve = row.get("iv_term_curve") or [0, 0]
+    front_iv = curve[0] if curve else 0
+    back_iv = curve[-1] if curve else 0
+    return (
+        "curve",
+        row.get("ticker"),
+        round(front_iv * 100),
+        round(back_iv * 100),
+    )
+
+
+def _fallback(row: dict, kind: str) -> str:
+    """Deterministic rules-based insight (same logic the v1 prototype used)."""
+    if kind == "structural":
+        flip = row.get("flip_dist_pct", 0.0)
+        gate = row.get("gates", {}).get("structural", "yellow")
+        verdict = ("favors" if gate == "green" else
+                   "fights" if gate == "red" else "is neutral on")
+        side = "above" if flip >= 0 else "below"
+        return (f"Spot sits <strong>{abs(flip):.1f}% {side}</strong> the γ flip; "
+                f"walls bracket the range at +{row.get('wall_up_dist_pct',0):.1f}% / "
+                f"−{row.get('wall_dn_dist_pct',0):.1f}%. "
+                f"Net: structure <em>{verdict}</em> the {row.get('direction')} trade.")
+    curve = row.get("iv_term_curve") or [0, 0]
+    front = curve[0] * 100 if curve else 0
+    back = curve[-1] * 100 if curve else 0
+    spread = front - back
+    shape = ("INVERTED — front-month vol elevated" if spread > 3
+             else "normal upward — no near-term vol premium")
+    return f"Term structure {shape} (front <strong>{front:.0f}</strong> → back <strong>{back:.0f}</strong>)."
+
+
+# ── Gemini client wrapper ─────────────────────────────────────────────────────
+
+class _GeminiClient:
+    def __init__(self, api_key: str):
+        from google import genai
+        self._client = genai.Client(api_key=api_key)
+
+    def generate(self, prompt: str) -> str:
+        response = self._client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=prompt,
+        )
+        return (response.text or "").strip()
+
+
+def _get_client() -> _GeminiClient:
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    return _GeminiClient(key)
