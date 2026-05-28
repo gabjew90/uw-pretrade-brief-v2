@@ -12,7 +12,7 @@ from typing import Any
 import requests
 
 BASE = "https://api.unusualwhales.com"
-TIMEOUT_S = 10
+TIMEOUT_S = 5
 
 
 class UWError(RuntimeError):
@@ -26,7 +26,7 @@ def _get_key() -> str:
     return key
 
 
-_429_RETRY_DELAYS_S = (2, 5, 10, 20, 40)  # exponential backoff: up to ~77s total
+_429_RETRY_DELAYS_S = (1, 2)  # exponential backoff: up to ~3s total (semaphore prevents bursts)
 
 
 def _get(path: str, params: dict | None = None) -> Any:
