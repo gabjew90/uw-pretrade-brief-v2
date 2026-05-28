@@ -101,8 +101,13 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     ivr_data = await loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot))
     dp_data = await loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot))
     earn_data = await loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot))
-    info_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ticker_info, ticker))
-    news_data = await loop.run_in_executor(_POOL, partial(storage.fetch_news_headlines, ticker, 10))
+    # v0.2 Batch 3 disabled in this revision — these endpoints (ticker_info,
+    # news, sector_tide) added too much UW load and starved flow_alerts of the
+    # rate budget. The wrappers exist in server/uw.py + server/storage.py for
+    # a future re-enable behind a feature flag. For now, derive sector from
+    # flow_info if UW surfaced it, and leave news/tide empty.
+    info_data = None
+    news_data = None
 
     failures = [r.endpoint for r in (spot_data, oi_data, vol_data, ivr_data, dp_data, earn_data)
                 if isinstance(r, storage.UWFailure)]
@@ -118,12 +123,8 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     days_to_earn = _extract_days_to_earnings(earn_data)
     flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b = _extract_gex(spot_data, spot)
     sector = _extract_sector(info_data, flow_info)
-    news_items = _extract_news_items(news_data)
-    # Sector-tide is a chained call once we know the sector; missing sector → skip.
+    news_items: list[NewsItem] = []
     sector_tide_value = 0.0
-    if sector:
-        tide_data = await loop.run_in_executor(_POOL, partial(storage.fetch_sector_tide, sector))
-        sector_tide_value = _extract_sector_tide_value(tide_data)
 
     # Direction inference: positive net dealer γ (gex_sign=POS) means dealers
     # are long γ → they sell into rallies, buy dips → suppresses upside
