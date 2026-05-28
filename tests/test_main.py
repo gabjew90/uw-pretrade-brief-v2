@@ -9,7 +9,7 @@ from server import main, snapshot as snapshot_mod
 
 
 @pytest.fixture
-def client(tmp_data_dir, monkeypatch):
+def client(tmp_data_dir, tmp_path, monkeypatch):
     # Replace lifespan refresh with no-op so tests don't fire real UW
     async def noop_refresh():
         from server.schema import Snapshot, Regime
@@ -18,13 +18,15 @@ def client(tmp_data_dir, monkeypatch):
                         regime=Regime(label="normal"), rows=[])
     monkeypatch.setattr(snapshot_mod, "refresh_snapshot", noop_refresh)
 
-    # Provide a fake static/index.html with the hydration marker
-    static_dir = Path(__file__).parent.parent / "static"
-    static_dir.mkdir(exist_ok=True)
+    # Use a temp static dir with a minimal stub, so the test doesn't clobber
+    # the real static/index.html
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
     (static_dir / "index.html").write_text(
         "<html><body><!-- HYDRATION_TARGET --></body></html>",
         encoding="utf-8",
     )
+    monkeypatch.setattr(main, "_STATIC_DIR", static_dir)
     with TestClient(main.app) as c:
         yield c
 

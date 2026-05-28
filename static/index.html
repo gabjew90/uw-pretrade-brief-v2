@@ -1,0 +1,2737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- HYDRATION_TARGET -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Options Decision Dashboard · Playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Warm-dark palette — slightly desaturated from pure Tokyo Night for less screen-glare */
+    --bg:           #0B0D12;
+    --bg-2:         #0F1218;
+    --panel:        #161B23;
+    --panel-2:      #1B2029;
+    --panel-3:      #20262F;
+    --grid:         #2A3140;
+    --grid-strong:  #3A4358;
+    --text:         #C7D0E8;
+    --text-dim:     #97A0BC;
+    --axis:         #6E7A98;
+    --title:        #F0F2FA;
+    --pos:          #7AA2F7;
+    --pos-glow:     rgba(122,162,247,0.35);
+    --neg:          #F7768E;
+    --neg-glow:     rgba(247,118,142,0.35);
+    --warn:         #E0AF68;
+    --warn-glow:    rgba(224,175,104,0.30);
+    --ok:           #9ECE6A;
+    --ok-glow:      rgba(158,206,106,0.30);
+    --hot:          #BB9AF7;
+    --hot-glow:     rgba(187,154,247,0.30);
+    --pill-live-bg: rgba(122,162,247,0.16);
+    --pill-cross-bg:rgba(224,175,104,0.16);
+    --pill-proxy-bg:rgba(247,118,142,0.10);
+    --demo-banner-bg: linear-gradient(90deg, rgba(187,154,247,0.14), rgba(187,154,247,0.04));
+    --demo-banner-border: var(--hot);
+    /* Type families */
+    --ff-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --ff-ui:      "Inter Tight", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --ff-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    /* Depth tokens */
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -16px rgba(0,0,0,0.6);
+    --shadow-elev: 0 1px 0 rgba(255,255,255,0.05) inset, 0 4px 8px rgba(0,0,0,0.5), 0 18px 40px -22px rgba(0,0,0,0.8);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100vh;
+    background: var(--bg); color: var(--text);
+    font-family: var(--ff-ui);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  /* Atmospheric layers — soft radial wash + fine grain overlay */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -2;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(122,162,247,0.06), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(187,154,247,0.05), transparent 60%),
+      var(--bg);
+    pointer-events: none;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.045 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    opacity: 0.6; mix-blend-mode: overlay; pointer-events: none;
+  }
+  /* Override mono utility */
+  .mono { font-family: var(--ff-mono); font-feature-settings: "ss01", "cv11"; }
+  /* Global selection */
+  ::selection { background: var(--pos-glow); color: var(--title); }
+
+  /* Keyframes */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes dotPulse {
+    0%, 100% { box-shadow: 0 0 0 0 currentColor, 0 0 8px currentColor; }
+    50%      { box-shadow: 0 0 0 4px transparent, 0 0 14px currentColor; }
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* Task 3: Regime banner */
+  header.regime-banner {
+    position: sticky; top: 0; z-index: 30;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--grid);
+    background: rgba(11,13,18,0.85);
+    backdrop-filter: blur(10px) saturate(140%);
+    -webkit-backdrop-filter: blur(10px) saturate(140%);
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    font-family: var(--ff-mono); font-size: 12px;
+    transition: background 0.3s, border-left-color 0.3s;
+  }
+  header.regime-banner.normal {
+    background:
+      linear-gradient(90deg, rgba(154,206,106,0.10), rgba(154,206,106,0.02) 60%, transparent),
+      rgba(11,13,18,0.85);
+    border-left: 3px solid var(--ok);
+    box-shadow: inset 0 -1px 0 rgba(154,206,106,0.10);
+  }
+  header.regime-banner.risk-off {
+    background:
+      linear-gradient(90deg, rgba(247,118,142,0.12), rgba(247,118,142,0.02) 60%, transparent),
+      rgba(11,13,18,0.85);
+    border-left: 3px solid var(--neg);
+    box-shadow: inset 0 -1px 0 rgba(247,118,142,0.12);
+  }
+  .regime-text {
+    color: var(--text-dim); letter-spacing: 0.01em;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .regime-text .regime-label {
+    font-family: var(--ff-display); font-style: italic; font-weight: 500;
+    font-size: 17px; letter-spacing: -0.01em; line-height: 1.1;
+    color: var(--title);
+  }
+  .regime-text .regime-detail { font-size: 11px; color: var(--text-dim); }
+  .regime-text strong { color: var(--title); font-weight: 600; }
+  .regime-demo-btn {
+    background: rgba(255,255,255,0.02); color: var(--axis);
+    border: 1px solid var(--grid);
+    padding: 5px 11px; border-radius: 4px; cursor: pointer;
+    font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.04em;
+    transition: all 0.15s ease;
+  }
+  .regime-demo-btn:hover {
+    color: var(--title); border-color: var(--grid-strong);
+    background: rgba(255,255,255,0.04); transform: translateY(-1px);
+  }
+  body.risk-off .watchlist-section { opacity: 0.55; transition: opacity 0.3s; }
+
+  /* Task 4: DEMO DATA banner */
+  .demo-banner {
+    padding: 10px 22px;
+    background: var(--demo-banner-bg);
+    border-bottom: 1px solid rgba(187,154,247,0.25);
+    font-family: var(--ff-mono); font-size: 11px;
+    color: var(--text); letter-spacing: 0.01em;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .demo-banner .demo-icon { font-size: 14px; filter: drop-shadow(0 0 4px var(--hot-glow)); }
+  .demo-banner strong { color: var(--hot); font-weight: 700; letter-spacing: 0.05em; }
+
+  /* Task 5: Watchlist section + rows */
+  .watchlist-section { padding: 22px 22px 18px; }
+  .watchlist-section h2 {
+    margin: 0 0 14px; font-size: 11px; color: var(--axis);
+    font-family: var(--ff-mono); text-transform: uppercase; letter-spacing: 0.12em;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    font-weight: 500;
+  }
+  .watchlist-section h2 > span:first-child::before {
+    content: "▸ "; color: var(--hot); font-weight: 700;
+  }
+  .nothing-toggle {
+    background: rgba(255,255,255,0.02); color: var(--axis);
+    border: 1px solid var(--grid);
+    padding: 5px 11px; border-radius: 4px; cursor: pointer;
+    font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.04em;
+    transition: all 0.15s ease;
+  }
+  .nothing-toggle:hover {
+    color: var(--title); border-color: var(--grid-strong);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .watchlist-search {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .watchlist-search input {
+    flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--grid);
+    padding: 10px 14px; border-radius: 6px;
+    font-family: var(--ff-mono); font-size: 12px; letter-spacing: 0.04em;
+    transition: all 0.2s ease;
+  }
+  .watchlist-search input::placeholder { color: var(--axis); letter-spacing: 0.02em; }
+  .watchlist-search input:focus {
+    outline: none; border-color: var(--pos);
+    box-shadow: 0 0 0 3px rgba(122,162,247,0.12);
+    background: var(--panel-2);
+  }
+  .watchlist-search .clear-btn {
+    background: var(--panel); color: var(--axis); border: 1px solid var(--grid);
+    padding: 8px 14px; border-radius: 6px; cursor: pointer;
+    font-family: var(--ff-mono); font-size: 11px; letter-spacing: 0.04em;
+    transition: all 0.15s ease;
+  }
+  .watchlist-search .clear-btn:hover {
+    color: var(--title); border-color: var(--grid-strong);
+    background: var(--panel-2);
+  }
+
+  .watchlist {
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 330px;                     /* desktop: ~5 rows × 56px + gaps */
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--grid-strong) transparent;
+  }
+  @media (max-width: 640px) {
+    .watchlist {
+      max-height: 365px;                   /* phone: 5 rows × 62px + 4 gaps × 8px ≈ 342, with 23px buffer */
+    }
+  }
+  .watchlist::-webkit-scrollbar { width: 8px; }
+  .watchlist::-webkit-scrollbar-track { background: transparent; }
+  .watchlist::-webkit-scrollbar-thumb {
+    background: var(--grid-strong); border-radius: 6px;
+    border: 2px solid var(--bg);
+  }
+  .watchlist::-webkit-scrollbar-thumb:hover { background: var(--axis); }
+
+  .watchlist-empty {
+    padding: 28px 22px; text-align: center; color: var(--text-dim);
+    font-family: var(--ff-mono); font-size: 11px; line-height: 1.6;
+    background: var(--panel); border: 1px dashed var(--grid); border-radius: 6px;
+  }
+  .watchlist-empty strong { color: var(--title); font-weight: 600; }
+
+  .row {
+    display: grid;
+    grid-template-columns: auto auto auto 1fr auto;
+    column-gap: 14px; row-gap: 6px; align-items: center;
+    padding: 14px 16px; border: 1px solid var(--grid); border-radius: 8px;
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+    cursor: pointer;
+    font-family: var(--ff-mono);
+    box-shadow: var(--shadow-card);
+    transition: transform 0.15s cubic-bezier(.2,.7,.3,1.1),
+                background 0.2s ease,
+                border-color 0.2s ease,
+                box-shadow 0.2s ease;
+    position: relative; overflow: hidden;
+    min-height: 56px;
+  }
+  /* Phone: ticker + direction + dots + timestamp on row 1; summary on row 2 (full width) */
+  @media (max-width: 640px) {
+    .row {
+      grid-template-columns: auto auto 1fr auto;
+      grid-template-areas:
+        "ticker direction dots timestamp"
+        "summary summary summary summary";
+      padding: 14px 16px;
+      min-height: 62px;
+    }
+    .row .ticker     { grid-area: ticker; }
+    .row .direction  { grid-area: direction; }
+    .row .dots       { grid-area: dots; justify-self: end; align-self: center; }
+    .row .summary    { grid-area: summary; padding-top: 2px; }
+    .row .timestamp  { grid-area: timestamp; align-self: center; }
+  }
+  .row::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: transparent; transition: background 0.2s ease;
+  }
+  .row:hover {
+    background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel-3) 100%);
+    border-color: var(--grid-strong);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-elev);
+  }
+  .row.selected {
+    border-color: var(--pos);
+    background: linear-gradient(180deg, rgba(122,162,247,0.10), rgba(122,162,247,0.03));
+  }
+  .row.selected::before { background: var(--pos); box-shadow: 0 0 12px var(--pos-glow); }
+  .row .ticker {
+    font-weight: 700; color: var(--title); font-size: 13px;
+    letter-spacing: 0.04em;
+  }
+  .row .direction { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+  .row .direction.calls { color: var(--ok); }
+  .row .direction.puts  { color: var(--neg); }
+  .row .dots { display: flex; gap: 5px; }
+  .row .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    box-shadow: 0 0 6px currentColor, inset 0 1px 0 rgba(255,255,255,0.2);
+    transition: transform 0.15s ease;
+  }
+  .row:hover .dot { transform: scale(1.15); }
+  .row .dot.green  { background: var(--ok);   color: var(--ok-glow); }
+  .row .dot.yellow { background: var(--warn); color: var(--warn-glow); }
+  .row .dot.red    { background: var(--neg);  color: var(--neg-glow); }
+  .row .summary {
+    color: var(--text); font-size: 11px; line-height: 1.4;
+    min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .row .timestamp { color: var(--axis); font-size: 10px; text-align: right; letter-spacing: 0.04em; }
+  .row .timestamp.stale { color: var(--warn); }
+
+  /* Task 6: Nothing today card */
+  .nothing-card {
+    padding: 40px 24px; text-align: center;
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+    border: 1px dashed var(--grid); border-radius: 8px;
+    color: var(--text); font-family: var(--ff-mono);
+    box-shadow: var(--shadow-card);
+  }
+  .nothing-card h3 {
+    margin: 0 0 14px; font-size: 22px; color: var(--title);
+    font-family: var(--ff-display); font-style: italic; font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .nothing-card p { margin: 0 0 12px; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .nothing-card .next-check {
+    font-size: 11px; color: var(--text); margin-top: 18px;
+    padding: 8px 14px; background: var(--panel-3); border-radius: 6px;
+    display: inline-block;
+  }
+
+  /* Task 7: Deep-dive section + tile scaffold */
+  .deepdive-section {
+    padding: 22px 22px 26px;
+    border-top: 1px solid var(--grid);
+    background:
+      linear-gradient(180deg, rgba(187,154,247,0.02), transparent 200px),
+      var(--bg-2);
+  }
+  .deepdive-section h2 {
+    margin: 0 0 16px; font-size: 11px; color: var(--axis);
+    font-family: var(--ff-mono); text-transform: uppercase; letter-spacing: 0.12em;
+    font-weight: 500;
+  }
+  .deepdive-section h2::before { content: "▾ "; color: var(--hot); font-weight: 700; }
+  .deepdive-empty {
+    padding: 40px 24px; text-align: center;
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+    border: 1px dashed var(--grid); border-radius: 8px;
+    color: var(--text-dim); font-family: var(--ff-mono); font-size: 12px; line-height: 1.6;
+    box-shadow: var(--shadow-card);
+  }
+  .deepdive-empty strong { color: var(--title); font-weight: 600; }
+
+  .deepdive-card {
+    display: grid; grid-template-columns: 1fr; gap: 14px;
+  }
+  @media (min-width: 1024px) {
+    .deepdive-card { grid-template-columns: 1fr 1fr; gap: 16px; }
+    .tile-picker, .tile-confirmation { grid-column: 1 / -1; }
+  }
+
+  .tile {
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+    border: 1px solid var(--grid); border-radius: 8px;
+    padding: 16px 16px 14px;
+    position: relative; overflow: hidden;
+    box-shadow: var(--shadow-card);
+    animation: fadeUp 0.4s cubic-bezier(.2,.7,.3,1.1) both;
+  }
+  .tile::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%);
+    border-radius: 8px 8px 0 0;
+  }
+  /* Staggered tile entrance */
+  .tile-flow         { animation-delay: 0.00s; }
+  .tile-oi           { animation-delay: 0.05s; }
+  .tile-structural   { animation-delay: 0.10s; }
+  .tile-cost         { animation-delay: 0.15s; }
+  .tile-confirmation { animation-delay: 0.20s; }
+  .tile-picker       { animation-delay: 0.25s; }
+  .tile h3 {
+    margin: 0 0 12px; padding-bottom: 10px;
+    font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.12em; font-family: var(--ff-mono);
+    font-weight: 500;
+    border-bottom: 1px solid var(--grid);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .tile h3 > span:first-child { display: flex; align-items: center; gap: 2px; }
+  .tile .gate-dot {
+    width: 11px; height: 11px; border-radius: 50%;
+    box-shadow: 0 0 8px currentColor, inset 0 1px 0 rgba(255,255,255,0.25);
+    margin-right: 10px; vertical-align: middle;
+    display: inline-block;
+    animation: dotPulse 2.8s ease-in-out infinite;
+  }
+  .tile .gate-dot.green  { background: var(--ok);   color: var(--ok-glow); }
+  .tile .gate-dot.yellow { background: var(--warn); color: var(--warn-glow); }
+  .tile .gate-dot.red    { background: var(--neg);  color: var(--neg-glow); }
+  .tile .gate-dot.gray   { background: var(--axis); color: transparent; opacity: 0.5; box-shadow: none; animation: none; }
+  .tile .help-icon {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--grid); color: var(--axis);
+    width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+    font-size: 11px; line-height: 1; font-family: var(--ff-display);
+    font-style: italic; font-weight: 500;
+    transition: all 0.15s ease;
+  }
+  .tile .help-icon:hover {
+    color: var(--title); border-color: var(--grid-strong);
+    background: var(--panel-3); transform: scale(1.08);
+  }
+
+  /* Task 8: Data-honesty pills (LIVE / CROSS / PROXY) */
+  .pill {
+    display: inline-block; padding: 2px 7px; border-radius: 10px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+    font-family: var(--ff-mono); vertical-align: middle;
+    margin-left: 4px; cursor: pointer;
+    transition: transform 0.15s ease, filter 0.15s ease;
+  }
+  .pill:hover { transform: translateY(-1px); filter: brightness(1.15); }
+  .pill.live  { background: var(--pill-live-bg);  color: var(--pos);  border: 1px solid rgba(122,162,247,0.5); }
+  .pill.cross { background: var(--pill-cross-bg); color: var(--warn); border: 1px solid rgba(224,175,104,0.5); }
+  .pill.proxy { background: var(--pill-proxy-bg); color: var(--neg);  border: 1px dashed rgba(247,118,142,0.6); }
+  .pill .icon { margin-right: 2px; }
+
+  /* Task 9: Tile 1 Flow Conviction — chart + stat row */
+  .flow-caption {
+    font-size: 11px; color: var(--text); font-family: var(--ff-mono);
+    margin: 4px 0 8px; line-height: 1.5;
+  }
+  .flow-caption strong { color: var(--title); font-weight: 600; }
+  .flow-chart-wrap {
+    position: relative;
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
+    border: 1px solid var(--grid); border-radius: 6px;
+    padding: 8px 10px 6px;
+  }
+  .flow-chart-wrap svg { width: 100%; display: block; }
+  .flow-legend-row {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    font-family: var(--ff-mono); font-size: 10px;
+    color: var(--text-dim);
+    padding: 0 2px 6px;
+    border-bottom: 1px solid var(--grid);
+    margin-bottom: 4px;
+  }
+  .flow-legend-row .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+  .flow-legend-row .legend-swatch {
+    width: 14px; height: 2px; border-radius: 1px;
+    display: inline-block;
+  }
+  .flow-legend-row .legend-swatch.white { background: #FFFFFF; box-shadow: 0 0 4px rgba(255,255,255,0.5); }
+  .flow-legend-row .legend-swatch.warn  { background: var(--warn); height: 2px; border-top: 2px dashed var(--warn); background: transparent; }
+  .flow-legend-row .legend-swatch.hot   { background: var(--hot); width: 4px; height: 12px; box-shadow: 0 0 4px var(--hot-glow); }
+  .flow-strike-summary {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+    font-family: var(--ff-mono); font-size: 11px;
+  }
+  .flow-strike-summary .chip {
+    padding: 5px 11px; background: var(--panel-3);
+    border: 1px solid var(--grid); border-radius: 14px;
+    color: var(--text);
+    transition: all 0.15s ease;
+  }
+  .flow-strike-summary .chip:hover { border-color: var(--grid-strong); transform: translateY(-1px); }
+  .flow-strike-summary .chip.dominant {
+    border-color: var(--hot);
+    background: linear-gradient(180deg, rgba(187,154,247,0.15), rgba(187,154,247,0.04));
+    color: var(--hot); font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(187,154,247,0.2), 0 0 14px rgba(187,154,247,0.08);
+  }
+  .flow-strike-summary .chip .strike { color: var(--hot); margin-right: 4px; font-weight: 700; }
+  .flow-strike-summary .chip .meta { color: var(--axis); font-size: 10px; margin-left: 4px; }
+  .flow-legend { font-size: 10px; color: var(--axis); font-family: var(--ff-mono); margin-top: 6px; }
+  .flow-legend strong { color: var(--warn); }
+  .flow-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px;
+  }
+  .flow-stat {
+    font-family: var(--ff-mono);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .flow-stat .lbl {
+    display: block; font-size: 9px; color: var(--axis);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .flow-stat .val {
+    display: block; font-size: 15px; color: var(--title); font-weight: 700;
+    margin-top: 4px; letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Task 10: Tile 2 OI Confirmation — mini-table */
+  .oi-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--ff-mono); font-size: 11px; margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .oi-table th {
+    text-align: right; padding: 7px 8px;
+    color: var(--axis); font-size: 9px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--grid);
+  }
+  .oi-table th:first-child { text-align: left; }
+  .oi-table td {
+    padding: 8px; text-align: right;
+    border-bottom: 1px dotted var(--grid);
+  }
+  .oi-table td:first-child { text-align: left; color: var(--title); font-weight: 700; }
+  .oi-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .oi-table tr:last-child td { border-bottom: none; }
+  .oi-table .status-cell { text-align: center; }
+
+  /* Task 11: Tile 3 Structural Setup — γ ladder */
+  .ladder-wrap {
+    padding: 10px 8px 6px;
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
+    border: 1px solid var(--grid); border-radius: 6px;
+  }
+  .ladder-wrap svg { width: 100%; height: 200px; display: block; }
+  .ladder-meta {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+    margin-top: 12px; font-family: var(--ff-mono); font-size: 11px;
+  }
+  .ladder-meta .m {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 8px 10px; background: rgba(255,255,255,0.02);
+    border: 1px solid var(--grid); border-radius: 6px;
+  }
+  .ladder-meta .lbl { font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.08em; }
+  .ladder-meta .val {
+    color: var(--title); font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Task 12: Tile 4 Cost & Timing — IVR gauge + curve indicator */
+  .ivr-gauge {
+    position: relative; height: 28px;
+    background: var(--bg);
+    border: 1px solid var(--grid); border-radius: 14px;
+    margin-top: 10px; overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .ivr-gauge .zone { position: absolute; top: 0; bottom: 0; }
+  .ivr-gauge .zone.green  { left: 0%;  width: 60%; background: linear-gradient(90deg, rgba(154,206,106,0.25), rgba(154,206,106,0.10)); }
+  .ivr-gauge .zone.yellow { left: 60%; width: 20%; background: linear-gradient(90deg, rgba(224,175,104,0.18), rgba(224,175,104,0.26)); }
+  .ivr-gauge .zone.red    { left: 80%; width: 20%; background: linear-gradient(90deg, rgba(247,118,142,0.20), rgba(247,118,142,0.34)); }
+  .ivr-gauge .needle {
+    position: absolute; top: -3px; bottom: -3px; width: 3px;
+    background: var(--title);
+    box-shadow: 0 0 10px rgba(240,242,250,0.6);
+    border-radius: 2px;
+  }
+  .ivr-gauge .needle::before {
+    content: "▼"; position: absolute; top: -12px; left: -5px;
+    color: var(--title); font-size: 11px;
+    filter: drop-shadow(0 0 4px rgba(240,242,250,0.5));
+  }
+  .ivr-axis {
+    display: flex; justify-content: space-between;
+    font-family: var(--ff-mono); font-size: 9px; color: var(--axis);
+    margin-top: 4px; padding: 0 4px;
+    letter-spacing: 0.06em;
+  }
+  .earnings-line {
+    margin-top: 14px; font-family: var(--ff-mono); font-size: 12px;
+    color: var(--text); display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; background: rgba(255,255,255,0.02);
+    border: 1px solid var(--grid); border-radius: 6px;
+  }
+  .earnings-line .indicator {
+    width: 9px; height: 9px; border-radius: 50%;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .earnings-line .indicator.green { background: var(--ok); color: var(--ok-glow); }
+  .earnings-line .indicator.red   { background: var(--neg); color: var(--neg-glow); }
+  .earnings-line .indicator.gray  { background: var(--axis); color: transparent; opacity: 0.5; box-shadow: none; }
+  /* v2.2: curve-shape indicator */
+  .curve-line {
+    margin-top: 10px; font-family: var(--ff-mono); font-size: 12px;
+    color: var(--text); display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid transparent;
+    transition: filter 0.15s ease, transform 0.15s ease;
+  }
+  .curve-line:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .curve-line.normal { background: rgba(154,206,106,0.10); color: var(--text); border-color: rgba(154,206,106,0.20); }
+  .curve-line.mild   { background: rgba(224,175,104,0.14); color: var(--warn); border-color: rgba(224,175,104,0.30); }
+  .curve-line.severe { background: rgba(247,118,142,0.16); color: var(--neg); border-color: rgba(247,118,142,0.30); }
+  .curve-line .ivs   { color: var(--axis); font-size: 10px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .curve-line .ivs strong { color: var(--text); font-weight: 600; }
+  .term-chart-wrap {
+    margin-top: 8px; padding: 8px 10px 6px;
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
+    border: 1px solid var(--grid); border-radius: 6px;
+  }
+
+  /* LLM-generated chart insight (placeholder for future Gemini integration) */
+  .insight {
+    margin-top: 10px;
+    padding: 10px 12px 10px 14px;
+    background: linear-gradient(180deg, rgba(187,154,247,0.06), rgba(187,154,247,0.02));
+    border: 1px solid rgba(187,154,247,0.20);
+    border-left: 2px solid var(--hot);
+    border-radius: 6px;
+    font-family: var(--ff-ui); font-size: 12px; line-height: 1.55;
+    color: var(--text);
+  }
+  .insight .label {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-bottom: 4px;
+    font-family: var(--ff-mono); font-size: 9px; color: var(--hot);
+    text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700;
+  }
+  .insight .label::before {
+    content: "✦"; font-size: 11px;
+  }
+  .insight strong { color: var(--title); font-weight: 600; }
+  .insight em { color: var(--hot); font-style: normal; font-weight: 600; }
+
+  /* Task 13: Tile 5 Confirmation Stack — badge row + detail sections */
+  .confirm-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .confirm-badge {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 12px;
+    background: var(--panel-3);
+    border: 1px solid var(--grid); border-radius: 16px;
+    font-family: var(--ff-mono); font-size: 11px;
+    transition: all 0.15s ease;
+  }
+  .confirm-badge:hover { border-color: var(--grid-strong); transform: translateY(-1px); }
+  .confirm-badge .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .confirm-badge .dot.green { background: var(--ok); color: var(--ok-glow); }
+  .confirm-badge .dot.gray  { background: var(--axis); color: transparent; opacity: 0.5; box-shadow: none; }
+  .confirm-badge .dot.red   { background: var(--neg); color: var(--neg-glow); }
+  .confirm-badge .dot.yellow { background: var(--warn); color: var(--warn-glow); }
+  .confirm-detail {
+    margin-top: 12px;
+    display: grid; grid-template-columns: 1fr; gap: 10px;
+  }
+  @media (min-width: 720px) {
+    .confirm-detail { grid-template-columns: 1fr 1fr 1fr; }
+  }
+  .confirm-section {
+    background: linear-gradient(180deg, var(--panel-2), var(--bg-2));
+    border: 1px solid var(--grid); border-radius: 6px;
+    padding: 10px 12px;
+    font-family: var(--ff-mono); font-size: 11px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+  .confirm-section .sec-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px; padding-bottom: 6px;
+    font-size: 10px; color: var(--axis);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--grid);
+  }
+  .confirm-section .sec-head .title { color: var(--title); font-weight: 700; letter-spacing: 0.04em; }
+  .confirm-section .sec-value {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    display: flex; align-items: baseline; gap: 6px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .confirm-section .sec-value.pos { color: var(--pos); }
+  .confirm-section .sec-value.neg { color: var(--neg); }
+  .confirm-section .sec-value .sub { font-size: 10px; color: var(--axis); font-weight: 400; letter-spacing: 0; }
+  .confirm-section .sec-row {
+    display: flex; gap: 6px; justify-content: space-between;
+    padding: 5px 0; border-bottom: 1px dotted var(--grid);
+    font-size: 10px;
+  }
+  .confirm-section .sec-row:last-child { border-bottom: 0; }
+  .confirm-section .sec-row .time { color: var(--axis); width: 38px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .confirm-section .sec-row .src { color: var(--hot); width: 62px; flex-shrink: 0; font-size: 9px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em; }
+  .confirm-section .sec-row .head { color: var(--text); flex: 1; line-height: 1.4; }
+  .confirm-section .empty {
+    color: var(--axis); font-style: italic; font-size: 10px; padding: 4px 0;
+    font-family: var(--ff-display);
+  }
+
+  /* Task 14: Tile 6 Contract Picker — picker table */
+  .picker-scroll-hint {
+    display: none;
+    font-family: var(--ff-mono); font-size: 10px;
+    color: var(--axis); margin-top: 6px;
+    padding: 5px 9px; background: rgba(187,154,247,0.08);
+    border: 1px dashed rgba(187,154,247,0.30); border-radius: 4px;
+    letter-spacing: 0.04em;
+  }
+  @media (max-width: 760px) {
+    .picker-scroll-hint { display: block; }
+  }
+  .picker-scroll {
+    width: 100%; overflow-x: auto;
+    margin-top: 8px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--grid-strong) transparent;
+    /* Edge fade so users can tell content extends beyond view */
+    mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+  }
+  /* Only apply edge fade when actually scrollable (i.e., on phones / tight viewports) */
+  @media (min-width: 760px) {
+    .picker-scroll { mask-image: none; -webkit-mask-image: none; }
+  }
+  .picker-scroll::-webkit-scrollbar { height: 8px; }
+  .picker-scroll::-webkit-scrollbar-track { background: transparent; }
+  .picker-scroll::-webkit-scrollbar-thumb {
+    background: var(--grid-strong); border-radius: 6px;
+    border: 2px solid var(--panel);
+  }
+  .picker-table {
+    width: 100%; min-width: 720px;                /* force horizontal scroll under 720px */
+    border-collapse: collapse;
+    font-family: var(--ff-mono); font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .picker-table th {
+    text-align: right; padding: 7px 8px;
+    color: var(--axis); font-size: 9px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--grid); white-space: nowrap;
+  }
+  .picker-table th:first-child { text-align: left; }
+  .picker-table td {
+    padding: 8px; text-align: right;
+    border-bottom: 1px dotted var(--grid);
+  }
+  .picker-table td:first-child { text-align: left; color: var(--title); font-weight: 700; }
+  .picker-table td.structure-cell { text-align: left; color: var(--text); font-size: 10px; }
+  .picker-table tr { transition: background 0.15s ease; }
+  .picker-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .picker-table tr.recommended td {
+    background: linear-gradient(90deg, rgba(122,162,247,0.10), rgba(122,162,247,0.04));
+    border-bottom-color: rgba(122,162,247,0.30);
+  }
+  .picker-table tr.recommended td:first-child {
+    position: relative; padding-left: 14px;
+  }
+  .picker-table tr.recommended td:first-child::before {
+    content: ""; position: absolute; left: 2px; top: 25%; bottom: 25%; width: 3px;
+    background: var(--pos); border-radius: 2px;
+    box-shadow: 0 0 8px var(--pos-glow);
+  }
+  .picker-table tr.recommended td:last-child { color: var(--pos); font-weight: 700; }
+  .picker-table tr.itm td:first-child { color: var(--hot); }
+  .picker-table tr.unfavorable td.structure-cell { color: var(--neg); }
+  .picker-table tr.gate3-fail-warning td { color: var(--warn); font-style: italic; text-align: center; }
+  .picker-divider {
+    text-align: center; color: var(--axis);
+    font-family: var(--ff-mono); font-size: 10px;
+    padding: 8px 0; cursor: pointer;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    transition: color 0.15s ease;
+  }
+  .picker-divider:hover { color: var(--title); }
+
+  /* Task 15: Tooltip bottom-sheet (mobile) / centered modal (desktop ≥768px) */
+  .tooltip-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none; align-items: flex-end; justify-content: center;
+    z-index: 100;
+    animation: fadeUp 0.2s ease both;
+  }
+  .tooltip-overlay.show { display: flex; }
+  .tooltip-sheet {
+    width: 100%; max-width: 640px;
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border-top: 2px solid var(--pos);
+    border-radius: 12px 12px 0 0;
+    padding: 20px 22px 28px;
+    font-family: var(--ff-ui); font-size: 14px;
+    line-height: 1.55; color: var(--text);
+    max-height: 72vh; overflow-y: auto;
+    box-shadow: 0 -20px 60px -20px rgba(0,0,0,0.8);
+    animation: fadeUp 0.3s cubic-bezier(.2,.7,.3,1.1) both;
+  }
+  @media (min-width: 768px) {
+    .tooltip-overlay { align-items: center; }
+    .tooltip-sheet {
+      border-radius: 12px;
+      border: 1px solid var(--pos);
+      border-top: 2px solid var(--pos);
+      max-height: 80vh;
+      box-shadow: 0 30px 80px -20px rgba(0,0,0,0.9);
+    }
+  }
+  .tooltip-sheet h4 {
+    margin: 0 0 16px; padding-bottom: 12px;
+    font-family: var(--ff-display); font-style: italic; font-weight: 500;
+    font-size: 20px; letter-spacing: -0.01em;
+    color: var(--title);
+    border-bottom: 1px solid var(--grid);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .tooltip-sheet .close-btn {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--grid);
+    color: var(--text-dim);
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    font-size: 14px; line-height: 1;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+  .tooltip-sheet .close-btn:hover {
+    color: var(--title); border-color: var(--grid-strong);
+    background: var(--panel-3); transform: scale(1.08);
+  }
+  .tooltip-sheet .section { margin-bottom: 14px; }
+  .tooltip-sheet .section .label {
+    font-family: var(--ff-mono); font-size: 9px; color: var(--hot);
+    text-transform: uppercase; letter-spacing: 0.12em;
+    margin-bottom: 4px; font-weight: 700;
+  }
+  .tooltip-sheet .section .body { color: var(--text); }
+  .tooltip-sheet .provenance {
+    margin-top: 14px; padding: 10px 12px;
+    background: rgba(122,162,247,0.06);
+    border-left: 2px solid var(--pos); border-radius: 0 6px 6px 0;
+    font-family: var(--ff-mono); font-size: 11px; color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* Task 16: Calibration values footer panel */
+  .calibration-panel {
+    margin: 20px 22px; padding: 14px 16px;
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--grid); border-radius: 8px;
+    font-family: var(--ff-mono); font-size: 11px;
+    box-shadow: var(--shadow-card);
+  }
+  .calibration-panel summary {
+    cursor: pointer; color: var(--axis);
+    text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px;
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 500;
+    transition: color 0.15s ease;
+  }
+  .calibration-panel summary:hover { color: var(--title); }
+  .calibration-panel summary::before { content: "▸ "; color: var(--hot); font-weight: 700; }
+  .calibration-panel[open] summary::before { content: "▾ "; }
+  .calibration-panel table {
+    width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .calibration-panel th {
+    text-align: left; padding: 7px 8px; color: var(--axis); font-size: 9px;
+    font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--grid);
+  }
+  .calibration-panel td { padding: 7px 8px; border-bottom: 1px dotted var(--grid); color: var(--text); }
+  .calibration-panel td.todo { color: var(--warn); font-style: italic; }
+
+  /* Task 17: Prompt output footer + copy button */
+  .prompt-area {
+    padding: 22px;
+    border-top: 1px solid var(--grid);
+    background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  }
+  .prompt-area h3 {
+    margin: 0 0 12px; font-size: 11px; color: var(--axis);
+    font-family: var(--ff-mono); text-transform: uppercase; letter-spacing: 0.12em;
+    font-weight: 500;
+  }
+  .prompt-area h3::before { content: "◆ "; color: var(--hot); font-weight: 700; }
+  .prompt-row { display: flex; gap: 10px; align-items: stretch; }
+  .prompt-area textarea {
+    flex: 1; min-height: 180px; max-height: 340px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--grid); border-radius: 8px; padding: 14px;
+    font-family: var(--ff-mono); font-size: 11px; line-height: 1.5;
+    resize: vertical;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .prompt-area textarea:focus {
+    outline: none; border-color: var(--pos);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.4), 0 0 0 3px rgba(122,162,247,0.12);
+  }
+  .prompt-area button {
+    background: linear-gradient(180deg, var(--pos), #5e88e8);
+    color: var(--bg); border: none; cursor: pointer;
+    padding: 0 22px; border-radius: 8px;
+    font-family: var(--ff-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    min-width: 130px;
+    box-shadow: 0 4px 12px -4px var(--pos-glow), inset 0 1px 0 rgba(255,255,255,0.25);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  }
+  .prompt-area button:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 8px 18px -4px var(--pos-glow), inset 0 1px 0 rgba(255,255,255,0.25); }
+  .prompt-area button:active { transform: translateY(0); }
+  .prompt-area button.copied {
+    background: linear-gradient(180deg, var(--ok), #80b350);
+    box-shadow: 0 4px 12px -4px var(--ok-glow), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+</style>
+</head>
+<body>
+
+<!-- Task 3: Regime banner -->
+<!-- V2-EDIT-5-BEGIN — banners driven by snapshot data instead of hardcoded copy -->
+<header class="regime-banner normal" id="regime-banner" data-tooltip-trigger="regime_banner">
+  <div class="regime-text" id="regime-text">
+    <span class="regime-label" id="regime-label">Markets normal</span>
+    <span class="regime-detail" id="regime-detail">VIX —</span>
+  </div>
+  <button class="regime-demo-btn" id="regime-toggle" style="display:none">[DEMO]</button>
+</header>
+<div class="demo-banner" id="snapshot-age-banner">
+  <span class="demo-icon">⏱</span>
+  <span><strong id="snapshot-age">—</strong> · <span id="snapshot-detail">awaiting first snapshot</span></span>
+</div>
+<!-- V2-EDIT-5-END -->
+
+<!-- Task 5: Watchlist section -->
+<section class="watchlist-section">
+  <h2>
+    <span>Watchlist</span>
+    <button class="nothing-toggle" id="nothing-toggle" title="DEMO: simulate empty-day state">⚠ nothing today</button>
+  </h2>
+  <div class="watchlist-search">
+    <input type="text" id="watchlist-search-input" placeholder="Search ticker (e.g., AAPL)" autocomplete="off" spellcheck="false">
+    <button class="clear-btn" id="watchlist-search-clear">Clear</button>
+  </div>
+  <div class="watchlist" id="watchlist"></div>
+</section>
+
+<!-- Task 7: Deep-dive section -->
+<section class="deepdive-section">
+  <h2 id="deepdive-title">Deep-dive card</h2>
+  <div id="deepdive-content"></div>
+</section>
+
+<!-- Task 16: Calibration values footer panel -->
+<details class="calibration-panel">
+  <summary>⚠️ CALIBRATION VALUES — defaults pending empirical calibration before production use (open questions from spec §12 + v2.1/v2.2 amendments)</summary>
+  <table>
+    <thead><tr><th>Question</th><th>Default used</th><th>TODO</th></tr></thead>
+    <tbody>
+      <tr><td>Cross-sectional universe definition</td><td>Today's hot-flow tickers (15)</td><td class="todo">Empirical decision — every UW-tracked ticker, all with ≥1 alert today, or top N by volume?</td></tr>
+      <tr><td>Sector tide threshold</td><td>|tide| > 0.30 = green</td><td class="todo">Empirical calibration against UW's sector-tide distribution</td></tr>
+      <tr><td>Gate 3 flip distance</td><td>within 1.5% of spot to pass</td><td class="todo">Calibrate against accessible-universe data</td></tr>
+      <tr><td>Gate 3 wall distance (trade direction)</td><td>within 1% of spot = blocking (Gate 3 fail)</td><td class="todo">Same calibration</td></tr>
+      <tr><td>Stale data handling</td><td>flow alerts >4h flagged yellow on watchlist timestamp</td><td class="todo">Explicit time-decay logic in production</td></tr>
+      <tr><td>Earnings reference fallback</td><td>missing earnings → assume within 7d → fail Gate 4 conservatively</td><td class="todo">Better fallback (e.g., check Companies endpoint if accessible — currently Advanced-tier locked)</td></tr>
+      <tr><td>Protected-ITM threshold (opposing wall distance)</td><td>within 2% in opposite direction</td><td class="todo">Calibrate against win-rate of structurally-protected ITM trades</td></tr>
+      <tr><td>IV curve inversion thresholds</td><td>mild > 3 vol pts, severe > 8 vol pts</td><td class="todo">Empirical calibration on historical inverted-curve outcomes</td></tr>
+      <tr><td>Cost/day shift trigger</td><td>longer-dated < 70% of thisFri cost/day</td><td class="todo">Calibrate the cutoff against realized cost-efficacy</td></tr>
+      <tr><td>Approx contracts-per-unusual-alert (Tile 2 $ Δ approx)</td><td>1,000</td><td class="todo">Empirical: distribution of contracts-per-trade for "unusual" UW flow alerts. Affects Tile 2's $ Δ approximation magnitude.</td></tr>
+    </tbody>
+  </table>
+</details>
+
+<!-- Task 17: Prompt-output footer + copy button -->
+<footer class="prompt-area">
+  <h3>Prompt output · paste into Claude to spec the Streamlit implementation</h3>
+  <div class="prompt-row">
+    <textarea id="prompt" readonly></textarea>
+    <button id="copy-btn">Copy prompt</button>
+  </div>
+</footer>
+
+<!-- Task 15: Tooltip bottom-sheet overlay (single shared modal) -->
+<div class="tooltip-overlay" id="tooltip-overlay">
+  <div class="tooltip-sheet" id="tooltip-sheet"></div>
+</div>
+
+<script>
+/* ============================================================
+ * Task 2: Embedded sample data (10 live + 5 synthetic)
+ * ============================================================ */
+
+/* Live snapshot from prototypes/leaderboard_sample.json (2026-05-27 04:37 UTC) */
+const SNAPSHOT = {
+  fetched_at_utc: "2026-05-27T04:37:34Z",
+  rows: [
+    {ticker:"SPY",  spot:750.59, iv_rank:25.1, alerts_count:100, alerts_total_premium_usd:33463080,  dp_total_premium_usd:2614095430.98, dp_net_premium_usd:-1653477112.61, gex_aggregate:4328852.82},
+    {ticker:"VIX",  spot:17.01,  iv_rank:8.8,  alerts_count:39,  alerts_total_premium_usd:19584255,  dp_total_premium_usd:0,             dp_net_premium_usd:0,              gex_aggregate:158074449.04},
+    {ticker:"IWM",  spot:290.51, iv_rank:35.6, alerts_count:100, alerts_total_premium_usd:21278288,  dp_total_premium_usd:529704124.91,  dp_net_premium_usd:-311874175.54,  gex_aggregate:2788396181.57},
+    {ticker:"QQQ",  spot:730.28, iv_rank:40.3, alerts_count:100, alerts_total_premium_usd:29737759,  dp_total_premium_usd:899765646.70,  dp_net_premium_usd:644500011.38,   gex_aggregate:10878573165.85},
+    {ticker:"TLT",  spot:85.10,  iv_rank:23.0, alerts_count:100, alerts_total_premium_usd:5681335,   dp_total_premium_usd:213683159.90,  dp_net_premium_usd:44004670.86,    gex_aggregate:3053272361.07},
+    {ticker:"SPX",  spot:7519.12,iv_rank:33.7, alerts_count:100, alerts_total_premium_usd:341467742, dp_total_premium_usd:0,             dp_net_premium_usd:0,              gex_aggregate:136280206268.52},
+    {ticker:"SPXW", spot:7519.12,iv_rank:33.7, alerts_count:100, alerts_total_premium_usd:56835855,  dp_total_premium_usd:0,             dp_net_premium_usd:0,              gex_aggregate:136280206268.52},
+    {ticker:"XLE",  spot:57.85,  iv_rank:77.5, alerts_count:100, alerts_total_premium_usd:6242982,   dp_total_premium_usd:146717283.80,  dp_net_premium_usd:-25864785.65,   gex_aggregate:127984298.79},
+    {ticker:"GLD",  spot:414.00, iv_rank:19.2, alerts_count:100, alerts_total_premium_usd:11576327,  dp_total_premium_usd:165300586.37,  dp_net_premium_usd:35916865.78,    gex_aggregate:2448924687.72},
+    {ticker:"DIA",  spot:505.25, iv_rank:36.2, alerts_count:100, alerts_total_premium_usd:6848409,   dp_total_premium_usd:271666591.82,  dp_net_premium_usd:-102249208.66,  gex_aggregate:168506844.78},
+  ],
+};
+
+/* V2-EDIT-1-BEGIN — synthetic rows removed; live snapshot inlined via __SNAPSHOT__ */
+const SYNTHETIC = [];
+/* V2-EDIT-1-END */
+
+/* Open-questions calibration defaults from spec §12 / design §8 */
+const CALIBRATION = {
+  flow_rank_green_cross_pct: 15,   // top 15% CROSS → Gate 1 green
+  flow_rank_yellow_cross_pct: 35,  // top 35% CROSS → Gate 1 yellow
+  oi_green_pct: 20,                // ≥20% OI growth at any strike → Gate 2 green
+  oi_yellow_pct: 5,                // ≥5% OI growth → Gate 2 yellow
+  oi_red_pct: -5,                  // <-5% OI growth → Gate 2 red (closing)
+  gate3_flip_dist_pct: 1.5,        // flip within 1.5% AND favorable side → Gate 3 green
+  gate3_wall_dist_pct: 1.0,        // wall within 1% in trade direction → Gate 3 fail
+  ivr_green_max: 60,               // IVR ≤ 60 → Gate 4 green
+  ivr_yellow_max: 80,              // IVR ≤ 80 → Gate 4 yellow
+  earnings_days_min: 7,            // earnings within 7d → Gate 4 fail
+  sector_tide_green_abs: 0.30,     // |tide| > 0.30 → green
+  stale_alert_hours: 4,            // flow alert > 4h → yellow timestamp
+  // Approximation: typical "unusual flow" trade is ~1000 contracts. Used to
+  // convert Tile 2's OI Δ (contracts) into an approximate $ flow for reconciliation
+  // with Tile 1's alert dollars. UW provides OI in contracts only — there's no
+  // dollar-OI field. This is an estimate, not a measurement.
+  approx_contracts_per_alert: 1000,
+  iv_curve_inversion_threshold_pts: 3,  // 7d IV exceeds 30d IV by > 3 vol pts → inverted
+  iv_curve_severe_inversion_pts: 8,     // 7d IV exceeds 30d IV by > 8 vol pts → severe (red)
+  protected_itm_opp_wall_pct: 2.0,      // opposing wall within X% of spot → ITM has a structural floor
+};
+
+function strHash(s) { let h = 0; for (const c of s) h = ((h<<5)-h + c.charCodeAt(0))|0; return Math.abs(h); }
+function seededRand(seed, lo, hi) { const x = Math.sin(seed * 12.9898) * 43758.5453; const r = x - Math.floor(x); return lo + r * (hi - lo); }
+
+/* Synthesize fields the basic-tier endpoints don't surface cleanly. Deterministic
+ * by ticker hash so values are stable across reloads. All carry _proxy:true.
+ * Returns a NEW object — never mutates the input row. */
+function enrichLive(row) {
+  const h = strHash(row.ticker);
+  const out = {...row};
+  out.is_synthetic = false;
+  const askBias = out.dp_net_premium_usd > 0 ? 0.6 : out.dp_net_premium_usd < 0 ? 0.4 : 0.5;
+  const askPct = Math.max(0.2, Math.min(0.8, askBias + seededRand(h, -0.15, 0.15)));
+  out.alerts_ask = Math.round(out.alerts_count * askPct);
+  out.alerts_bid = out.alerts_count - out.alerts_ask;
+  out.alerts_skew = (out.alerts_ask - out.alerts_bid) / Math.max(1, out.alerts_count);
+  out.gex_sign = out.gex_aggregate >= 0 ? "POS" : "NEG";
+  // Last alert timestamp in minutes ago — proxy from hash
+  out.last_alert_min_ago = Math.round(seededRand(h + 5, 2, 240));
+  // Synthesized fields for tile-1/2 demos
+  out.flow_rank_cross = Math.round(seededRand(h + 10, 5, 55));  // synthesized cross-sectional rank
+  out.oi_strikes = [{strike: out.spot, prev: 0, today: 0, pct: 0}];  // live OI-change requires extra fetch; playground synthesizes
+  out.flip_dist_pct = seededRand(h + 11, -3, 3);
+  out.wall_up_dist_pct = seededRand(h + 12, 1, 5);
+  out.wall_dn_dist_pct = seededRand(h + 13, 1, 5);
+  out.days_to_earnings = null; // ETFs/indices generally don't have earnings
+  out.direction = out.alerts_skew >= 0 ? "calls" : "puts";
+  // Normalized top-level fields so downstream code never has to branch on is_synthetic
+  out.flow_rank = out.flow_rank_cross;
+  out.ivr = out.iv_rank;
+  out.agg_gamma_b = out.gex_aggregate / 1e9;
+  // v2.2: synthesize term structure for live rows — anchor on iv_rank, default
+  // contango shape (7d < 30d < 60d < 90d) with tiny per-ticker jitter. Live
+  // snapshot is all calm-day indices so this always yields "normal" curve shape.
+  const thirtyD = 0.10 + (out.iv_rank / 100) * 0.40;
+  const tilt = seededRand(h + 50, 0, 0.005);
+  out.iv_term_curve = [
+    +(thirtyD - 0.02 + tilt).toFixed(3),  // 7d (slightly below 30d = mild contango)
+    +(thirtyD).toFixed(3),                 // 30d
+    +(thirtyD + 0.02 + tilt).toFixed(3),  // 60d
+    +(thirtyD + 0.03 + tilt).toFixed(3),  // 90d
+  ];
+  return out;
+}
+
+/* v2.2: classify the term-structure shape from the 7d-vs-30d spread.
+ * Returns {shape: "normal" | "mild_inverted" | "severe_inverted", spread_pts}.
+ * spread_pts = (7d - 30d) * 100 ; positive = inverted. */
+function ivCurveShape(row) {
+  const c = row.iv_term_curve;
+  if (!c || c.length < 2) return {shape: "normal", spread_pts: 0};
+  const spread_pts = (c[0] - c[1]) * 100;
+  if (spread_pts > CALIBRATION.iv_curve_severe_inversion_pts) return {shape: "severe_inverted", spread_pts};
+  if (spread_pts > CALIBRATION.iv_curve_inversion_threshold_pts) return {shape: "mild_inverted", spread_pts};
+  return {shape: "normal", spread_pts};
+}
+
+/* Add normalized top-level fields to synthetic rows so downstream code never
+ * has to branch on is_synthetic. Mutates and returns the row (synthetic rows
+ * are local literals, no shared-state risk). */
+function normalizeSynth(row) {
+  row.flow_rank = row.flow.rank_cross;
+  row.ivr = row.cost.ivr;
+  row.days_to_earnings = row.cost.days_to_earnings;
+  row.flip_dist_pct = row.gex.flip_dist_pct;
+  row.wall_up_dist_pct = row.gex.wall_up_dist_pct;
+  row.wall_dn_dist_pct = row.gex.wall_dn_dist_pct;
+  row.agg_gamma_b = row.gex.agg_gamma_b;
+  row.gex_sign = row.gex.sign;
+  return row;
+}
+
+function gateStatesLive(row) {
+  // Compute 4 gate dots for live rows from real data + sensible defaults
+  const gates = {};
+  // Gate 1: Flow rank cross-sectional
+  gates.flow = row.flow_rank_cross <= CALIBRATION.flow_rank_green_cross_pct ? "green"
+             : row.flow_rank_cross <= CALIBRATION.flow_rank_yellow_cross_pct ? "yellow" : "red";
+  // Gate 2: OI confirmation — live rows don't have prior-day OI in the snapshot, so default to yellow with PROXY label
+  gates.oi = "yellow";  // honestly: we don't have OI-change for live rows
+  // Gate 3: Structural — within 1.5% of flip on favorable side
+  const favorableFlip = row.direction === "calls" ? row.flip_dist_pct < 0 : row.flip_dist_pct > 0;
+  gates.structural = (Math.abs(row.flip_dist_pct) <= CALIBRATION.gate3_flip_dist_pct && favorableFlip)
+                   ? "green"
+                   : (Math.abs(row.flip_dist_pct) <= 3 ? "yellow" : "red");
+  // Gate 4: Cost — IVR + earnings
+  gates.cost = row.iv_rank <= CALIBRATION.ivr_green_max ? "green"
+             : row.iv_rank <= CALIBRATION.ivr_yellow_max ? "yellow" : "red";
+  return gates;
+}
+
+function gateStatesSynth(row) {
+  // Synthetic rows have hand-crafted intended states; derive deterministically from the data
+  const gates = {};
+  // Gate 1
+  gates.flow = row.flow.rank_cross <= CALIBRATION.flow_rank_green_cross_pct ? "green"
+             : row.flow.rank_cross <= CALIBRATION.flow_rank_yellow_cross_pct ? "yellow" : "red";
+  // Gate 2
+  const bestPct = Math.max(...row.oi.strikes.map(s => s.pct));
+  gates.oi = bestPct >= CALIBRATION.oi_green_pct ? "green"
+           : bestPct >= CALIBRATION.oi_yellow_pct ? "yellow"
+           : bestPct <= CALIBRATION.oi_red_pct ? "red" : "yellow";
+  // Gate 3 — same logic as live
+  const favorableFlip = row.direction === "calls" ? row.gex.flip_dist_pct < 0 : row.gex.flip_dist_pct > 0;
+  const wallDirDist = row.direction === "calls" ? row.gex.wall_up_dist_pct : row.gex.wall_dn_dist_pct;
+  if (Math.abs(row.gex.flip_dist_pct) <= CALIBRATION.gate3_flip_dist_pct && favorableFlip && wallDirDist >= CALIBRATION.gate3_wall_dist_pct) {
+    gates.structural = "green";
+  } else if (Math.abs(row.gex.flip_dist_pct) <= 3 && favorableFlip) {
+    gates.structural = "yellow";
+  } else {
+    gates.structural = "red";
+  }
+  // Gate 4
+  if (row.cost.days_to_earnings !== null && row.cost.days_to_earnings < CALIBRATION.earnings_days_min) {
+    gates.cost = "red";
+  } else if (row.cost.ivr <= CALIBRATION.ivr_green_max) {
+    gates.cost = "green";
+  } else if (row.cost.ivr <= CALIBRATION.ivr_yellow_max) {
+    gates.cost = "yellow";
+  } else {
+    gates.cost = "red";
+  }
+  return gates;
+}
+
+/* V2-EDIT-2-BEGIN — ROWS comes from the server snapshot, not local enrichLive() */
+const LIVE_ROWS = (window.__SNAPSHOT__ && window.__SNAPSHOT__.rows) || [];
+const ROWS = LIVE_ROWS;
+/* V2-EDIT-2-END */
+
+/* ============================================================
+ * Task 3: Regime banner state + render
+ * ============================================================ */
+
+const state = { regime: "normal", selected: null, nothingToday: false, contractPickerShowThisWeek: false, searchQuery: "" };
+/* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
+(function setupDeepLink() {
+  const urlT = new URLSearchParams(location.search).get('t');
+  if (urlT && ROWS.find(r => r.ticker === urlT.toUpperCase())) {
+    state.selected = urlT.toUpperCase();
+  }
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest('.watchlist .row');
+    if (!row) return;
+    const ticker = row.querySelector('.ticker')?.textContent?.trim();
+    if (ticker) history.replaceState(null, '', '?t=' + ticker);
+  });
+})();
+/* V2-EDIT-4-END */
+
+/* V2-EDIT-6-BEGIN — regime + snapshot-age driven by __SNAPSHOT__ */
+function renderRegimeBanner() {
+  const banner = document.getElementById('regime-banner');
+  const label = document.getElementById('regime-label');
+  const detail = document.getElementById('regime-detail');
+  const ageEl = document.getElementById('snapshot-age');
+  const ageBanner = document.getElementById('snapshot-age-banner');
+  const detailEl = document.getElementById('snapshot-detail');
+
+  const snap = window.__SNAPSHOT__;
+  if (!snap) {
+    label.textContent = 'Awaiting snapshot…';
+    detail.textContent = '';
+    ageEl.textContent = '—';
+    detailEl.textContent = 'Server warming up; refreshes every 60s';
+    return;
+  }
+  const regime = snap.regime || { label: 'normal', detail: '', vix: 0 };
+  banner.className = 'regime-banner ' + (regime.label === 'risk-off' ? 'risk-off' : 'normal');
+  label.textContent = regime.label === 'risk-off'
+    ? 'Macro risk elevated — fade conviction'
+    : 'Markets normal — green light';
+  detail.textContent = regime.detail || `VIX ${(regime.vix || 0).toFixed(1)}`;
+
+  const fetchedAt = new Date(snap.fetched_at);
+  const ageSec = Math.floor((Date.now() - fetchedAt.getTime()) / 1000);
+  ageEl.textContent = ageSec < 60 ? `${ageSec}s ago` : `${Math.floor(ageSec / 60)}m ago`;
+  detailEl.textContent = `${snap.rows.length} tickers, refreshes every 60s`;
+  if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale');
+}
+/* V2-EDIT-6-END */
+
+document.getElementById("regime-toggle").addEventListener("click", () => {
+  state.regime = state.regime === "normal" ? "risk-off" : "normal";
+  renderRegimeBanner();
+});
+
+renderRegimeBanner();
+
+/* ============================================================
+ * Task 5: Watchlist gate-summary helpers + render
+ * ============================================================ */
+
+function gateColors(gates) {
+  // Returns {green:N, yellow:N, red:N, greenList:["flow",...], yellowList, redList}
+  const order = ["flow", "oi", "structural", "cost"];
+  let green = 0, yellow = 0, red = 0;
+  const greenList = [], yellowList = [], redList = [];
+  for (const g of order) {
+    if (gates[g] === "green")  { green++;  greenList.push(g); }
+    if (gates[g] === "yellow") { yellow++; yellowList.push(g); }
+    if (gates[g] === "red")    { red++;    redList.push(g); }
+  }
+  return {green, yellow, red, greenList, yellowList, redList};
+}
+
+const GATE_LABELS = {
+  flow: "Flow",
+  oi: "OI",
+  structural: "Structure",
+  cost: "Cost",
+};
+
+function gateSummaryText(row) {
+  const c = gateColors(row.gates);
+  const {green, yellow, red} = c;
+  // Per design §5.2 templating logic
+  if (green === 4) {
+    const flowExtreme = row.flow_rank <= 5 ? "Flow extreme" : "Flow strong";
+    return `4/4 gates green · ${flowExtreme} · Structure aligned`;
+  }
+  if (green === 3 && yellow === 1) {
+    const y = c.yellowList[0];
+    const detail = y === "cost" ? `(IVR ${row.ivr})` : "";
+    return `3/4 green, 1 marginal · ${GATE_LABELS[y]} borderline ${detail}`.trim();
+  }
+  if (green === 3 && red === 1) {
+    const r = c.redList[0];
+    return `3/4 green, 1 fail · ${GATE_LABELS[r]} kills setup`;
+  }
+  if (green === 2 && yellow === 1 && red === 1) {
+    const r = c.redList[0];
+    const y = c.yellowList[0];
+    return `2/4 green · ${GATE_LABELS[r]} fails · ${GATE_LABELS[y]} marginal`;
+  }
+  if (green === 2 && red === 2) {
+    return `2/4 green · ${GATE_LABELS[c.redList[0]]} + ${GATE_LABELS[c.redList[1]]} both fail`;
+  }
+  if (green === 1) return "1/4 green — setup does not qualify";
+  if (green === 0) return "No gates passed — skip";
+  // Catch-all
+  return `${green}/4 green, ${yellow} marginal, ${red} fail`;
+}
+
+function renderWatchlist() {
+  const wl = document.getElementById("watchlist");
+  const visibleRows = visibleWatchlistRows();
+  if (state.nothingToday && visibleRows.filter(r => gateColors(r.gates).green === 4).length === 0) {
+    renderNothingTodayCard();
+    return;
+  }
+  // Empty state when search yields no matches
+  if (visibleRows.length === 0 && state.searchQuery) {
+    wl.innerHTML = `
+      <div class="watchlist-empty">
+        <strong>No ticker matching "${state.searchQuery}"</strong> in today's hot list.<br>
+        In production, search would fetch on-demand from /api/option-trades/flow-alerts?ticker_symbol=${state.searchQuery}.
+      </div>`;
+    return;
+  }
+  wl.innerHTML = "";
+  const sorted = [...visibleRows].sort((a, b) => {
+    const gca = gateColors(a.gates).green;
+    const gcb = gateColors(b.gates).green;
+    if (gcb !== gca) return gcb - gca;
+    // Tie-breaker: Gate 1 flow rank (lower = better)
+    const ra = a.flow_rank;
+    const rb = b.flow_rank;
+    return ra - rb;
+  });
+  for (const row of sorted) {
+    const tr = document.createElement("div");
+    tr.className = "row" + (state.selected === row.ticker ? " selected" : "");
+    const dirArrow = row.direction === "calls" ? "↑ Calls" : "↓ Puts";
+    const dots = ["flow", "oi", "structural", "cost"].map(g =>
+      `<span class="dot ${row.gates[g]}" title="Gate ${g}: ${row.gates[g]}"></span>`
+    ).join("");
+    const summary = gateSummaryText(row);
+    let timestamp = "—";
+    if (!row.is_synthetic) {
+      const min = row.last_alert_min_ago;
+      const stale = min > 60 * CALIBRATION.stale_alert_hours;
+      const t = min < 60 ? `${min}m ago` : `${Math.round(min/60)}h ago`;
+      timestamp = `<span class="${stale ? "stale" : ""}">${t}</span>`;
+    }
+    tr.innerHTML = `
+      <span class="ticker">${row.ticker}</span>
+      <span class="direction ${row.direction}">${dirArrow}</span>
+      <span class="dots">${dots}</span>
+      <span class="summary">${summary}</span>
+      <span class="timestamp">${timestamp}</span>
+    `;
+    tr.addEventListener("click", () => selectTicker(row.ticker));
+    wl.appendChild(tr);
+  }
+}
+
+function visibleWatchlistRows() {
+  let rows = state.nothingToday ? ROWS.filter(r => !r.is_synthetic) : ROWS;
+  const q = state.searchQuery.trim().toUpperCase();
+  if (q) rows = rows.filter(r => r.ticker.startsWith(q));
+  return rows;
+}
+
+function selectTicker(ticker) {
+  state.selected = ticker;
+  renderWatchlist();
+  renderDeepDive();
+}
+
+/* ============================================================
+ * Task 6: "Nothing today" card render + toggle
+ * ============================================================ */
+
+function renderNothingTodayCard() {
+  const wl = document.getElementById("watchlist");
+  wl.innerHTML = `
+    <div class="nothing-card" data-tooltip-trigger="nothing_today">
+      <h3>No qualifying setups right now</h3>
+      <p>The market typically shows 2–4 qualifying setups per week, not per day.<br>
+         Forcing trades when nothing qualifies is the #1 way to lose money with this strategy.</p>
+      <div class="next-check">Next check recommended: 9:30 AM ET</div>
+    </div>
+  `;
+  // Task 15: clicking the card opens the nothing_today tooltip.
+  // Body-level delegation on [data-tooltip-trigger] (see ~line 1522) handles the click —
+  // no dedicated listener needed here (I-2 fix).
+}
+
+document.getElementById("nothing-toggle").addEventListener("click", () => {
+  state.nothingToday = !state.nothingToday;
+  state.selected = null;  // deselect when entering/leaving nothing-today mode
+  renderWatchlist();
+  renderDeepDive();
+});
+
+/* Search input — filters the visible watchlist as the user types. If the typed
+ * query exactly matches a ticker, auto-select it so the deep-dive populates. */
+document.getElementById("watchlist-search-input").addEventListener("input", (e) => {
+  state.searchQuery = e.target.value || "";
+  const q = state.searchQuery.trim().toUpperCase();
+  // Auto-select on exact match (when typed query equals a ticker in ROWS)
+  const exact = ROWS.find(r => r.ticker === q);
+  if (exact) state.selected = exact.ticker;
+  renderWatchlist();
+  renderDeepDive();
+});
+document.getElementById("watchlist-search-clear").addEventListener("click", () => {
+  state.searchQuery = "";
+  document.getElementById("watchlist-search-input").value = "";
+  renderWatchlist();
+  renderDeepDive();
+});
+
+/* ============================================================
+ * Task 7: Deep-dive card scaffold + empty state
+ * ============================================================ */
+
+function renderDeepDive() {
+  const c = document.getElementById("deepdive-content");
+  const titleEl = document.getElementById("deepdive-title");
+  if (!state.selected) {
+    titleEl.textContent = "Deep-dive card — select a ticker above";
+    c.innerHTML = `
+      <div class="deepdive-empty">
+        <strong>Select a ticker above to see its gate verification.</strong><br>
+        The deep-dive card shows all 4 gates + contract picker for the selected ticker.<br>
+        The watchlist sorts by qualifying setups first — tap the top row to start with the strongest candidate.
+      </div>`;
+    return;
+  }
+  const row = ROWS.find(r => r.ticker === state.selected);
+  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span> <span style="color:var(--axis);font-size:11px;margin-left:6px;">${row.direction.toUpperCase()}</span>`;
+  // Tile rendering inserted in later tasks
+  c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
+}
+
+function renderAllTiles(row) {
+  // Placeholder for now — populated in tasks 8-13
+  return `
+    <div class="tile">${renderTile1Flow(row)}</div>
+    <div class="tile">${renderTile2OI(row)}</div>
+    <div class="tile">${renderTile3Structural(row)}</div>
+    <div class="tile">${renderTile4Cost(row)}</div>
+    <div class="tile tile-confirmation">${renderTile5Confirmation(row)}</div>
+    <div class="tile tile-picker">${renderTile6Picker(row)}</div>
+  `;
+}
+
+/* ============================================================
+ * Task 8: Data-honesty pill helper
+ * ============================================================ */
+
+function pill(kind) {
+  // kind: "live" | "cross" | "proxy"
+  const map = {
+    live:  {icon:"🔵", label:"LIVE",  tooltipKey:"pill_live"},
+    cross: {icon:"📊", label:"CROSS", tooltipKey:"pill_cross"},
+    proxy: {icon:"⚠️", label:"PROXY", tooltipKey:"pill_proxy"},
+  };
+  const m = map[kind];
+  return `<span class="pill ${kind}" data-tooltip="${m.tooltipKey}"><span class="icon">${m.icon}</span>${m.label}</span>`;
+}
+
+/* ============================================================
+ * Task 9: Tile 1 — Flow Conviction (SVG chart + 3-stat row)
+ * ============================================================ */
+
+function renderTile1Flow(row) {
+  const g = row.gates.flow;
+  // Read flow fields: synthetic rows have nested .flow; live rows have top-level
+  const flowData = row.is_synthetic ? row.flow : {
+    rank_cross: row.flow_rank_cross,
+    alerts: row.alerts_count,
+    premium_usd: row.alerts_total_premium_usd,
+  };
+  return `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 1: Flow Conviction</span>
+      <button class="help-icon" data-help="tile1">?</button>
+    </h3>
+    <div class="flow-chart-wrap">
+      ${renderFlowChart(row, flowData.alerts, flowData.premium_usd)}
+    </div>
+    ${renderFlowStrikeSummary(row, flowData.alerts, flowData.premium_usd)}
+    <div class="flow-stats">
+      <div class="flow-stat">
+        <span class="lbl">Alerts</span>
+        <span class="val">${flowData.alerts}</span>
+      </div>
+      <div class="flow-stat">
+        <span class="lbl">Premium</span>
+        <span class="val">$${(flowData.premium_usd / 1e6).toFixed(1)}M</span>
+      </div>
+      <div class="flow-stat">
+        <span class="lbl">Flow rank</span>
+        <span class="val">Top ${flowData.rank_cross}%</span>
+      </div>
+    </div>
+  `;
+}
+
+/* Tile 1 chart: time-vs-price plot with strike-anchored alert bars.
+ * - x-axis = 4-hour session timeline (9:30 → 13:30 as session-time tick labels)
+ * - y-axis = stock price; tick labels show min/spot/max of the visible range
+ * - Stock price line is a synth sin-walk anchored at row.spot (deterministic from hash)
+ * - Each alert renders as a vertical bar from the x-axis up to its strike's y-position,
+ *   labeled with the $ premium. Strikes match Tile 2's oi.strikes for synthetic rows
+ *   (so the visual reconciles with Tile 2). For live rows, strikes are synthesized
+ *   close to spot since the snapshot doesn't carry per-alert strike data. */
+/* Compute per-strike alert aggregates. Shared between Tile 1 (chart guide labels)
+ * and Tile 2 ($ Δ approx column). Returns [{strike, count, premium, avgPerAlert}].
+ * Deterministic from ticker hash + alertCount + totalPremiumUsd. */
+/* Per-strike aggregate summary rendered below Tile 1's chart. Replaces the
+ * right-edge SVG labels removed when the chart was restored to full tile width.
+ * One chip per strike showing "$ strike · N× · $X.XM" with dominant strike
+ * highlighted. Same data Tile 2 uses for its $ Δ approx column. */
+function renderFlowStrikeSummary(row, alertCount, totalPremiumUsd) {
+  const aggregates = computeAlertStrikeAggregates(row, alertCount, totalPremiumUsd);
+  if (aggregates.length === 0) return "";
+  const dominantStrike = aggregates.reduce((m, x) => x.count > m.count ? x : m, aggregates[0]).strike;
+  const fmt = p => p.toFixed(row.spot >= 100 ? 0 : 2);
+  const chips = aggregates.map(a => {
+    const isDom = a.strike === dominantStrike && aggregates.length > 1;
+    const premLabel = a.premium >= 1e6
+      ? `$${(a.premium / 1e6).toFixed(1)}M`
+      : `$${Math.round(a.premium / 1e3)}k`;
+    return `<span class="chip ${isDom ? "dominant" : ""}"><span class="strike">$${fmt(a.strike)}</span>· ${a.count}× · ${premLabel}<span class="meta">${isDom ? " (dominant)" : ""}</span></span>`;
+  }).join("");
+  return `<div class="flow-strike-summary">${chips}</div>`;
+}
+
+function computeAlertStrikeAggregates(row, alertCount, totalPremiumUsd) {
+  const h = strHash(row.ticker);
+  const spot = row.spot;
+  // Same alert-strike distribution logic as renderFlowChart — keep in sync
+  let alertStrikes;
+  if (row.is_synthetic && row.oi && row.oi.strikes) {
+    const totalAct = row.oi.strikes.reduce((s, k) => s + Math.max(1, Math.abs(k.pct)), 0);
+    const weights = row.oi.strikes.map(k => Math.max(1, Math.abs(k.pct)) / totalAct);
+    alertStrikes = [];
+    let remaining = Math.min(alertCount, 12);
+    for (let i = 0; i < row.oi.strikes.length - 1; i++) {
+      const n = Math.round(remaining * weights[i] * (alertCount / Math.min(alertCount, 12)));
+      const capped = Math.min(remaining, n);
+      for (let j = 0; j < capped; j++) alertStrikes.push(row.oi.strikes[i].strike);
+      remaining -= capped;
+    }
+    while (remaining-- > 0) alertStrikes.push(row.oi.strikes[row.oi.strikes.length - 1].strike);
+  } else {
+    const strikeStep = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
+    const atm = Math.round(spot / strikeStep) * strikeStep;
+    const synthStrikes = row.direction === "calls"
+      ? [atm, atm + strikeStep, atm + strikeStep * 2]
+      : [atm, atm - strikeStep, atm - strikeStep * 2];
+    const n = Math.min(alertCount, 10);
+    alertStrikes = [];
+    for (let i = 0; i < n; i++) alertStrikes.push(synthStrikes[i % synthStrikes.length]);
+  }
+  // Same premium distribution logic as renderFlowChart
+  const perAlertSeed = i => h + 500 + i;
+  const rawWeights = alertStrikes.map((_, i) => seededRand(perAlertSeed(i), 0.5, 2.0));
+  const sumW = rawWeights.reduce((s, x) => s + x, 0);
+  const premiums = rawWeights.map(w => totalPremiumUsd * (w / sumW));
+
+  const uniqStrikes = [...new Set(alertStrikes)];
+  return uniqStrikes.map(s => {
+    const idx = alertStrikes.map((v, i) => v === s ? i : -1).filter(i => i >= 0);
+    const cnt = idx.length;
+    const sumPrem = idx.reduce((acc, i) => acc + premiums[i], 0);
+    return {strike: s, count: cnt, premium: sumPrem, avgPerAlert: cnt > 0 ? sumPrem / cnt : 0};
+  });
+}
+
+function renderFlowChart(row, alertCount, totalPremiumUsd) {
+  const h = strHash(row.ticker);
+  const W = 560, H = 200;
+  const padL = 50, padR = 16, padT = 14, padB = 26;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const spot = row.spot;
+
+  // ---- Synthesize alert distribution across (time, strike, premium) ----
+  // For synthetic rows: respect row.oi.strikes (the strikes that show up in Tile 2).
+  // For live rows: pick 4-5 strikes evenly around spot.
+  let alertStrikes;
+  if (row.is_synthetic && row.oi && row.oi.strikes) {
+    // Weight by OI activity — strikes with higher growth get more alerts
+    const totalAct = row.oi.strikes.reduce((s, k) => s + Math.max(1, Math.abs(k.pct)), 0);
+    const weights = row.oi.strikes.map(k => Math.max(1, Math.abs(k.pct)) / totalAct);
+    alertStrikes = [];
+    let remaining = Math.min(alertCount, 12);  // cap visible bars at 12 for readability
+    for (let i = 0; i < row.oi.strikes.length - 1; i++) {
+      const n = Math.round(remaining * weights[i] * (alertCount / Math.min(alertCount, 12)));
+      const capped = Math.min(remaining, n);
+      for (let j = 0; j < capped; j++) alertStrikes.push(row.oi.strikes[i].strike);
+      remaining -= capped;
+    }
+    // Last strike gets the rest
+    while (remaining-- > 0) alertStrikes.push(row.oi.strikes[row.oi.strikes.length - 1].strike);
+  } else {
+    // Live row: synth 4-5 strikes near spot, distribute alerts across them
+    const strikeStep = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
+    const atm = Math.round(spot / strikeStep) * strikeStep;
+    const synthStrikes = row.direction === "calls"
+      ? [atm, atm + strikeStep, atm + strikeStep * 2]
+      : [atm, atm - strikeStep, atm - strikeStep * 2];
+    const n = Math.min(alertCount, 10);
+    alertStrikes = [];
+    for (let i = 0; i < n; i++) {
+      alertStrikes.push(synthStrikes[i % synthStrikes.length]);
+    }
+  }
+
+  // Per-alert premium: distribute totalPremiumUsd weighted by hash so it's varied but stable
+  const perAlertSeed = i => h + 500 + i;
+  const rawWeights = alertStrikes.map((_, i) => seededRand(perAlertSeed(i), 0.5, 2.0));
+  const sumW = rawWeights.reduce((s, x) => s + x, 0);
+  const premiums = rawWeights.map(w => totalPremiumUsd * (w / sumW));
+
+  // Per-alert timestamp: distribute across [0..1] of the 4-hour session, deterministic
+  const timeFracs = alertStrikes.map((_, i) =>
+    Math.min(0.98, Math.max(0.02, (i + seededRand(h + 700 + i, 0.15, 0.85)) / alertStrikes.length))
+  );
+
+  // ---- Y-axis range: spans min(strikes, spot * 0.985) to max(strikes, spot * 1.015) ----
+  const allStrikes = alertStrikes.slice();
+  const yMin = Math.min(spot * 0.985, ...allStrikes) * 0.998;
+  const yMax = Math.max(spot * 1.015, ...allStrikes) * 1.002;
+  const yForPrice = p => padT + innerH * (1 - (p - yMin) / (yMax - yMin));
+  const xForFrac = f => padL + innerW * f;
+
+  // ---- Stock price line (deterministic sin-walk around spot) ----
+  const linePts = [];
+  for (let i = 0; i <= 48; i++) {
+    const f = i / 48;
+    const noise = seededRand(h + i, -1, 1);
+    const drift = Math.sin(f * Math.PI * 2 + (h % 7)) * 0.008;
+    const price = spot * (1 + drift + noise * 0.002);
+    linePts.push(`${xForFrac(f).toFixed(1)},${yForPrice(price).toFixed(1)}`);
+  }
+
+  // ---- Tick labels for y-axis (3 ticks: lo / spot / hi) ----
+  const fmt = p => p.toFixed(spot >= 100 ? 0 : 2);
+  // Render bars + labels
+  let barsSvg = "";
+  for (let i = 0; i < alertStrikes.length; i++) {
+    const x = xForFrac(timeFracs[i]);
+    const yStrike = yForPrice(alertStrikes[i]);
+    const yBase = padT + innerH;  // bottom of plot area
+    // Vertical bar from x-axis up to the strike level
+    barsSvg += `<line x1="${x.toFixed(1)}" y1="${yBase}" x2="${x.toFixed(1)}" y2="${yStrike.toFixed(1)}" stroke="var(--hot)" stroke-width="2" opacity="0.85"/>`;
+    // Dot anchor at the strike
+    barsSvg += `<circle cx="${x.toFixed(1)}" cy="${yStrike.toFixed(1)}" r="3" fill="var(--hot)"/>`;
+    // $ label above the strike dot (alternating up/down to reduce label collisions for clustered alerts)
+    const labelY = yStrike - 6 + (i % 2) * -10;
+    const labelText = premiums[i] >= 1e6
+      ? `$${(premiums[i] / 1e6).toFixed(1)}M`
+      : `$${Math.round(premiums[i] / 1e3)}k`;
+    barsSvg += `<text x="${x.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" fill="var(--text)" font-family="ui-monospace,monospace" font-size="9">${labelText}</text>`;
+  }
+
+  // ---- Strike-level horizontal guide lines (per-strike $ aggregate moved
+  // OUT of the SVG into a footer row below the chart, so the chart can use the
+  // full tile width and stay visually consistent with other tiles). ----
+  let guideSvg = "";
+  const uniqStrikes = [...new Set(alertStrikes)];
+  for (const s of uniqStrikes) {
+    const y = yForPrice(s);
+    guideSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + innerW}" y2="${y.toFixed(1)}" stroke="var(--grid)" stroke-width="0.5" stroke-dasharray="2,2"/>`;
+    guideSvg += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--hot)" font-family="ui-monospace,monospace" font-size="9">$${fmt(s)}</text>`;
+  }
+
+  // ---- Time tick labels (4 session-time markers) ----
+  const timeTicks = ["9:30", "10:30", "11:30", "12:30", "13:30"];
+  let timeAxisSvg = "";
+  for (let i = 0; i < timeTicks.length; i++) {
+    const x = xForFrac(i / (timeTicks.length - 1));
+    timeAxisSvg += `<text x="${x.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="ui-monospace,monospace" font-size="9">${timeTicks[i]}</text>`;
+  }
+
+  // ---- Axis box ----
+  const axisBox = `
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>
+    <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>
+  `;
+
+  // ---- Y-axis labels (left of plot area) ----
+  // Orange horizontal reference line marks the CURRENT spot price (right now);
+  // the white polyline is the stock price walking through the 4-hour session.
+  // Both are "spot" in different senses — relabeled below to avoid confusion.
+  const ySpotLabel = `<text x="${padL - 4}" y="${(yForPrice(spot) + 3).toFixed(1)}" text-anchor="end" fill="var(--warn)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="700">now $${fmt(spot)}</text>`;
+  const ySpotLine = `<line x1="${padL}" y1="${yForPrice(spot).toFixed(1)}" x2="${padL + innerW}" y2="${yForPrice(spot).toFixed(1)}" stroke="var(--warn)" stroke-width="1" opacity="0.5" stroke-dasharray="3,3"/>`;
+
+  return `
+    <div class="flow-legend-row">
+      <span class="legend-item"><span class="legend-swatch white"></span>stock price (4hr session)</span>
+      <span class="legend-item"><span class="legend-swatch warn"></span>now: $${fmt(spot)}</span>
+      <span class="legend-item"><span class="legend-swatch hot"></span>unusual trade ($ premium)</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:220px;display:block;">
+      ${axisBox}
+      ${guideSvg}
+      ${ySpotLine}
+      ${ySpotLabel}
+      <polyline points="${linePts.join(" ")}" fill="none" stroke="#FFFFFF" stroke-width="1.6" opacity="0.95" filter="drop-shadow(0 0 3px rgba(255,255,255,0.35))"/>
+      ${barsSvg}
+      ${timeAxisSvg}
+      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">session time (4-hour window)</text>
+    </svg>
+  `;
+}
+
+/* ============================================================
+ * Task 10: Tile 2 — OI Confirmation (mini-table)
+ * ============================================================ */
+
+function renderTile2OI(row) {
+  const g = row.gates.oi;
+  let strikes;
+  let strikeSource = "live";
+  if (row.is_synthetic && row.oi && row.oi.strikes) {
+    strikes = row.oi.strikes;
+  } else {
+    // Synthesize 5 strikes around spot for LIVE rows (Basic-tier snapshot
+    // doesn't include oi-change in the leaderboard fetch). Deterministic.
+    const h = strHash(row.ticker);
+    const spot = row.spot;
+    const step = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
+    const atm = Math.round(spot / step) * step;
+    const isCalls = row.direction === "calls" || (row.gex_aggregate || 0) >= 0;
+    const offsets = isCalls ? [0, 1, 2, -1, 3] : [0, -1, -2, 1, -3];
+    strikes = offsets.map((off, i) => {
+      const strike = atm + off * step;
+      const prev = Math.round(seededRand(h + i * 7, 4000, 11000));
+      const pctRaw = seededRand(h + i * 11, isCalls ? -8 : -25, isCalls ? 40 : 6);
+      const pct = Math.round(pctRaw);
+      const today = Math.round(prev * (1 + pct / 100));
+      return { strike, prev, today, pct };
+    }).sort((a, b) => b.pct - a.pct);
+    strikeSource = "proxy";
+  }
+  if (!strikes || strikes.length === 0 || (strikes[0].prev === 0 && strikes[0].today === 0)) {
+    return `
+      <h3>
+        <span><span class="gate-dot ${g}"></span>Tile 2: OI Confirmation</span>
+        <button class="help-icon" data-help="tile2">?</button>
+      </h3>
+      <div style="padding:14px; text-align:center; color:var(--axis); font-family:var(--ff-mono); font-size:11px;">
+        No OI data available for ${row.ticker}. ${pill("proxy")}
+      </div>
+    `;
+  }
+  // Compute Tile 1's per-strike aggregates so we can approximate the $ flow per
+  // strike (Tile 2 row × Tile 1 alert data). UW gives OI in contracts only — this
+  // estimates the dollar inflow from the OI Δ using Tile 1's avg per-alert premium
+  // and a CALIBRATION assumption for typical contracts-per-unusual-alert.
+  const flowData = row.is_synthetic ? row.flow : {
+    rank_cross: row.flow_rank_cross,
+    alerts: row.alerts_count,
+    premium_usd: row.alerts_total_premium_usd,
+  };
+  const aggregates = computeAlertStrikeAggregates(row, flowData.alerts, flowData.premium_usd);
+  const aggByStrike = Object.fromEntries(aggregates.map(a => [a.strike, a]));
+
+  function approxDollarDelta(s) {
+    // OI Δ (contracts) × (avg per-alert $ premium) ÷ assumed-contracts-per-alert
+    // = OI Δ × (price × 100 × ~assumed_size) ÷ assumed_size = OI Δ × price × 100
+    // Returns null if no Tile 1 alert data exists for this strike.
+    const agg = aggByStrike[s.strike];
+    if (!agg || agg.count === 0) return null;
+    const deltaContracts = s.today - s.prev;
+    return deltaContracts * (agg.avgPerAlert / CALIBRATION.approx_contracts_per_alert);
+  }
+
+  function fmtDollarDelta(v) {
+    if (v === null) return `<span style="color: var(--axis);">—</span>`;
+    const sign = v >= 0 ? "+" : "−";
+    const abs = Math.abs(v);
+    const out = abs >= 1e6 ? `${sign}$${(abs / 1e6).toFixed(1)}M` : `${sign}$${Math.round(abs / 1e3)}k`;
+    const color = v >= 0 ? "var(--ok)" : "var(--neg)";
+    return `<span style="color: ${color};">${out}</span>`;
+  }
+
+  const rowsHtml = strikes.map(s => {
+    const status = s.pct >= 20 ? "green" : s.pct <= -5 ? "red" : "yellow";
+    const label = status === "green" ? "Opening" : status === "red" ? "Closing" : "Marginal";
+    const approxDollar = approxDollarDelta(s);
+    return `
+      <tr>
+        <td>$${s.strike}</td>
+        <td>${s.prev.toLocaleString()}</td>
+        <td>${s.today.toLocaleString()}</td>
+        <td>${s.pct >= 0 ? "+" : ""}${s.pct}%</td>
+        <td>${fmtDollarDelta(approxDollar)}</td>
+        <td class="status-cell"><span class="gate-dot ${status}"></span> ${label}</td>
+      </tr>
+    `;
+  }).join("");
+  return `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 2: OI Confirmation</span>
+      <button class="help-icon" data-help="tile2">?</button>
+    </h3>
+    <table class="oi-table">
+      <thead><tr><th>Strike</th><th>Yesterday OI</th><th>Today OI</th><th>Change</th><th data-tooltip-trigger="oi_dollar_approx">$ Δ (approx)</th><th>Status</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <div style="margin-top:8px; font-size:10px; color:var(--axis); font-family:var(--ff-mono);">
+      OI in contracts ${pill("live")} · $ Δ ${pill("proxy")} — tap "?" or column header for math.
+    </div>
+  `;
+}
+
+/* ============================================================
+ * Task 11: Tile 3 — Structural Setup (γ ladder SVG)
+ * ============================================================ */
+
+function renderTile3Structural(row) {
+  const g = row.gates.structural;
+  // Use top-level normalized fields (set by enrichLive / normalizeSynth)
+  const gex = {
+    flip_dist_pct: row.flip_dist_pct,
+    wall_up_dist_pct: row.wall_up_dist_pct,
+    wall_dn_dist_pct: row.wall_dn_dist_pct,
+    agg_gamma_b: row.agg_gamma_b,
+    sign: row.gex_sign,
+  };
+  const spot = row.spot;
+  const flipStrike = spot * (1 + gex.flip_dist_pct / 100);
+  const callWallStrike = spot * (1 + gex.wall_up_dist_pct / 100);
+  const putWallStrike = spot * (1 - gex.wall_dn_dist_pct / 100);
+  return `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 3: Structural Setup</span>
+      <button class="help-icon" data-help="tile3">?</button>
+    </h3>
+    <div class="ladder-wrap">
+      <svg viewBox="0 0 640 280" preserveAspectRatio="none" style="width:100%;height:280px;display:block;">
+        <defs>
+          <linearGradient id="ladderGradPos" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#7AA2F7" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#7AA2F7" stop-opacity="1"/>
+          </linearGradient>
+          <linearGradient id="ladderGradNeg" x1="1" y1="0" x2="0" y2="0">
+            <stop offset="0%" stop-color="#F7768E" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#F7768E" stop-opacity="1"/>
+          </linearGradient>
+          <filter id="ladderBarGlow" x="-10%" y="-30%" width="120%" height="160%">
+            <feGaussianBlur stdDeviation="1.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        ${ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike)}
+      </svg>
+    </div>
+    <div class="ladder-meta">
+      <div class="m"><span class="lbl">Spot</span><span class="val">$${spot.toFixed(2)}</span></div>
+      <div class="m"><span class="lbl">γ Flip</span><span class="val">$${flipStrike.toFixed(2)} (${gex.flip_dist_pct >= 0 ? "+" : ""}${gex.flip_dist_pct.toFixed(1)}%)</span></div>
+      <div class="m"><span class="lbl">Walls</span><span class="val">+${gex.wall_up_dist_pct.toFixed(1)}% / −${gex.wall_dn_dist_pct.toFixed(1)}%</span></div>
+    </div>
+    ${renderStructuralInsight(row, gex, spot, flipStrike, callWallStrike, putWallStrike)}
+  `;
+}
+
+/* 3-sentence structural-setup insight. Deterministic placeholder for the
+ * production Gemini call — when wired, swap the body for an LLM call seeded
+ * with the same row data so the prose summarizes what the chart shows. */
+function renderStructuralInsight(row, gex, spot, flipStrike, callWall, putWall) {
+  const isCall = row.direction === "calls";
+  const flipPct = gex.flip_dist_pct;
+  const flipDir = flipPct >= 0 ? "above" : "below";
+  const flipNear = Math.abs(flipPct) <= CALIBRATION.gate3_flip_dist_pct;
+  const dirWallPct = isCall ? gex.wall_up_dist_pct : gex.wall_dn_dist_pct;
+  const oppWallPct = isCall ? gex.wall_dn_dist_pct : gex.wall_up_dist_pct;
+  const dirWallTight = dirWallPct <= 2.0;
+  const oppFloor = oppWallPct <= CALIBRATION.protected_itm_opp_wall_pct;
+
+  // Sentence 1 — flip context
+  let s1;
+  if (flipNear) {
+    s1 = `Spot is <strong>${Math.abs(flipPct).toFixed(1)}% ${flipDir}</strong> the γ flip — close enough that a small move <em>${isCall ? "up" : "down"}</em> would cross dealers from short to long γ, which amplifies the move in your direction.`;
+  } else {
+    s1 = `Spot is <strong>${Math.abs(flipPct).toFixed(1)}% ${flipDir}</strong> the γ flip — far enough that a structural cross isn't the near-term driver here.`;
+  }
+  // Sentence 2 — wall context
+  let s2;
+  if (dirWallTight) {
+    s2 = `The ${isCall ? "call" : "put"} wall sits only <strong>${dirWallPct.toFixed(1)}%</strong> ${isCall ? "above" : "below"} spot — that's a hard resistance for your ${row.direction}; it usually <em>caps</em> the move before earnings or a clean catalyst.`;
+  } else if (oppFloor) {
+    s2 = `The opposing wall is only <strong>${oppWallPct.toFixed(1)}%</strong> away — that gives an ITM strike a structural floor, since dealers defend that level.`;
+  } else {
+    s2 = `Nearest wall in your direction is <strong>${dirWallPct.toFixed(1)}%</strong> away — wide enough that the bars between spot and the wall are a clean runway for the trade.`;
+  }
+  // Sentence 3 — overall read
+  let s3;
+  if (row.gates.structural === "green") s3 = `Net read: structure <em>favors</em> the ${row.direction} side.`;
+  else if (row.gates.structural === "yellow") s3 = `Net read: structure is <em>neutral</em> — not helping, not hurting.`;
+  else s3 = `Net read: structure <em>fights</em> this trade; consider waiting for a better setup.`;
+
+  return `
+    <div class="insight" data-llm-future="tile3_structural_insight">
+      <div class="label">chart insight · pre-wired Gemini call</div>
+      ${s1} ${s2} ${s3}
+    </div>
+  `;
+}
+
+function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
+  // Vertical ladder of synthesized strikes with bars — taller canvas + fewer
+  // strikes so individual bars are visibly thick.
+  const h = strHash(row.ticker);
+  const padT = 14, padB = 22, padL = 70, padR = 110;
+  const W = 640, H = 280;
+  const innerH = H - padT - padB, innerW = W - padL - padR;
+  const minStrike = Math.min(putWallStrike, spot * 0.94);
+  const maxStrike = Math.max(callWallStrike, spot * 1.06);
+  const yForStrike = s => padT + innerH * (1 - (s - minStrike) / (maxStrike - minStrike));
+
+  // 7 strikes evenly spaced around spot — wider rows = thicker bars
+  const strikes = [];
+  for (let i = -3; i <= 3; i++) strikes.push(spot * (1 + i * 0.02));
+  const centerX = padL + innerW / 2;
+
+  // Compute γ for each strike first, then scale x-axis to the actual max so
+  // bars fill the available width instead of compressing against an arbitrary cap.
+  const gammaByStrike = strikes.map(s => {
+    const dist = (s - flipStrike) / spot;
+    return (row.direction === "calls" ? 1 : -1) * Math.sign(dist)
+         * (1 - Math.min(1, Math.abs(dist) * 30)) * 2
+         + seededRand(h + Math.round(s * 100), -0.3, 0.3);
+  });
+  const observedMax = Math.max(...gammaByStrike.map(g => Math.abs(g)), 0.5);
+  // 90% headroom — biggest bar reaches ~90% to the edge, never clips
+  const maxAbsG = observedMax / 0.90;
+  const halfTrack = innerW / 2 - 6;
+  const xForGamma = g => centerX + (g / maxAbsG) * halfTrack;
+
+  let svg = "";
+
+  // Faint full-width row guides so each strike's lane is obvious
+  for (let i = 0; i < strikes.length; i++) {
+    const y = yForStrike(strikes[i]);
+    const barH = innerH / strikes.length - 2;
+    svg += `<rect x="${padL}" y="${y - barH/2}" width="${innerW}" height="${barH}" fill="rgba(255,255,255,0.018)" rx="2"/>`;
+  }
+
+  // Strike bars (γ synthesized to land flip at flipStrike)
+  for (let i = 0; i < strikes.length; i++) {
+    const s = strikes[i];
+    const g = gammaByStrike[i];
+    const y = yForStrike(s);
+    const x = xForGamma(g);
+    const barH = innerH / strikes.length - 2;
+    const isPos = g >= 0;
+    const barFill = isPos
+      ? "url(#ladderGradPos)"
+      : "url(#ladderGradNeg)";
+    const barW = Math.max(3, Math.abs(x - centerX));
+    svg += `<rect x="${Math.min(centerX, x).toFixed(1)}" y="${(y - barH/2).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barFill}" rx="2" filter="url(#ladderBarGlow)"/>`;
+    // γ value label inside the bar when wide enough, otherwise just outside
+    const gFmt = isPos ? `+${g.toFixed(1)}` : g.toFixed(1);
+    const labelInside = barW >= 28;
+    const labelX = labelInside
+      ? (isPos ? x - 4 : x + 4)
+      : (isPos ? x + 5 : x - 5);
+    const labelAnchor = labelInside
+      ? (isPos ? "end" : "start")
+      : (isPos ? "start" : "end");
+    const labelFill = labelInside ? "#FFFFFF" : "var(--axis)";
+    const labelWeight = labelInside ? "700" : "400";
+    svg += `<text x="${labelX.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${labelAnchor}" fill="${labelFill}" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10" font-weight="${labelWeight}">${gFmt}</text>`;
+    svg += `<text x="${(padL - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">$${s.toFixed(s>100?0:2)}</text>`;
+  }
+
+  // Vertical centerline (zero γ axis)
+  svg += `<line x1="${centerX}" x2="${centerX}" y1="${padT}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>`;
+  // Axis tick marks at ±50% and ±100% of the scaled max (oriented around 0)
+  const tickValues = [-maxAbsG, -maxAbsG/2, maxAbsG/2, maxAbsG];
+  for (const tv of tickValues) {
+    const tx = xForGamma(tv);
+    svg += `<line x1="${tx.toFixed(1)}" x2="${tx.toFixed(1)}" y1="${(padT + innerH).toFixed(1)}" y2="${(padT + innerH + 4).toFixed(1)}" stroke="var(--axis)" stroke-width="0.6"/>`;
+    svg += `<text x="${tx.toFixed(1)}" y="${(padT + innerH + 13).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${tv > 0 ? "+" : ""}${tv.toFixed(1)}</text>`;
+  }
+  svg += `<text x="${centerX}" y="${padT + innerH + 13}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">0</text>`;
+  // Left & right axis labels
+  svg += `<text x="${padL + 4}" y="${padT + 10}" text-anchor="start" fill="var(--neg)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="600">◀ short γ</text>`;
+  svg += `<text x="${padL + innerW - 4}" y="${padT + 10}" text-anchor="end" fill="var(--pos)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="600">long γ ▶</text>`;
+
+  // Spot line (orange solid)
+  const ys = yForStrike(spot);
+  svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${ys}" y2="${ys}" stroke="var(--warn)" stroke-width="2"/>`;
+  svg += `<text x="${padL + innerW + 6}" y="${ys + 4}" fill="var(--warn)" font-family="ui-monospace,monospace" font-size="11" font-weight="700">SPOT $${spot.toFixed(spot > 100 ? 0 : 2)}</text>`;
+
+  // Gamma flip line (purple dashed)
+  const yf = yForStrike(flipStrike);
+  svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${yf}" y2="${yf}" stroke="var(--hot)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+  svg += `<text x="${padL + innerW + 6}" y="${yf + 4}" fill="var(--hot)" font-family="ui-monospace,monospace" font-size="11" font-weight="700">FLIP $${flipStrike.toFixed(flipStrike > 100 ? 0 : 2)}</text>`;
+
+  // Wall callouts (call wall above, put wall below) — labels on RIGHT side now that we have width
+  const yCW = yForStrike(callWallStrike);
+  const yPW = yForStrike(putWallStrike);
+  if (yCW >= padT && yCW <= padT + innerH) {
+    svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${yCW}" y2="${yCW}" stroke="var(--pos)" stroke-width="1" stroke-dasharray="2,3" opacity="0.7"/>`;
+    svg += `<text x="${padL + innerW + 6}" y="${yCW + 4}" fill="var(--pos)" font-family="ui-monospace,monospace" font-size="10">CALL WALL $${callWallStrike.toFixed(callWallStrike > 100 ? 0 : 2)}</text>`;
+  }
+  if (yPW >= padT && yPW <= padT + innerH) {
+    svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${yPW}" y2="${yPW}" stroke="var(--neg)" stroke-width="1" stroke-dasharray="2,3" opacity="0.7"/>`;
+    svg += `<text x="${padL + innerW + 6}" y="${yPW + 4}" fill="var(--neg)" font-family="ui-monospace,monospace" font-size="10">PUT WALL $${putWallStrike.toFixed(putWallStrike > 100 ? 0 : 2)}</text>`;
+  }
+
+  return svg;
+}
+
+/* ============================================================
+ * Task 12: Tile 4 — Cost & Timing (IVR gauge + v2.2 curve shape)
+ * ============================================================ */
+
+function renderTile4Cost(row) {
+  const g = row.gates.cost;
+  const ivr = row.ivr;
+  const needlePct = Math.max(0, Math.min(100, ivr));
+  const earnDays = row.days_to_earnings;
+  let earnLabel, earnStatus;
+  if (earnDays === null) { earnLabel = "no scheduled earnings"; earnStatus = "gray"; }
+  else if (earnDays < CALIBRATION.earnings_days_min) { earnLabel = `${earnDays}d (within 7d window — FAIL)`; earnStatus = "red"; }
+  else { earnLabel = `${earnDays}d`; earnStatus = "green"; }
+
+  // v2.2 curve shape
+  const cs = ivCurveShape(row);
+  const c = row.iv_term_curve;
+  let curveLabel, curveClass, curveTooltipKey;
+  if (cs.shape === "severe_inverted") {
+    curveLabel = `Curve shape: INVERTED ↘ — front-month IV is elevated vs. back months`;
+    curveClass = "severe";
+    curveTooltipKey = "curve_shape";
+  } else if (cs.shape === "mild_inverted") {
+    curveLabel = `Curve shape: Inverted ↘`;
+    curveClass = "mild";
+    curveTooltipKey = "curve_shape";
+  } else {
+    curveLabel = `Curve shape: Normal ↗`;
+    curveClass = "normal";
+    curveTooltipKey = "curve_shape_normal";
+  }
+  const ivsDetail = c
+    ? `<span class="ivs">front-month at <strong>${(c[0]*100).toFixed(0)} IV</strong>, back at <strong>${(c[c.length-1]*100).toFixed(0)}</strong></span>`
+    : "";
+
+  return `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 4: Cost & Timing</span>
+      <button class="help-icon" data-help="tile4">?</button>
+    </h3>
+    <div style="font-family:var(--ff-mono); font-size:11px; color:var(--axis);">
+      IV rank: <span style="color:var(--title); font-weight:600;">${ivr.toFixed(0)}</span> ${pill("live")}
+    </div>
+    <div class="ivr-gauge">
+      <div class="zone green"></div>
+      <div class="zone yellow"></div>
+      <div class="zone red"></div>
+      <div class="needle" style="left: ${needlePct}%;"></div>
+    </div>
+    <div class="ivr-axis"><span>0</span><span>60</span><span>80</span><span>100</span></div>
+    <div class="earnings-line">
+      <span class="indicator ${earnStatus}"></span>
+      Days until next earnings: <strong>${earnLabel}</strong>
+    </div>
+    <div class="curve-line ${curveClass}" data-tooltip-trigger="${curveTooltipKey}">
+      ${curveLabel}
+    </div>
+    ${renderTermStructureChart(row, curveClass)}
+    ${renderCurveInsight(row, cs)}
+  `;
+}
+
+/* 1-sentence term-structure insight. Placeholder for future Gemini call. */
+function renderCurveInsight(row, cs) {
+  const c = row.iv_term_curve;
+  if (!c || c.length < 2) return "";
+  const front = (c[0] * 100).toFixed(0);
+  const back = (c[c.length - 1] * 100).toFixed(0);
+  let body;
+  if (cs.shape === "severe_inverted") {
+    body = `Front-month IV (<strong>${front}</strong>) is <em>${cs.spread_pts.toFixed(1)} vol points</em> hotter than back (<strong>${back}</strong>) — market is pricing a near-term event, so this-week options are over-priced relative to next-week.`;
+  } else if (cs.shape === "mild_inverted") {
+    body = `Mild front-month premium (<strong>${front}</strong> vs <strong>${back}</strong>) — a near-term catalyst is being priced in but not aggressively; check Tile 6 cost/day before committing.`;
+  } else {
+    body = `Normal upward curve (<strong>${front}</strong> → <strong>${back}</strong>) — no near-term vol premium; standard expiration selection applies.`;
+  }
+  return `
+    <div class="insight" data-llm-future="tile4_curve_insight">
+      <div class="label">chart insight · pre-wired Gemini call</div>
+      ${body}
+    </div>
+  `;
+}
+
+/* IV term-structure sparkline: plots 7d/14d/30d/60d implied vol so the curve
+ * shape is visually obvious (inverted → downward slope, normal → upward slope).
+ * Color follows the curve-shape class (red/orange/green). */
+function renderTermStructureChart(row, curveClass) {
+  const curve = row.iv_term_curve;
+  if (!curve || curve.length < 2) {
+    return `<div style="margin-top:8px; font-size:10px; color:var(--axis); font-family:var(--ff-mono);">No term-structure data on this row.</div>`;
+  }
+  // Standard expiration ladder we assume the array corresponds to
+  const DTES = [7, 14, 30, 60];
+  const W = 320, H = 110;
+  const padL = 36, padR = 12, padT = 10, padB = 22;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const minIV = Math.min(...curve) * 0.94;
+  const maxIV = Math.max(...curve) * 1.06;
+  const ivRange = maxIV - minIV || 0.01;
+  const lineColor = curveClass === "severe" ? "var(--neg)"
+                   : curveClass === "mild"  ? "var(--warn)"
+                   : "var(--ok)";
+  const glow = curveClass === "severe" ? "var(--neg-glow)"
+              : curveClass === "mild"  ? "var(--warn-glow)"
+              : "var(--ok-glow)";
+  const xFor = i => padL + (innerW * i) / Math.max(1, curve.length - 1);
+  const yFor = v => padT + innerH * (1 - (v - minIV) / ivRange);
+  const points = curve.map((v, i) => `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`);
+  const polyline = `<polyline points="${points.join(" ")}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" filter="drop-shadow(0 0 3px ${glow})"/>`;
+  // Area under the line for visual weight
+  const areaPts = [...points];
+  areaPts.push(`${xFor(curve.length - 1).toFixed(1)},${(padT + innerH).toFixed(1)}`);
+  areaPts.push(`${padL.toFixed(1)},${(padT + innerH).toFixed(1)}`);
+  const area = `<polygon points="${areaPts.join(" ")}" fill="${lineColor}" opacity="0.10"/>`;
+  // Dots + labels at each point
+  const dots = curve.map((v, i) => {
+    const cx = xFor(i), cy = yFor(v);
+    const ivPct = (v * 100).toFixed(0);
+    const dteLabel = DTES[i] !== undefined ? `${DTES[i]}d` : "";
+    return `
+      <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${lineColor}" stroke="var(--bg-2)" stroke-width="1.5"/>
+      <text x="${cx.toFixed(1)}" y="${(cy - 8).toFixed(1)}" text-anchor="middle" fill="var(--title)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10" font-weight="600">${ivPct}</text>
+      <text x="${cx.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${dteLabel}</text>
+    `;
+  }).join("");
+  // Y-axis label
+  const yLabel = `<text x="${(padL - 8).toFixed(1)}" y="${(padT + innerH/2 + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">IV %</text>`;
+  return `
+    <div class="term-chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:110px;display:block;">
+        <line x1="${padL}" x2="${padL}" y1="${padT}" y2="${padT + innerH}" stroke="var(--grid)" stroke-width="0.6"/>
+        <line x1="${padL}" x2="${padL + innerW}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="var(--grid)" stroke-width="0.6"/>
+        ${area}
+        ${polyline}
+        ${dots}
+        ${yLabel}
+      </svg>
+    </div>
+  `;
+}
+
+/* ============================================================
+ * Task 13: Tile 5 — Confirmation Stack (2 badges, no gate dot)
+ * ============================================================ */
+
+function renderTile5Confirmation(row) {
+  // No gate dot — Tile 5 is tiebreaker, not a gate
+  const isSynth = row.is_synthetic;
+
+  // ── Sector tide ─────────────────────────────────────────────────────────
+  const sectorName = isSynth ? row.sector : "broad-market ETF";
+  const tideVal = isSynth
+    ? row.sector_tide_value
+    : (row.gates.flow === "green" ? 0.34 : row.gates.flow === "red" ? -0.34 : 0.08);
+  const tideAbs = Math.abs(tideVal);
+  const tideStatus = tideAbs > CALIBRATION.sector_tide_green_abs
+    ? (tideVal > 0 ? "green" : "red")
+    : (tideAbs > 0.12 ? "yellow" : "gray");
+  const tideDir = tideVal > 0 ? "bullish" : tideVal < 0 ? "bearish" : "flat";
+  const tradeDir = row.direction === "calls" ? "calls" : "puts";
+  const tideAgrees = (row.direction === "calls" && tideVal > 0) || (row.direction === "puts" && tideVal < 0);
+  const sectorPill = isSynth ? pill("live") : pill("proxy");
+
+  // ── News headlines ──────────────────────────────────────────────────────
+  const newsItems = isSynth ? (row.news_items || []) : [];
+  const newsCount = newsItems.length;
+  const newsStatus = newsCount === 0 ? "gray" : newsCount >= 3 ? "yellow" : "green";
+
+  // ── Dark pool ───────────────────────────────────────────────────────────
+  let dpNet, dpPct, dpTrend;
+  if (isSynth) {
+    dpNet = row.dark_pool.net_premium_usd;
+    dpPct = row.dark_pool.pct_of_volume;
+    dpTrend = row.dark_pool.trend;
+  } else {
+    dpNet = row.dp_net_premium_usd || 0;
+    // % of volume is PROXY — UW Basic doesn't give consolidated volume here.
+    // Synthesize a plausible value deterministically.
+    const h = strHash(row.ticker);
+    dpPct = Math.round(seededRand(h * 7, 12, 38));
+    dpTrend = dpNet > 0 ? "buying" : dpNet < 0 ? "selling" : "neutral";
+  }
+  const dpAbs = Math.abs(dpNet);
+  const dpFmt = dpAbs >= 1e9
+    ? `${(dpNet / 1e9).toFixed(2)}B`
+    : dpAbs >= 1e6
+      ? `${(dpNet / 1e6).toFixed(1)}M`
+      : `${Math.round(dpNet / 1e3)}k`;
+  const dpSign = dpNet > 0 ? "+" : dpNet < 0 ? "" : "";  // negative number already has -
+  const dpAgrees = (row.direction === "calls" && dpNet > 0) || (row.direction === "puts" && dpNet < 0);
+  const dpStatus = dpAbs < 500_000
+    ? "gray"
+    : (dpAgrees ? "green" : "red");
+  const dpNetPill = isSynth ? pill("live") : pill("live");
+  const dpPctPill = pill("proxy");
+
+  // ── News items HTML ─────────────────────────────────────────────────────
+  const newsHtml = newsCount === 0
+    ? `<div class="empty">No headlines in last 24h.</div>`
+    : newsItems.map(n => `
+        <div class="sec-row">
+          <span class="time">${n.time}</span>
+          <span class="src">${n.source}</span>
+          <span class="head">${n.headline}</span>
+        </div>
+      `).join("");
+
+  // Friendly tide caption
+  const tideCaption = isSynth
+    ? `${sectorName} sector — ${tideDir} ${(tideVal >= 0 ? "+" : "")}${tideVal.toFixed(2)} · ${tideAgrees ? "agrees with " + tradeDir : "fights " + tradeDir}`
+    : `derived from flow gate — no per-ticker sector mapping on Basic tier`;
+
+  return `
+    <h3>
+      <span>Tile 5: Confirmation Stack <span style="color:var(--axis); font-size:10px; font-weight:400;">(tiebreakers — not gates)</span></span>
+      <button class="help-icon" data-help="tile5">?</button>
+    </h3>
+    <div class="confirm-row">
+      <div class="confirm-badge"><span class="dot ${tideStatus}"></span> Sector tide ${(tideVal >= 0 ? "+" : "")}${tideVal.toFixed(2)}</div>
+      <div class="confirm-badge"><span class="dot ${newsStatus}"></span> News (${newsCount} ${newsCount === 1 ? "headline" : "headlines"})</div>
+      <div class="confirm-badge"><span class="dot ${dpStatus}"></span> Dark pool ${dpSign}$${dpFmt}</div>
+    </div>
+
+    <div class="confirm-detail">
+      <div class="confirm-section">
+        <div class="sec-head"><span class="title">Sector Tide</span><span>${sectorName.toUpperCase()}</span></div>
+        <div class="sec-value ${tideVal > 0 ? "pos" : tideVal < 0 ? "neg" : ""}">
+          ${(tideVal >= 0 ? "+" : "")}${tideVal.toFixed(2)}
+          <span class="sub">${tideDir}</span>
+        </div>
+        <div style="margin-top:6px; font-size:10px; color:var(--axis); line-height:1.4;">
+          ${tideCaption}
+        </div>
+      </div>
+
+      <div class="confirm-section">
+        <div class="sec-head"><span class="title">News (24h)</span><span>${newsCount}</span></div>
+        ${newsHtml}
+      </div>
+
+      <div class="confirm-section">
+        <div class="sec-head"><span class="title">Dark Pool</span><span>${dpTrend.toUpperCase()}</span></div>
+        <div class="sec-value ${dpNet > 0 ? "pos" : dpNet < 0 ? "neg" : ""}">
+          ${dpSign}$${dpFmt}
+          <span class="sub">net premium</span>
+        </div>
+        <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:baseline; font-size:10px;">
+          <span style="color:var(--axis);">${dpPct}% of consolidated vol</span>
+          <span style="color:var(--axis);">${dpAgrees ? "agrees with " + tradeDir : dpAbs < 500_000 ? "no signal" : "fights " + tradeDir}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+ * Task 14: Tile 6 — Contract Picker (v2.1 structural + v2.2 cost/day)
+ * ============================================================ */
+
+/* Annotate a strike based on its position relative to spot, flip, walls. Returns
+ * {label, class} where label is the short Structure-column text and class is
+ * an optional row class (e.g. "unfavorable", "itm"). */
+function annotateStrike(strike, spot, flipStrike, callWall, putWall, direction) {
+  const isCall = direction === "calls";
+  const dirWall = isCall ? callWall : putWall;
+  const oppWall = isCall ? putWall : callWall;
+  const oppWallPct = Math.abs(oppWall - spot) / spot * 100;
+  const onFlip = Math.abs(strike - flipStrike) / spot < 0.005;  // within 0.5% of flip
+  const onDirWall = Math.abs(strike - dirWall) / spot < 0.005;
+  const pastDirWall = isCall ? strike > dirWall : strike < dirWall;
+  const isITM = isCall ? strike < spot : strike > spot;
+  const favorableSide = isCall ? strike > flipStrike : strike < flipStrike;
+
+  // ITM with opposing wall providing floor (within X% in opposite direction — calibrated)
+  if (isITM && oppWallPct <= CALIBRATION.protected_itm_opp_wall_pct) {
+    return {label: `ITM · floor at $${oppWall.toFixed(strike < 100 ? 2 : 0)}`, class: "itm"};
+  }
+  // Strike on the γ flip
+  if (onFlip) return {label: "at γ flip", class: ""};
+  // Past directional wall (TREND/breakout target)
+  if (pastDirWall) return {label: "past wall", class: ""};
+  // On the directional wall
+  if (onDirWall) return {label: "at wall", class: ""};
+  // Between flip (on favorable side) and directional wall = clear path
+  const betweenFlipAndWall = favorableSide && (isCall ? strike < dirWall : strike > dirWall);
+  if (betweenFlipAndWall) return {label: "clear path", class: ""};
+  // On the unfavorable side of flip
+  if (!favorableSide && !isITM) return {label: "below flip — unfavorable", class: "unfavorable"};
+  // Default: thin γ zone (no nearby structural feature)
+  return {label: "thin γ zone", class: ""};
+}
+
+/* Pick the structurally-optimal strike per the spec table. Returns
+ * {strike, reason, recommend}. */
+function pickRecommendedStrike(row, candidates, spot, flipStrike, callWall, putWall, structurallyProtectedITM) {
+  const isCall = row.direction === "calls";
+  const dirWall = isCall ? callWall : putWall;
+  const gate3 = row.gates.structural;
+  // Gate 3 RED: don't recommend; just default to ATM with warning
+  if (gate3 === "red") {
+    const atm = candidates.reduce((best, c) => Math.abs(c - spot) < Math.abs(best - spot) ? c : best, candidates[0]);
+    const pickIsITM = isCall ? atm < spot : atm > spot;
+    const reason = (structurallyProtectedITM && pickIsITM)
+      ? "STRUCTURE FAILS · ITM floor only weak hedge"
+      : "STRUCTURE FAILS";
+    return {strike: atm, reason, recommend: false};
+  }
+  // Gate 3 YELLOW: ATM, no structural edge (unless opposing wall provides a floor)
+  if (gate3 === "yellow") {
+    const atm = candidates.reduce((best, c) => Math.abs(c - spot) < Math.abs(best - spot) ? c : best, candidates[0]);
+    const pickIsITM = isCall ? atm < spot : atm > spot;
+    const reason = (structurallyProtectedITM && pickIsITM)
+      ? "ATM with wall floor"
+      : "no structural edge";
+    return {strike: atm, reason, recommend: true};
+  }
+  // Gate 3 GREEN — pick by setup type
+  const flipFar = Math.abs(row.flip_dist_pct) > 3;
+  const wallCloseInDir = isCall ? row.wall_up_dist_pct < 1.5 : row.wall_dn_dist_pct < 1.5;
+  // TREND / breakout: flip far AND wall close in direction → just past wall
+  if (flipFar && wallCloseInDir) {
+    const past = candidates.filter(c => isCall ? c > dirWall : c < dirWall);
+    const pick = past.length > 0
+      ? past.reduce((best, c) => Math.abs(c - dirWall) < Math.abs(best - dirWall) ? c : best, past[0])
+      : candidates[0];
+    return {strike: pick, reason: "past wall (breakout)", recommend: true};
+  }
+  // Squeeze: flip close AND favorable AND no wall obstruction → at flip
+  const flipFavorable = isCall ? row.flip_dist_pct < 0 : row.flip_dist_pct > 0;
+  if (Math.abs(row.flip_dist_pct) < 1.0 && flipFavorable && !wallCloseInDir) {
+    const onFlip = candidates.reduce((best, c) => Math.abs(c - flipStrike) < Math.abs(best - flipStrike) ? c : best, candidates[0]);
+    return {strike: onFlip, reason: "at γ flip (regime transition)", recommend: true};
+  }
+  // Default PIN (flip favorable, near spot, wall reasonable distance): clear path
+  const clearPath = candidates.filter(c => {
+    const favSide = isCall ? c > flipStrike : c < flipStrike;
+    const beforeWall = isCall ? c < dirWall : c > dirWall;
+    return favSide && beforeWall;
+  });
+  const pick = clearPath.length > 0
+    ? clearPath.reduce((best, c) => Math.abs(c - spot) < Math.abs(best - spot) ? c : best, clearPath[0])
+    : candidates[0];
+  return {strike: pick, reason: "clear path", recommend: true};
+}
+
+function renderTile6Picker(row) {
+  const isCall = row.direction === "calls";
+  const spot = row.spot;
+  // Expirations carry both label and DTE for cost/day computation
+  const EXPIRATIONS = {
+    thisFri: {label: "This Fri", dte: 5},
+    nextFri: {label: "Next Fri", dte: 8},
+    twoWk:   {label: "Two Wks",  dte: 12},
+  };
+  const strikeStep = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
+  const atmStrike = Math.round(spot / strikeStep) * strikeStep;
+  const h = strHash(row.ticker);
+
+  // Structural context (from Tile 3 data already normalized onto the row)
+  const flipStrike = spot * (1 + row.flip_dist_pct / 100);
+  const callWall = spot * (1 + row.wall_up_dist_pct / 100);
+  const putWall = spot * (1 - row.wall_dn_dist_pct / 100);
+  const oppWallPct = isCall ? row.wall_dn_dist_pct : row.wall_up_dist_pct;
+  const structurallyProtectedITM = oppWallPct <= CALIBRATION.protected_itm_opp_wall_pct;
+
+  // Candidate strikes
+  let candidates;
+  if (structurallyProtectedITM) {
+    candidates = isCall
+      ? [atmStrike - strikeStep * 2, atmStrike - strikeStep, atmStrike, atmStrike + strikeStep, atmStrike + strikeStep * 2]
+      : [atmStrike + strikeStep * 2, atmStrike + strikeStep, atmStrike, atmStrike - strikeStep, atmStrike - strikeStep * 2];
+  } else {
+    candidates = isCall
+      ? [atmStrike, atmStrike + strikeStep, atmStrike + strikeStep * 2, atmStrike + strikeStep * 3]
+      : [atmStrike, atmStrike - strikeStep, atmStrike - strikeStep * 2, atmStrike - strikeStep * 3];
+  }
+
+  // v2.1 — pick the strike via the structural selector
+  const pick = pickRecommendedStrike(row, candidates, spot, flipStrike, callWall, putWall, structurallyProtectedITM);
+
+  // v2.2 — pick the expiration via the cost/day logic.
+  // When curve is inverted, longer expirations are cheaper per day. Shift the
+  // recommended expiration to two-week if its cost/day is < 70% of this-week's.
+  const curveShape = ivCurveShape(row).shape;
+
+  // Synthesize a mid price for a given strike + DTE — used both for the table
+  // row pricing AND for the cost/day expiration selector. Front-month gets a
+  // premium boost when the curve is inverted (so cost/day differential shows up).
+  function synthMid(seed, strike, dte) {
+    const baseBid = seededRand(seed + Math.round(strike * 10), 0.8, 4.5);
+    const baseAsk = baseBid + seededRand(seed + 1 + Math.round(strike * 10), 0.05, 0.20);
+    let mid = (baseBid + baseAsk) / 2;
+    // Inverted curve front-month premium boost
+    if (curveShape !== "normal" && dte <= 5) {
+      const spread_pts = ivCurveShape(row).spread_pts;
+      const boost = 1 + (spread_pts / 100) * 0.6;  // proportional to inversion severity
+      mid *= boost;
+    }
+    return mid;
+  }
+
+  let recommendedExp = "nextFri";  // default
+  if (curveShape !== "normal") {
+    // Compute cost/day at the recommended strike across all three expirations
+    const costs = {};
+    for (const expKey of Object.keys(EXPIRATIONS)) {
+      const mid = synthMid(h, pick.strike, EXPIRATIONS[expKey].dte);
+      costs[expKey] = mid / EXPIRATIONS[expKey].dte;
+    }
+    const minCostKey = costs.twoWk < costs.nextFri ? "twoWk" : "nextFri";
+    // Shift recommendation only if the cheaper longer-dated expiration is materially cheaper per day
+    if (costs[minCostKey] < costs.thisFri * 0.70) recommendedExp = minCostKey;
+  }
+
+  function pricedRow(strike, expKey, isRecommended, customReason) {
+    const exp = EXPIRATIONS[expKey];
+    const mid = synthMid(h, strike, exp.dte);
+    // Minor #10: seed on (strike, dte) so this-week vs two-week toggle rows show
+    // differentiated bid/ask/vol/OI, not identical-except-mid values
+    const bid = mid - seededRand(h + 9 + Math.round(strike * 10) + exp.dte, 0.05, 0.15);
+    const ask = mid + seededRand(h + 10 + Math.round(strike * 10) + exp.dte, 0.05, 0.15);
+    const vol = Math.round(seededRand(h + 2 + Math.round(strike * 10) + exp.dte, 1000, 12000));
+    const oi = Math.round(seededRand(h + 3 + Math.round(strike * 10) + exp.dte, 3000, 18000));
+    const spread = ((ask - bid) / mid * 100).toFixed(1);
+    const costPerDay = (mid / exp.dte).toFixed(2);
+    const ann = isRecommended && customReason
+      ? {label: customReason, class: ""}
+      : annotateStrike(strike, spot, flipStrike, callWall, putWall, row.direction);
+    const rowClasses = [isRecommended ? "recommended" : "", ann.class].filter(Boolean).join(" ");
+    const marker = isRecommended ? " ← recommended" : "";
+    return `<tr class="${rowClasses}">
+      <td>$${strike}</td>
+      <td>${exp.label}</td>
+      <td>${bid.toFixed(2)}×${ask.toFixed(2)}</td>
+      <td>${mid.toFixed(2)}</td>
+      <td>$${costPerDay}/day</td>
+      <td>${vol.toLocaleString()}</td>
+      <td>${oi.toLocaleString()}</td>
+      <td>${spread}%</td>
+      <td class="structure-cell">${ann.label}${marker}</td>
+    </tr>`;
+  }
+
+  // Build rows: for each candidate strike, show ONE row at the chosen expiration.
+  const mainRows = candidates.map(c => {
+    const isRec = c === pick.strike;
+    const expKey = isRec ? recommendedExp : "nextFri";
+    return pricedRow(c, expKey, isRec, isRec ? pick.reason : null);
+  }).join("");
+
+  const gate3FailWarning = !pick.recommend
+    ? `<tr class="gate3-fail-warning"><td colspan="9">⚠ Gate 3 fails — picker does not recommend a strike for this setup</td></tr>`
+    : "";
+
+  // This-week toggle shows the recommended strike at both this-week and two-week
+  const thisWeek = state.contractPickerShowThisWeek
+    ? [pricedRow(pick.strike, "thisFri", false, null),
+       pricedRow(pick.strike, "twoWk", false, null)].join("")
+    : "";
+
+  const divider = state.contractPickerShowThisWeek
+    ? `<tr><td colspan="9" class="picker-divider" id="picker-toggle">─── Hide this-week / two-week comparison ───</td></tr>`
+    : `<tr><td colspan="9" class="picker-divider" id="picker-toggle">─── Compare this-week / two-week (toggle to show cost/day across expirations) ───</td></tr>`;
+
+  // Footer note adjusts based on curve shape
+  const footer = curveShape !== "normal"
+    ? `Curve inverted — exp shifted to <strong style="color:var(--text);">${EXPIRATIONS[recommendedExp].label}</strong> (cheaper per day).`
+    : `Strike chosen for structure (Tile 3 γ), not generic ATM.`;
+
+  return `
+    <h3>
+      <span>Tile 6: Contract Picker</span>
+      <button class="help-icon" data-help="tile6">?</button>
+    </h3>
+    <div class="picker-scroll-hint">↔ swipe table to see Vol / OI / Spread / Structure</div>
+    <div class="picker-scroll">
+      <table class="picker-table">
+        <thead><tr>
+          <th>Strike</th><th>Exp</th><th>Bid×Ask</th><th>Mid</th>
+          <th data-tooltip-trigger="cost_per_day">Cost/day</th>
+          <th>Vol</th><th>OI</th><th>Spread%</th><th>Structure</th>
+        </tr></thead>
+        <tbody>
+          ${gate3FailWarning}
+          ${mainRows}
+          ${divider}
+          ${thisWeek}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px; font-size:10px; color:var(--axis); font-family:var(--ff-mono);">
+      ${footer} App does not execute — take ticker + strike + exp to your broker.
+    </div>
+  `;
+}
+
+/* ============================================================
+ * Task 15: Tooltip bottom-sheet system
+ * ============================================================ */
+
+/* Tooltip dictionary — verbatim text from weekly_options_ui_requirements_v2.md
+ * + v2.1 / v2.2 amendment entries (curve_shape, curve_shape_normal, cost_per_day).
+ * Each entry: {title, whatItIs, whyHere, threshold, provenance} */
+const TOOLTIPS = {
+  pill_live: {
+    title: "🔵 LIVE",
+    whatItIs: "Data returned directly by a UW endpoint, no computation on our side.",
+    whyHere: "Most trustworthy class of value — what UW says is what we show.",
+    threshold: "n/a — qualitative label.",
+    provenance: "From: any endpoint that returns the field directly. We don't transform it.",
+  },
+  pill_cross: {
+    title: "📊 CROSS",
+    whatItIs: "Cross-sectional rank or score across all tickers in today's flow universe.",
+    whyHere: "Our subscription tier has ~7 days of history — not enough for meaningful longitudinal percentiles. Cross-sectional ranking is the only reliable form of relative measurement available.",
+    threshold: "Computed across the 15-ticker universe in this playground (10 live + 5 synthetic). Production: across all tickers in /api/option-trades/flow-alerts today.",
+    provenance: "Computed by us from the universe of accessible tickers today.",
+  },
+  pill_proxy: {
+    title: "⚠️ PROXY",
+    whatItIs: "Value derived from a synthetic or approximated input.",
+    whyHere: "Some fields the spec wants are not cleanly exposed on this tier (e.g., flow-alert ask/bid execution_side, dark-pool % of consolidated volume). We surface our best approximation rather than hiding the limitation.",
+    threshold: "Each PROXY metric explains its specific derivation in its own tooltip.",
+    provenance: "Synthesized from related fields. Documented per metric.",
+  },
+  regime_banner: {
+    title: "Regime banner",
+    whatItIs: "Whether broader market conditions support our strategy.",
+    whyHere: "Our setups rely on dealer hedging behavior, which breaks down when VIX is over 22 or when major macro events (Fed meetings, inflation reports) are within 3 days.",
+    threshold: "Risk-off when VIX > 22 OR macro event within 3 days. Dims the watchlist below to 60% as a reminder.",
+    provenance: "🔵 LIVE for VIX from UW spot-exposures; 🔵 LIVE for macro calendar from UW market endpoints.",
+  },
+  tile1: {
+    title: "Tile 1: Flow Conviction",
+    whatItIs: "Is unusual options activity loading aggressively in one direction? Each vertical bar in the chart = one unusual trade. X = time it fired (4hr session). Y = the strike that trade is at. Label = $ premium. The grey line is the underlying stock price over the same window.",
+    whyHere: "Demand signal — who's buying, how big, and where they're concentrating. The first gate in the funnel. Strikes appearing here are the same strikes you see in Tile 2's OI table — Tile 1 shows when activity happened; Tile 2 confirms whether OI actually grew at those strikes. High alert $ + Tile 2 OI ↑ = opening flow (green). High alert $ + Tile 2 OI ↓ = closing (red) — the sweep was someone exiting.",
+    threshold: "Gate 1 passes (green) if the ticker's bullish flow rank is in the top 15% of today's universe; yellow up to top 35%; red beyond.",
+    provenance: "Alert count + total premium 🔵 LIVE; flow rank 📊 CROSS computed across the universe. Bars carry no ask/bid direction encoding (not reliable on this tier).",
+  },
+  tile2: {
+    title: "Tile 2: OI Confirmation",
+    whatItIs: "Did flow buyers actually open NEW positions (not close old ones)? Shows the top 5 strikes with the largest OI change overnight, with a status badge per strike (Opening / Marginal / Closing).",
+    whyHere: "About 60% of impressive-looking flow alerts fail this test — they were exits, not entries. This is the single most important filter the app applies. The $ Δ column is a PROXY estimate: UW gives OI in contracts only, no dollar-OI field. We approximate dollar inflow as OI Δ × (avg per-alert $ from Tile 1) ÷ assumed-contracts-per-alert.",
+    threshold: "Gate 2 passes if at least one strike with significant flow shows ≥20% OI growth overnight (opening); yellow 5-20%; red <-5% (closing).",
+    provenance: "🔵 LIVE OI in contracts from UW oi-change endpoint. ⚠️ PROXY $ Δ column (no dollar-OI on Basic tier).",
+  },
+  tile3: {
+    title: "Tile 3: Structural Setup",
+    whatItIs: "Is the stock near a gamma flip in a position to break through it?",
+    whyHere: "Supply-side response — how dealers will react. The structural position (not the regime) is what matters: when spot is close to the flip and your trade direction is across it, dealer hedging is most likely to amplify the move.",
+    threshold: "Gate 3 passes when gamma flip is within 1.5% of spot AND on the trade-favorable side AND no opposing wall within 1% in trade direction.",
+    provenance: "🔵 LIVE from UW spot-exposures/strike endpoint.",
+  },
+  tile4: {
+    title: "Tile 4: Cost & Timing",
+    whatItIs: "Are options reasonably priced, with no earnings vol-crush risk?",
+    whyHere: "High IV means the expected move is already priced in. You can be right and still lose money if IV crashes.",
+    threshold: "Gate 4 passes when IV rank < 60 AND no earnings within 7 days of expiration.",
+    provenance: "🔵 LIVE — UW pre-computes IV rank from longer history than our raw data access.",
+  },
+  tile5: {
+    title: "Tile 5: Confirmation Stack",
+    whatItIs: "Tiebreakers — not gates. Sector tide, news catalysts, and dark-pool conviction. Used to break ties between two qualifying setups.",
+    whyHere: "Sector agreement strengthens single-name conviction. News catalysts shift the trade profile from flow-driven to event-driven. Dark pool net premium reveals where institutions are positioning off-exchange — when it agrees with your direction, that's confirmation; when it fights it, that's a tiebreak against the trade.",
+    threshold: "Sector tide: |reading| > 0.30 → green. News: any recent headlines → flag for review. Dark pool: |net premium| ≥ $500k AND direction agrees with trade → green; fights trade → red; below threshold → no signal.",
+    provenance: "🔵 LIVE sector tide, news, and dark-pool net premium from UW. ⚠️ PROXY: dark-pool % of consolidated volume (Basic tier doesn't surface the OHLC denominator cleanly).",
+  },
+  tile6: {
+    title: "Tile 6: Contract Picker",
+    whatItIs: "The condensed option chain showing the recommended contract and 4 alternatives.",
+    whyHere: "Default = next-week expiration, ATM + 1-OTM. Next-week aligns with the 5-10 day natural horizon of the signal stack; this-week races against theta.",
+    threshold: "Spread % under 5% is acceptable. Volume ≥ 1000 and OI ≥ 5000 for liquidity.",
+    provenance: "🔵 LIVE bid/ask/IV/vol/OI from UW option-chains endpoint.",
+  },
+  nothing_today: {
+    title: "No qualifying setups right now",
+    whatItIs: "The state where zero tickers in today's universe pass all 4 gates green.",
+    whyHere: "The market typically shows 2-4 qualifying setups per WEEK, not per day. Most days nothing qualifies — that's the strategy working, not failing. Forcing trades when nothing qualifies is the #1 way to lose money.",
+    threshold: "Triggers when no row has 4/4 green dots.",
+    provenance: "Computed across all 15 rows after every refresh.",
+  },
+  /* v2.2 amendment: curve-shape indicator (Tile 4) — inverted variants */
+  curve_shape: {
+    title: "Curve shape (IV term structure)",
+    whatItIs: "Implied volatility isn't one number — it's a curve across expirations. The 7-day, 30-day, 60-day, and 90-day IVs are all different. The shape tells you something useful.",
+    whyHere: "The 7-day IV is HIGHER than the 30-day IV. This means the market is pricing in something specific happening this week — could be an unannounced catalyst, hedging demand, or just elevated short-term fear. You're paying premium for the weekly even though overall IV looks fine.",
+    threshold: "Inverted = 7d IV exceeds 30d IV by > 3 vol points (mild) or > 8 vol points (severe). Two implications: (1) consider next-week expiration instead — same signal, cheaper option. (2) be aware that after whatever the market is anticipating, IV will likely collapse, hurting your position even on a correct directional bet.",
+    provenance: "🔵 LIVE from UW volatility/term-structure endpoint (4-point curve at 7d/30d/60d/90d).",
+  },
+  /* v2.2 amendment: curve-shape indicator (Tile 4) — normal/contango variant */
+  curve_shape_normal: {
+    title: "Curve shape: Normal (contango)",
+    whatItIs: "The IV term structure is in contango — longer-dated IV exceeds front-month IV, which is the default state.",
+    whyHere: "Front-month IV (the part you're buying as a weekly) isn't structurally elevated. The cost gate via IV rank already covers whether overall IV is reasonable; the curve adds no warning.",
+    threshold: "Normal when 7d IV ≤ 30d IV + 3 vol points.",
+    provenance: "🔵 LIVE from UW volatility/term-structure endpoint.",
+  },
+  /* v2.2 amendment: cost-per-day column header (Tile 6) */
+  cost_per_day: {
+    title: "Cost per day",
+    whatItIs: "The contract's mid price divided by days-to-expiry. Tells you what you pay per day of exposure.",
+    whyHere: "When this-week is more expensive per day than next-week, the front-month IV is elevated — usually because the market is pricing in an event this week. The picker uses this to shift the recommended expiration to next-week or two-week when the curve is inverted, giving you the same signal at a cheaper effective rate.",
+    threshold: "The recommended expiration shifts when a longer-dated cost/day is < 70% of this-week's cost/day for the same strike.",
+    provenance: "Computed from 🔵 LIVE bid/ask + DTE.",
+  },
+  oi_dollar_approx: {
+    title: "$ Δ (approximate dollar inflow at this strike)",
+    whatItIs: "An estimate of the dollar amount of new positions opened at this strike today, derived from OI Δ (contracts) and the average premium per unusual alert at this strike from Tile 1.",
+    whyHere: "UW provides OI only in contracts — there is no dollar-OI field. To reconcile Tile 2's contract count with Tile 1's alert dollars, this column estimates: how much $ flowed into new contracts at this strike. Lets you see Gate 2's signal in the same units as Gate 1, but it IS an estimate, not a measurement.",
+    threshold: "Computed as: (OI Δ in contracts) × (avg per-alert $ premium at this strike from Tile 1) ÷ assumed-contracts-per-unusual-alert (default 1,000). Tunable in the Calibration Values panel. For strikes with no Tile 1 alert data, displays — (can't approximate without per-strike avg).",
+    provenance: "PROXY — combines 🔵 LIVE OI Δ from /api/stock/{ticker}/oi-change with a synthesized per-strike avg-premium estimate. The avg-premium is itself proxied for live rows (Tile 1's alert distribution to strikes is synthesized for the playground). For production, the per-contract price comes directly from the option-chain mid; replace this approximation entirely.",
+  },
+};
+
+function showTooltip(key) {
+  const t = TOOLTIPS[key];
+  if (!t) return;
+  const sheet = document.getElementById("tooltip-sheet");
+  sheet.innerHTML = `
+    <h4>${t.title} <button class="close-btn" id="tooltip-close">×</button></h4>
+    <div class="section"><div class="label">What it is</div><div class="body">${t.whatItIs}</div></div>
+    <div class="section"><div class="label">Why it matters here</div><div class="body">${t.whyHere}</div></div>
+    <div class="section"><div class="label">Our threshold / rule</div><div class="body">${t.threshold}</div></div>
+    <div class="provenance"><strong>Data:</strong> ${t.provenance}</div>
+  `;
+  document.getElementById("tooltip-overlay").classList.add("show");
+}
+
+function hideTooltip() {
+  document.getElementById("tooltip-overlay").classList.remove("show");
+}
+
+document.getElementById("tooltip-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "tooltip-overlay" || e.target.id === "tooltip-close") hideTooltip();
+});
+
+// Event delegation for all tooltip triggers.
+// Intentional 3-way attribute split (skipped Minor #4 namespace consolidation):
+//   - data-help            → on dedicated help-icon buttons (one per tile header)
+//   - data-tooltip         → on the LIVE/CROSS/PROXY .pill spans (inline metadata badges)
+//   - data-tooltip-trigger → on arbitrary inline elements that open a tooltip
+//                            (e.g., the Tile 4 curve-line row, Tile 6 cost/day column header)
+// Each role has distinct visual semantics, so we keep distinct attributes.
+document.body.addEventListener("click", (e) => {
+  const helpBtn = e.target.closest(".help-icon");
+  if (helpBtn) { showTooltip(helpBtn.dataset.help); return; }
+  const pillEl = e.target.closest(".pill");
+  if (pillEl) { showTooltip(pillEl.dataset.tooltip); return; }
+  const triggerEl = e.target.closest("[data-tooltip-trigger]");
+  // Guard: don't open a tooltip when the click originated on a <button> inside
+  // the trigger (e.g., the #regime-toggle demo button inside the regime banner).
+  // Buttons own their own click semantics — see I-1 fix.
+  if (triggerEl && !e.target.closest("button")) {
+    showTooltip(triggerEl.dataset.tooltipTrigger);
+    return;
+  }
+});
+
+/* ============================================================
+ * Task 17: Prompt-output footer + copy button
+ * ============================================================ */
+
+function buildPrompt() {
+  const sel = state.selected ? ROWS.find(r => r.ticker === state.selected) : null;
+  const lines = [];
+  lines.push(`Build a Streamlit page implementing the Weekly Options Decision Dashboard per weekly_options_ui_requirements_v2.md.`);
+  lines.push(``);
+  lines.push(`Architecture: one scrollable page, three persistent zones top-to-bottom — sticky regime banner, watchlist with row dot-rating + sort, deep-dive card with 4 gate tiles + Tile 5 confirmation + Tile 6 contract picker. Mobile-first (375-414px), gracefully wide on desktop.`);
+  lines.push(``);
+  lines.push(`Endpoints to wire:`);
+  lines.push(`  - /api/option-trades/flow-alerts  →  Tile 1 (count + premium); cross-sectional rank computed locally`);
+  lines.push(`  - /api/stock/{t}/oi-change         →  Tile 2 (opening vs closing classification)`);
+  lines.push(`  - /api/stock/{t}/spot-exposures/strike  →  Tile 3 (γ ladder, flip, walls)`);
+  lines.push(`  - /api/stock/{t}/interpolated-iv   →  Tile 4 (IV rank, LIVE — UW pre-computes)`);
+  lines.push(`  - /api/stock/{t}/volatility/term-structure  →  Tile 4 curve-shape indicator (v2.2)`);
+  lines.push(`  - /api/stock/{t}/earnings          →  Tile 4 (days to next earnings)`);
+  lines.push(`  - /api/market/{sector}/sector-tide →  Tile 5 (sector agreement)`);
+  lines.push(`  - /api/news/headlines              →  Tile 5 (news count)`);
+  lines.push(`  - /api/darkpool/{ticker}           →  Tile 5 (dark-pool net premium)`);
+  lines.push(`  - /api/stock/{t}/option-chains     →  Tile 6 (contract picker)`);
+  lines.push(`  - VIX intraday quote + macro calendar  →  Regime banner`);
+  lines.push(``);
+  lines.push(`Critical UX invariants:`);
+  lines.push(`  - 🔵 LIVE / 📊 CROSS / ⚠️ PROXY pills on every metric — only these three labels`);
+  lines.push(`  - Tooltip text VERBATIM from the spec (bottom-sheet modal)`);
+  lines.push(`  - Tile 1 dots size by premium only, NOT colored by direction (same discipline as removed ask/bid % headline)`);
+  lines.push(`  - "Nothing today" replaces watchlist ONLY when zero rows have 4/4 green`);
+  lines.push(`  - Synthetic-row timestamps display — (no fabricated minute-level values)`);
+  lines.push(`  - Gate 3 logic: flip within 1.5% AND favorable side AND no wall within 1% in trade direction`);
+  lines.push(`  - Tile 6 default = next-week expiration, ATM + 1-OTM; this-week shown only on toggle`);
+  lines.push(`  - Tile 6 strike choice is structural (reads Tile 3's γ data), not generic ATM — see annotateStrike + pickRecommendedStrike (v2.1)`);
+  lines.push(`  - Tile 4 curve-shape indicator + Tile 6 Cost/day column catch event-driven premium that IV rank misses (TSLA-earnings type setup) (v2.2)`);
+  lines.push(`  - No conviction score / no ask-side % (v2 honesty decisions)`);
+  lines.push(`  - Tile 5 dark-pool net premium = 🔵 LIVE; dark-pool % of consolidated volume = ⚠️ PROXY (Basic tier limitation)`);
+  lines.push(``);
+  lines.push(`Calibration defaults (user-configurable in production):`);
+  lines.push(`  flow_rank_green_cross_pct=15, flow_rank_yellow_cross_pct=35`);
+  lines.push(`  oi_green_pct=20, oi_yellow_pct=5, oi_red_pct=-5`);
+  lines.push(`  gate3_flip_dist_pct=1.5, gate3_wall_dist_pct=1.0`);
+  lines.push(`  ivr_green_max=60, ivr_yellow_max=80, earnings_days_min=7`);
+  lines.push(`  sector_tide_green_abs=0.30, stale_alert_hours=4`);
+  lines.push(`  iv_curve_inversion_threshold_pts=3, iv_curve_severe_inversion_pts=8  (v2.2)`);
+  lines.push(`  protected_itm_opp_wall_pct=2.0  (v2.1 — opposing wall within X% of spot → ITM has structural floor)`);
+  lines.push(``);
+  lines.push(`Aesthetic: financial-terminal dark (Tokyo Night). Monospace for numbers. Palette: --pos #7AA2F7 / --neg #F7768E / --warn #E0AF68 / --ok #9ECE6A / --hot #BB9AF7.`);
+  lines.push(``);
+  if (sel) lines.push(`Current playground state: ${sel.ticker} selected, gates = flow:${sel.gates.flow} oi:${sel.gates.oi} structural:${sel.gates.structural} cost:${sel.gates.cost}, regime banner: ${state.regime}.`);
+  else lines.push(`Current playground state: no ticker selected (empty deep-dive).`);
+  return lines.join("\n");
+}
+
+function refreshPrompt() {
+  document.getElementById("prompt").value = buildPrompt();
+}
+
+document.getElementById("copy-btn").addEventListener("click", () => {
+  const btn = document.getElementById("copy-btn");
+  navigator.clipboard.writeText(document.getElementById("prompt").value).then(() => {
+    btn.textContent = "Copied!"; btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "Copy prompt"; btn.classList.remove("copied"); }, 1200);
+  });
+});
+
+// Hook prompt refresh into existing renders so it always reflects state.
+const originalRenderDeepDive = renderDeepDive;
+renderDeepDive = function() { originalRenderDeepDive(); refreshPrompt(); };
+const originalRenderWatchlist = renderWatchlist;
+renderWatchlist = function() { originalRenderWatchlist(); refreshPrompt(); };
+
+refreshPrompt();
+
+/* Initial render */
+renderWatchlist();
+renderDeepDive();
+
+/* Task 14 Step 3: picker-toggle event delegation (rows re-render on each click) */
+document.getElementById("deepdive-content").addEventListener("click", (e) => {
+  if (e.target && e.target.id === "picker-toggle") {
+    state.contractPickerShowThisWeek = !state.contractPickerShowThisWeek;
+    renderDeepDive();
+  }
+});
+/* V2-EDIT-3-BEGIN — poll /snapshot.json every 60s for fresh data */
+setInterval(async () => {
+  try {
+    const r = await fetch('/snapshot.json');
+    if (!r.ok) return;
+    const snap = await r.json();
+    if (!snap.rows) return;
+    LIVE_ROWS.length = 0;
+    LIVE_ROWS.push(...snap.rows);
+    if (typeof renderWatchlist === 'function') renderWatchlist();
+    if (typeof renderDeepDive === 'function') renderDeepDive();
+  } catch (e) {
+    console.warn('snapshot refresh failed:', e);
+  }
+}, 60000);
+/* V2-EDIT-3-END */
+</script>
+</body>
+</html>
