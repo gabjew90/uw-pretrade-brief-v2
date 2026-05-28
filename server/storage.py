@@ -105,11 +105,14 @@ _TTL_SLEEPER_SECONDS = 300    # non-hot tracked tickers (5 min)
 _TTL_QUASI_STATIC_SECONDS = 21600  # earnings (6h)
 _QUASI_STATIC_ENDPOINTS = {"earnings", "ticker_info"}
 
-# UW Basic tier = 120 req/min. With ~50 tracked tickers × 6 endpoints =
-# ~300 calls per cycle, parallelism must be capped or we'll burn the budget
-# in seconds and 429 the rest. 8 concurrent saturates at ~15 calls/sec → 120/min.
+# UW Basic tier = 120 req/min = 2 calls/sec sustained. With ThreadPoolExecutor
+# at 8 workers, no throttle means up to 8 calls in parallel completing in
+# <1s each → 8-16 calls/sec = WAY past the per-second budget.
+# Setting semaphore to 2 caps real throughput to ~2-4 calls/sec, comfortable
+# within UW's per-minute quota. Yes, this slows the pipeline a lot — that's
+# the point. Better to be slow than 429'd permanently.
 import threading
-_UW_CONCURRENCY_LIMIT = 8
+_UW_CONCURRENCY_LIMIT = 2
 _uw_call_gate = threading.BoundedSemaphore(_UW_CONCURRENCY_LIMIT)
 
 
@@ -147,11 +150,8 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
         return cached
     started_at = time.monotonic()
     try:
-        # NOTE: semaphore removed — empirical investigation showed it caused
-        # flow_alerts to silently fail in production despite passing tests
-        # locally. ThreadPoolExecutor's max_workers=8 in snapshot.py already
-        # caps real concurrency. See investigation notes near _uw_call_gate.
-        response = uw_call()
+        with _uw_call_gate:
+            response = uw_call()
     except uw.UWError as e:
         return UWFailure(endpoint=endpoint, ticker=ticker, message=str(e))
     latency_ms = int((time.monotonic() - started_at) * 1000)
