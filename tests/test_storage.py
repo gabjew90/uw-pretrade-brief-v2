@@ -100,3 +100,72 @@ def test_write_response_swallows_disk_full(tmp_data_dir: Path, monkeypatch, capl
     )
     assert ok is False
     assert "storage write failed" in caplog.text.lower()
+
+
+import time
+from unittest.mock import patch
+
+
+@pytest.fixture
+def fresh_cache():
+    """Reset storage.py's module-level cache between tests."""
+    storage._cache._store.clear()
+    yield
+    storage._cache._store.clear()
+
+
+def test_fetch_calls_uw_on_first_call_and_writes_parquet(tmp_data_dir, fresh_cache, monkeypatch):
+    """First call for (endpoint, ticker) hits UW and writes to parquet."""
+    calls = []
+    def fake_uw_fetch(ticker):
+        calls.append(ticker)
+        return {"data": [{"strike": 150}]}
+    monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
+
+    result = storage.fetch_spot_exposures_strike("NVDA", is_hot=True)
+
+    assert result == {"data": [{"strike": 150}]}
+    assert calls == ["NVDA"]
+    assert list(tmp_data_dir.rglob("*.parquet")), "must have written parquet"
+
+
+def test_fetch_returns_cache_on_second_call_within_ttl(tmp_data_dir, fresh_cache, monkeypatch):
+    """Second call within TTL returns cached without re-hitting UW."""
+    calls = []
+    def fake_uw_fetch(ticker):
+        calls.append(ticker)
+        return {"data": [{"strike": 150}]}
+    monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
+
+    storage.fetch_spot_exposures_strike("NVDA", is_hot=True)  # cold
+    storage.fetch_spot_exposures_strike("NVDA", is_hot=True)  # warm
+
+    assert len(calls) == 1, "second call must hit cache"
+
+
+def test_hot_ticker_ttl_is_60_seconds(tmp_data_dir, fresh_cache):
+    """is_hot=True → 60s TTL."""
+    assert storage._ttl_seconds(endpoint="spot_exposures_strike", is_hot=True) == 60
+
+
+def test_sleeper_ticker_ttl_is_300_seconds(tmp_data_dir, fresh_cache):
+    """is_hot=False → 300s (5min) TTL for dynamic endpoints."""
+    assert storage._ttl_seconds(endpoint="spot_exposures_strike", is_hot=False) == 300
+
+
+def test_earnings_endpoint_ttl_is_6_hours_regardless_of_hot(tmp_data_dir, fresh_cache):
+    """Quasi-static endpoints get long TTL."""
+    assert storage._ttl_seconds(endpoint="earnings", is_hot=True) == 21600
+    assert storage._ttl_seconds(endpoint="earnings", is_hot=False) == 21600
+
+
+def test_fetch_swallows_uw_error_returns_exception_marker(tmp_data_dir, fresh_cache, monkeypatch):
+    """When UW raises, storage returns a marker so the caller can record _failures."""
+    from server.uw import UWError
+    def fake_uw_fetch(ticker):
+        raise UWError("503 on /api/stock/NVDA/spot-exposures/strike")
+    monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
+
+    result = storage.fetch_spot_exposures_strike("NVDA", is_hot=True)
+    assert isinstance(result, storage.UWFailure)
+    assert "503" in result.message
