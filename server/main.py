@@ -38,11 +38,17 @@ async def lifespan(app: FastAPI):
 
 async def _refresh_loop():
     while True:
-        try:
-            snap = await snapshot_mod.refresh_snapshot()
-            _snapshot_cache["latest"] = snap
-        except Exception as e:
-            log.exception("snapshot refresh failed: %s", e)
+        # Kill-switch: SNAPSHOT_PAUSED=true skips the UW call entirely. Use this
+        # to give UW's rate-limit window time to fully reset without our traffic.
+        if os.environ.get("SNAPSHOT_PAUSED", "").lower() in ("1", "true", "yes"):
+            log.info("snapshot loop paused (SNAPSHOT_PAUSED env var set); sleeping %ds",
+                     _REFRESH_INTERVAL_SECONDS)
+        else:
+            try:
+                snap = await snapshot_mod.refresh_snapshot()
+                _snapshot_cache["latest"] = snap
+            except Exception as e:
+                log.exception("snapshot refresh failed: %s", e)
         await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
 
 
