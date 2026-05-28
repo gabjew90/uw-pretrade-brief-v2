@@ -22,7 +22,7 @@ from server.schema import Snapshot
 log = logging.getLogger(__name__)
 
 _snapshot_cache: dict[str, Snapshot | None] = {"latest": None}
-_REFRESH_INTERVAL_SECONDS = 60
+_REFRESH_INTERVAL_SECONDS = 120  # 15 tickers × 9 endpoints = 135 calls/cycle; 120s = ~68/min, fits 120/min budget
 
 
 @asynccontextmanager
