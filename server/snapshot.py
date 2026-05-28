@@ -13,7 +13,7 @@ import asyncio
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Any
 
@@ -90,8 +90,13 @@ async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
 
 async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     is_hot = True
+    # Prev-trading-day fetch for OI Δ% — use yesterday (calendar). UW typically
+    # falls back to the last trading day if asked for a weekend, so this works
+    # on Sat/Sun without market-calendar logic. Cached separately from today's.
+    yesterday_iso = (datetime.now(tz=timezone.utc).date() - timedelta(days=1)).isoformat()
     spot_data = await loop.run_in_executor(_POOL, partial(storage.fetch_spot_exposures_strike, ticker, is_hot))
     oi_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot))
+    oi_prev_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, False, yesterday_iso))
     vol_data = await loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot))
     ivr_data = await loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot))
     dp_data = await loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot))
@@ -104,7 +109,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     spot = flow_info.get("spot") or 0.0
     if not spot:
         spot = uw.extract_spot(spot_data, oi_data, ivr_data) or 0.0
-    oi = _extract_oi(oi_data)
+    oi = _extract_oi(oi_data, oi_prev_data)
     iv_term = _extract_iv_curve(vol_data)
     ivr = _extract_ivr(ivr_data, vol_data)
     dp = _extract_darkpool(dp_data)
@@ -213,25 +218,44 @@ def _aggregate_flow_per_ticker(flow_alerts_payload: dict, hot_15: list[str]) -> 
 
 # ── Extractors (use v1-tested parsers from server.uw) ────────────────────────
 
-def _extract_oi(data: Any) -> list[dict]:
-    """Top 5 strikes by total OI (call+put). UW oi-per-strike has call_oi + put_oi
-    fields (today only). v0 doesn't compute Δ% — needs separate yesterday fetch."""
-    if isinstance(data, storage.UWFailure) or not isinstance(data, dict):
+def _extract_oi(today_data: Any, prev_data: Any) -> list[dict]:
+    """Top 5 strikes by today's total OI (call+put), with Δ% computed against
+    yesterday's snapshot. UW oi-per-strike has call_oi + put_oi fields.
+
+    Pct semantics match the gates layer: ≥20% green (opening), ≥5% yellow,
+    ≤-5% red (closing). Missing prev data → pct=0 (marginal)."""
+    if isinstance(today_data, storage.UWFailure) or not isinstance(today_data, dict):
         return []
-    rows = data.get("data") or []
+    today_rows = today_data.get("data") or []
+
+    # Build prev lookup: strike → total OI on yesterday (or empty if prev fetch failed)
+    prev_by_strike: dict[float, int] = {}
+    if isinstance(prev_data, dict):
+        for r in prev_data.get("data") or []:
+            try:
+                strike = float(r.get("strike") or 0)
+                prev_total = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
+                if strike > 0:
+                    prev_by_strike[strike] = prev_total
+            except (TypeError, ValueError):
+                continue
+
     enriched = []
-    for r in rows:
+    for r in today_rows:
         try:
             strike = float(r.get("strike") or 0)
             call_oi = int(r.get("call_oi") or 0)
             put_oi = int(r.get("put_oi") or 0)
-            total = call_oi + put_oi
-            if strike <= 0 or total <= 0:
+            today_total = call_oi + put_oi
+            if strike <= 0 or today_total <= 0:
                 continue
-            enriched.append({"strike": strike, "prev": total, "today": total, "pct": 0.0})
+            prev_total = prev_by_strike.get(strike, today_total)
+            pct = round(((today_total - prev_total) / prev_total * 100) if prev_total else 0.0, 1)
+            enriched.append({"strike": strike, "prev": prev_total, "today": today_total, "pct": pct})
         except (TypeError, ValueError):
             continue
-    enriched.sort(key=lambda x: -(x["today"]))
+    # Sort by |pct| descending so the most-changed strikes float to the top
+    enriched.sort(key=lambda x: -abs(x["pct"]))
     return enriched[:5]
 
 

@@ -170,9 +170,12 @@ def fetch_spot_exposures_strike(ticker: str, is_hot: bool = False):
                     lambda: uw.fetch_spot_exposures_strike(ticker))
 
 
-def fetch_oi_strike(ticker: str, is_hot: bool = False):
-    return _through("oi_per_strike", ticker, None, is_hot,
-                    lambda: uw.fetch_oi_strike(ticker))
+def fetch_oi_strike(ticker: str, is_hot: bool = False, date: str | None = None):
+    """Fetch OI per strike. `date` is ISO YYYY-MM-DD (None = today's snapshot).
+    Cache key includes the date so today's and yesterday's snapshots don't collide."""
+    params = {"date": date} if date else None
+    return _through("oi_per_strike", ticker, params, is_hot,
+                    lambda: uw.fetch_oi_strike(ticker, date=date))
 
 
 def fetch_volatility(ticker: str, is_hot: bool = False):

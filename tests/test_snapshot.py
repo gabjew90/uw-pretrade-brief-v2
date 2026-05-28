@@ -29,9 +29,9 @@ def stub_uw(monkeypatch):
                                               "put_gamma_oi": 0.5,
                                               "spot_price": 100.0}]})
     monkeypatch.setattr(uw, "fetch_oi_strike",
-                        lambda t: {"data": [{"strike": 100,
-                                              "open_interest": 1000,
-                                              "prev_open_interest": 800}]})
+                        lambda t, date=None: {"data": [{"strike": 100,
+                                                         "call_oi": 600,
+                                                         "put_oi": 400}]})
     monkeypatch.setattr(uw, "fetch_volatility",
                         lambda t: {"data": [{"dte": 7, "iv": 0.4},
                                              {"dte": 30, "iv": 0.45}]})
