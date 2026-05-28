@@ -64,6 +64,13 @@ def option_contracts_spy():
     return _load("uw_option_contracts_SPY.json")
 
 
+@pytest.fixture
+def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Provide a temp DATA_DIR for storage tests; isolated per-test."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    return tmp_path
+
+
 def pytest_collection_modifyitems(config, items):
     """Skip @pytest.mark.live tests unless `-m live` was passed."""
     selected_marker = config.getoption("-m") or ""
