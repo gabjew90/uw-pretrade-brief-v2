@@ -51,6 +51,12 @@ def stub_uw(monkeypatch):
                         lambda date=None: {"data": [{"tide": 0.3}]})
     monkeypatch.setattr(uw, "fetch_sector_tide",
                         lambda sector, date=None: {"data": [{"tide": 0.25}]})
+    monkeypatch.setattr(uw, "fetch_option_contracts",
+                        lambda t, limit=500: {"data": [{"option_symbol": "X", "bid": 1, "ask": 2}]})
+    monkeypatch.setattr(uw, "fetch_max_pain",
+                        lambda t, date=None: {"data": [{"max_pain": 100}]})
+    monkeypatch.setattr(uw, "fetch_net_prem_ticks",
+                        lambda t, date=None: {"data": [{"net_call_premium": 0, "net_put_premium": 0}]})
 
 
 async def test_refresh_snapshot_happy_path_assembles_15_rows(stub_uw, fresh_storage_state, tmp_data_dir):

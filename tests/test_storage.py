@@ -153,10 +153,11 @@ def test_sleeper_ticker_ttl_is_300_seconds(tmp_data_dir, fresh_cache):
     assert storage._ttl_seconds(endpoint="spot_exposures_strike", is_hot=False) == 300
 
 
-def test_earnings_endpoint_ttl_is_6_hours_regardless_of_hot(tmp_data_dir, fresh_cache):
-    """Quasi-static endpoints get long TTL."""
-    assert storage._ttl_seconds(endpoint="earnings", is_hot=True) == 21600
-    assert storage._ttl_seconds(endpoint="earnings", is_hot=False) == 21600
+def test_earnings_endpoint_ttl_is_24h_regardless_of_hot(tmp_data_dir, fresh_cache):
+    """Quasi-static endpoints get 24h TTL (parquet persistence makes long
+    TTLs safe — see commit caeda18)."""
+    assert storage._ttl_seconds(endpoint="earnings", is_hot=True) == 86400
+    assert storage._ttl_seconds(endpoint="earnings", is_hot=False) == 86400
 
 
 def test_fetch_swallows_uw_error_returns_exception_marker(tmp_data_dir, fresh_cache, monkeypatch):

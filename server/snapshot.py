@@ -97,23 +97,26 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     # Prev-trading-day fetch for OI Δ% — use yesterday (calendar). UW typically
     # falls back to the last trading day if asked for a weekend, so this works
     # on Sat/Sun without market-calendar logic. Cached separately from today's.
-    # Prev-day OI fetch disabled to fit UW Basic 120/min budget. Tile 2 shows
-    # today-only OI; pct stays 0 → "Marginal". Restore once we move archive
-    # work off the dashboard's critical path or upgrade UW tier.
+    # Full ingest. With parquet read-through (commit caeda18) absorbing most
+    # repeat calls, fetching broadly only spikes UW load on cold-cache cycles;
+    # warm steady-state is mostly cache hits.
+    yesterday_iso = (datetime.now(tz=timezone.utc).date() - timedelta(days=1)).isoformat()
     spot_data = await loop.run_in_executor(_POOL, partial(storage.fetch_spot_exposures_strike, ticker, is_hot))
     oi_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot))
-    oi_prev_data = None
+    oi_prev_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, False, yesterday_iso))
     vol_data = await loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot))
     ivr_data = await loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot))
     dp_data = await loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot))
     earn_data = await loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot))
-    # v0.2 Batch 3 disabled in this revision — these endpoints (ticker_info,
-    # news, sector_tide) added too much UW load and starved flow_alerts of the
-    # rate budget. The wrappers exist in server/uw.py + server/storage.py for
-    # a future re-enable behind a feature flag. For now, derive sector from
-    # flow_info if UW surfaced it, and leave news/tide empty.
-    info_data = None
-    news_data = None
+    info_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ticker_info, ticker))
+    news_data = await loop.run_in_executor(_POOL, partial(storage.fetch_news_headlines, ticker, 10))
+    # Ingest-only (not yet consumed by any tile — wires in a later UI pass):
+    # option_contracts: real bid/ask/IV/vol/OI for Tile 6 picker
+    # max_pain: additional Tile 4 context
+    # net_prem_ticks: time-series flow context
+    await loop.run_in_executor(_POOL, partial(storage.fetch_option_contracts, ticker, 500))
+    await loop.run_in_executor(_POOL, partial(storage.fetch_max_pain, ticker))
+    await loop.run_in_executor(_POOL, partial(storage.fetch_net_prem_ticks, ticker))
 
     failures = [r.endpoint for r in (spot_data, oi_data, vol_data, ivr_data, dp_data, earn_data)
                 if isinstance(r, storage.UWFailure)]
@@ -129,8 +132,12 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     days_to_earn = _extract_days_to_earnings(earn_data)
     flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b = _extract_gex(spot_data, spot)
     sector = _extract_sector(info_data, flow_info)
-    news_items: list[NewsItem] = []
+    news_items = _extract_news_items(news_data)
+    # Chained sector-tide fetch once we know the sector slug. Skip if unknown.
     sector_tide_value = 0.0
+    if sector:
+        tide_data = await loop.run_in_executor(_POOL, partial(storage.fetch_sector_tide, sector))
+        sector_tide_value = _extract_sector_tide_value(tide_data)
 
     # Direction inference: positive net dealer γ (gex_sign=POS) means dealers
     # are long γ → they sell into rallies, buy dips → suppresses upside

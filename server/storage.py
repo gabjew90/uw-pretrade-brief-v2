@@ -100,11 +100,20 @@ def write_response(
 _cache = TTLCache()
 
 
-# TTL tiers per §3a/§3b of the spec
-_TTL_HOT_SECONDS = 60         # hot_15 tickers
-_TTL_SLEEPER_SECONDS = 300    # non-hot tracked tickers (5 min)
-_TTL_QUASI_STATIC_SECONDS = 21600  # earnings (6h)
-_QUASI_STATIC_ENDPOINTS = {"earnings", "ticker_info"}
+# TTL tiers — extended now that parquet persists across restarts.
+# A cold container reads fresh parquet rows instead of re-hitting UW.
+_TTL_HOT_SECONDS = 60          # spot/OI/darkpool — dashboard freshness
+_TTL_SLEEPER_SECONDS = 300     # 5min — non-hot tracked tickers
+_TTL_QUASI_STATIC_SECONDS = 86400  # 24h — earnings, ticker_info, max_pain, prev-day OI
+_TTL_MEDIUM_SECONDS = 300      # 5min — volatility, IV rank, sector tide, market tide, option_contracts, net_prem_ticks
+_TTL_NEWS_SECONDS = 900        # 15min — news headlines
+
+_QUASI_STATIC_ENDPOINTS = {"earnings", "ticker_info", "max_pain"}
+_MEDIUM_ENDPOINTS = {
+    "volatility_term_structure", "interpolated_iv",
+    "sector_tide", "market_tide", "option_contracts", "net_prem_ticks",
+}
+_NEWS_ENDPOINTS = {"news_headlines"}
 
 # UW Basic tier = 120 req/min = 2 calls/sec sustained. With ThreadPoolExecutor
 # at 8 workers, no throttle means up to 8 calls in parallel completing in
@@ -118,8 +127,15 @@ _uw_call_gate = threading.BoundedSemaphore(_UW_CONCURRENCY_LIMIT)
 
 
 def _ttl_seconds(endpoint: str, is_hot: bool) -> int:
+    """Per-endpoint TTL. Some endpoints change rarely (24h: earnings, ticker
+    sector); others are dashboard-critical and stay short (60s). News + sector
+    tide are in the middle (5-15min)."""
     if endpoint in _QUASI_STATIC_ENDPOINTS:
         return _TTL_QUASI_STATIC_SECONDS
+    if endpoint in _NEWS_ENDPOINTS:
+        return _TTL_NEWS_SECONDS
+    if endpoint in _MEDIUM_ENDPOINTS:
+        return _TTL_MEDIUM_SECONDS
     return _TTL_HOT_SECONDS if is_hot else _TTL_SLEEPER_SECONDS
 
 
@@ -306,11 +322,30 @@ def fetch_news_headlines(ticker: str | None = None, limit: int = 10):
 
 
 def fetch_ticker_info(ticker: str):
-    """Ticker metadata (sector etc). Quasi-static — 6h TTL."""
-    # Reuse the earnings tier (6h TTL) via the _QUASI_STATIC_ENDPOINTS set
-    # treatment if we add 'ticker_info' there; otherwise it's just sleeper.
+    """Ticker metadata (sector etc). Quasi-static — 24h TTL."""
     return _through("ticker_info", ticker, None, False,
                     lambda: uw.fetch_ticker_info(ticker))
+
+
+def fetch_option_contracts(ticker: str, limit: int = 500):
+    """All option contracts for ticker (bid/ask/IV/vol/OI). Replaces Tile 6
+    synthetic chain. 5-min TTL — chain prices move intraday but not by the second."""
+    return _through("option_contracts", ticker, {"limit": limit}, False,
+                    lambda: uw.fetch_option_contracts(ticker, limit=limit))
+
+
+def fetch_max_pain(ticker: str, date: str | None = None):
+    """Max-pain strike per expiry. 24h TTL — moves slowly day-to-day."""
+    params = {"date": date} if date else None
+    return _through("max_pain", ticker, params, False,
+                    lambda: uw.fetch_max_pain(ticker, date=date))
+
+
+def fetch_net_prem_ticks(ticker: str, date: str | None = None):
+    """Minute-by-minute net premium ticks. 5-min TTL."""
+    params = {"date": date} if date else None
+    return _through("net_prem_ticks", ticker, params, False,
+                    lambda: uw.fetch_net_prem_ticks(ticker, date=date))
 
 
 # ── Snapshot JSONL appender ───────────────────────────────────────────────────
