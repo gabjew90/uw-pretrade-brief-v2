@@ -192,3 +192,54 @@ def fetch_flow_alerts(limit: int = 100):
     # is on the critical path every snapshot.
     return _through("flow_alerts", None, {"limit": limit}, True,
                     lambda: uw.fetch_flow_alerts(limit=limit))
+
+
+# ── Snapshot JSONL appender ───────────────────────────────────────────────────
+
+def _snapshots_path() -> Path:
+    return _data_dir() / "snapshots.jsonl"
+
+
+def _sticky_path() -> Path:
+    return _data_dir() / "sticky.json"
+
+
+def append_snapshot(snapshot: dict) -> bool:
+    """Append one snapshot as a JSON line. Best-effort I/O."""
+    try:
+        path = _snapshots_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(snapshot, default=str) + "\n")
+        return True
+    except Exception as e:
+        log.error("snapshot append failed: %s", e)
+        return False
+
+
+def load_sticky() -> dict[str, str]:
+    """Read sticky.json (ticker → ISO timestamp of last hot_15 appearance).
+
+    Returns {} on missing or corrupt file, never raises."""
+    path = _sticky_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.error("sticky.json corrupt; treating as empty: %s", e)
+        return {}
+
+
+def save_sticky(state: dict[str, str]) -> bool:
+    """Persist sticky state atomically via tmp-file rename."""
+    path = _sticky_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps(state, sort_keys=True, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        log.error("sticky.json save failed: %s", e)
+        return False

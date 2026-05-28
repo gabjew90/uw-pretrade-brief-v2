@@ -169,3 +169,39 @@ def test_fetch_swallows_uw_error_returns_exception_marker(tmp_data_dir, fresh_ca
     result = storage.fetch_spot_exposures_strike("NVDA", is_hot=True)
     assert isinstance(result, storage.UWFailure)
     assert "503" in result.message
+
+
+def test_append_snapshot_writes_jsonl_line(tmp_data_dir):
+    snap = {"fetched_at": "2026-05-27T14:16:00Z", "rows": [{"ticker": "NVDA"}]}
+    storage.append_snapshot(snap)
+    p = tmp_data_dir / "snapshots.jsonl"
+    assert p.exists()
+    lines = p.read_text().strip().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == snap
+
+
+def test_append_snapshot_appends_to_existing_file(tmp_data_dir):
+    storage.append_snapshot({"n": 1})
+    storage.append_snapshot({"n": 2})
+    storage.append_snapshot({"n": 3})
+    lines = (tmp_data_dir / "snapshots.jsonl").read_text().strip().splitlines()
+    assert [json.loads(l)["n"] for l in lines] == [1, 2, 3]
+
+
+def test_load_sticky_returns_empty_dict_when_missing(tmp_data_dir):
+    assert storage.load_sticky() == {}
+
+
+def test_save_then_load_sticky_roundtrips(tmp_data_dir):
+    sticky = {"NVDA": "2026-05-27T15:30:00+00:00", "AMD": "2026-05-26T11:15:00+00:00"}
+    storage.save_sticky(sticky)
+    assert storage.load_sticky() == sticky
+
+
+def test_load_sticky_returns_empty_on_corrupt_file(tmp_data_dir, caplog):
+    p = tmp_data_dir / "sticky.json"
+    p.write_text("{ this is not json")
+    result = storage.load_sticky()
+    assert result == {}
+    assert "sticky.json corrupt" in caplog.text.lower()
