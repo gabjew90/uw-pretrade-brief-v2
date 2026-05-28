@@ -26,7 +26,7 @@ def _get_key() -> str:
     return key
 
 
-_429_RETRY_DELAYS_S = (1, 2, 4)  # exponential backoff: 1s, 2s, 4s, then give up
+_429_RETRY_DELAYS_S = (2, 5, 10, 20, 40)  # exponential backoff: up to ~77s total
 
 
 def _get(path: str, params: dict | None = None) -> Any:

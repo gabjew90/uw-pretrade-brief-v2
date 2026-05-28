@@ -130,6 +130,14 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         ticker=ticker,
         spot=spot,
         direction="calls",
+        # The prototype's render functions gate on is_synthetic to decide
+        # between nested-data shape (true) and flat-top-level shape (false).
+        # Our v2 data shape matches the synthetic-style nesting (row.flow.*,
+        # row.oi.strikes, row.dark_pool.*, row.news_items, row.sector_*),
+        # so flag every Row as synthetic-shape to make the renderers consume
+        # our nested fields correctly. Semantically the data is live — this
+        # flag controls render-shape selection, not data provenance.
+        is_synthetic=True,
         gates=g,
         gate_method=gm,
         flow=Flow(
