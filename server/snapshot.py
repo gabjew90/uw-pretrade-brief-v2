@@ -97,10 +97,12 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     # Prev-trading-day fetch for OI Δ% — use yesterday (calendar). UW typically
     # falls back to the last trading day if asked for a weekend, so this works
     # on Sat/Sun without market-calendar logic. Cached separately from today's.
-    yesterday_iso = (datetime.now(tz=timezone.utc).date() - timedelta(days=1)).isoformat()
+    # Prev-day OI fetch disabled to fit UW Basic 120/min budget. Tile 2 shows
+    # today-only OI; pct stays 0 → "Marginal". Restore once we move archive
+    # work off the dashboard's critical path or upgrade UW tier.
     spot_data = await loop.run_in_executor(_POOL, partial(storage.fetch_spot_exposures_strike, ticker, is_hot))
     oi_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot))
-    oi_prev_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, False, yesterday_iso))
+    oi_prev_data = None
     vol_data = await loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot))
     ivr_data = await loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot))
     dp_data = await loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot))
