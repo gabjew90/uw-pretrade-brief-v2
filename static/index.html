@@ -937,7 +937,7 @@
 </section>
 
 <!-- Task 16: Calibration values footer panel -->
-<details class="calibration-panel">
+<details class="calibration-panel" style="display:none">
   <summary>⚠️ CALIBRATION VALUES — defaults pending empirical calibration before production use (open questions from spec §12 + v2.1/v2.2 amendments)</summary>
   <table>
     <thead><tr><th>Question</th><th>Default used</th><th>TODO</th></tr></thead>
@@ -956,8 +956,8 @@
   </table>
 </details>
 
-<!-- Task 17: Prompt-output footer + copy button -->
-<footer class="prompt-area">
+<!-- Task 17: Prompt-output footer + copy button (prototype-only, hidden in v2) -->
+<footer class="prompt-area" style="display:none">
   <h3>Prompt output · paste into Claude to spec the Streamlit implementation</h3>
   <div class="prompt-row">
     <textarea id="prompt" readonly></textarea>
