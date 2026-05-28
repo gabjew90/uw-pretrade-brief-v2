@@ -46,10 +46,14 @@ async def refresh_snapshot() -> Snapshot:
     storage.save_sticky(sticky.to_dict())
     tracked = universe.compose_universe(hot_15=hot_15, sticky=sticky, now=now)
 
-    # 3. Refresh archive for full tracked universe (cache will handle most)
+    # 3. Refresh archive for hot_15 only. Tracked-universe sleeper coverage
+    # is disabled here while we debug rate-limit interactions — the broader
+    # archive pass was generating 250+ extra calls per cycle and starving
+    # flow_alerts. Re-enable once we confirm UW budget headroom in production.
+    # tracked is still computed (for sticky maintenance) but not iterated.
     await asyncio.gather(*[
-        _refresh_for_archive(t, is_hot=(t in hot_15), loop=loop)
-        for t in tracked
+        _refresh_for_archive(t, is_hot=True, loop=loop)
+        for t in hot_15
     ], return_exceptions=True)
 
     # 4. Build dashboard rows from hot_15
