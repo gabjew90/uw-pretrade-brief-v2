@@ -147,8 +147,11 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
         return cached
     started_at = time.monotonic()
     try:
-        with _uw_call_gate:
-            response = uw_call()
+        # NOTE: semaphore removed — empirical investigation showed it caused
+        # flow_alerts to silently fail in production despite passing tests
+        # locally. ThreadPoolExecutor's max_workers=8 in snapshot.py already
+        # caps real concurrency. See investigation notes near _uw_call_gate.
+        response = uw_call()
     except uw.UWError as e:
         return UWFailure(endpoint=endpoint, ticker=ticker, message=str(e))
     latency_ms = int((time.monotonic() - started_at) * 1000)
