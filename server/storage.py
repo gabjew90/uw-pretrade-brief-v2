@@ -105,6 +105,13 @@ _TTL_SLEEPER_SECONDS = 300    # non-hot tracked tickers (5 min)
 _TTL_QUASI_STATIC_SECONDS = 21600  # earnings (6h)
 _QUASI_STATIC_ENDPOINTS = {"earnings"}
 
+# UW Basic tier = 120 req/min. With ~50 tracked tickers × 6 endpoints =
+# ~300 calls per cycle, parallelism must be capped or we'll burn the budget
+# in seconds and 429 the rest. 8 concurrent saturates at ~15 calls/sec → 120/min.
+import threading
+_UW_CONCURRENCY_LIMIT = 8
+_uw_call_gate = threading.BoundedSemaphore(_UW_CONCURRENCY_LIMIT)
+
 
 def _ttl_seconds(endpoint: str, is_hot: bool) -> int:
     if endpoint in _QUASI_STATIC_ENDPOINTS:
@@ -140,7 +147,8 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
         return cached
     started_at = time.monotonic()
     try:
-        response = uw_call()
+        with _uw_call_gate:
+            response = uw_call()
     except uw.UWError as e:
         return UWFailure(endpoint=endpoint, ticker=ticker, message=str(e))
     latency_ms = int((time.monotonic() - started_at) * 1000)

@@ -111,10 +111,21 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     days_to_earn = _extract_days_to_earnings(earn_data)
     flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b = _extract_gex(spot_data, spot)
 
+    # Direction inference: positive net dealer γ (gex_sign=POS) means dealers
+    # are long γ → they sell into rallies, buy dips → suppresses upside
+    # momentum. Negative γ means dealers are short γ → amplify moves in either
+    # direction. For directional-trade framing we infer "calls" when γ is
+    # negative (squeeze-friendly upside setup) or when spot is below γ flip
+    # (room to grind higher into the flip), and "puts" otherwise.
+    if gex_sign == "NEG" or flip_pct > 0:
+        direction = "calls"
+    else:
+        direction = "puts"
+
     raw_row = {
         "ticker": ticker,
         "spot": spot,
-        "direction": "calls",
+        "direction": direction,
         "flip_dist_pct": flip_pct,
         "wall_up_dist_pct": wall_up_pct,
         "wall_dn_dist_pct": wall_dn_pct,
@@ -129,7 +140,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     return Row(
         ticker=ticker,
         spot=spot,
-        direction="calls",
+        direction=direction,
         # The prototype's render functions gate on is_synthetic to decide
         # between nested-data shape (true) and flat-top-level shape (false).
         # Our v2 data shape matches the synthetic-style nesting (row.flow.*,
@@ -188,11 +199,15 @@ def _aggregate_flow_per_ticker(flow_alerts_payload: dict, hot_15: list[str]) -> 
                 cur["spot"] = float(r.get("underlying_price") or 0)
             except (TypeError, ValueError):
                 pass
-    # Cross-sectional rank within hot_15 (top ticker = 7%, last = 100%)
-    n = len(hot_15)
-    for i, t in enumerate(hot_15):
-        if t in agg:
-            agg[t]["rank_cross"] = int(round((i + 1) / max(n, 1) * 100))
+    # Cross-sectional rank: order ALL tickers in the flow_alerts response by
+    # total premium descending, then map percentile. Top ~7% of tickers in
+    # today's universe = green; top ~35% = yellow. Hot_15 is a subset of the
+    # full ranked list, so a hot_15 ticker can still rank "yellow" if its
+    # premium is small compared to the leaders.
+    ranked = sorted(agg.items(), key=lambda kv: -kv[1]["premium_usd"])
+    total_n = max(len(ranked), 1)
+    for i, (t, info) in enumerate(ranked):
+        info["rank_cross"] = int(round((i + 1) / total_n * 100))
     return agg
 
 
