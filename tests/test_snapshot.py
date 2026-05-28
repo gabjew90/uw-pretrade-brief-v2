@@ -87,6 +87,8 @@ async def test_refresh_snapshot_updates_sticky_state(stub_uw, fresh_storage_stat
     assert "NVDA" in sticky and "TSLA" in sticky
 
 
+@pytest.mark.xfail(reason="Tracked-universe archive pass disabled in 0959d8b — "
+                          "will re-enable as decoupled background task in v0.3", strict=False)
 async def test_refresh_snapshot_archive_pass_covers_tracked_universe(stub_uw, fresh_storage_state,
                                                                        tmp_data_dir, monkeypatch):
     """Pinned ticker (not in hot_15) is also fetched for archive."""
