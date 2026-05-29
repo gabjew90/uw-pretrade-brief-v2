@@ -87,10 +87,11 @@ def test_outside_edit_zones_matches_v1_structurally():
     v2_stripped = _EDIT_ZONE_RE.sub("", v2_text)
     v2_stripped = _HYDRATION_MARKER_RE.sub("", v2_stripped)
 
-    # Count function definitions — should be identical (we didn't add or remove any
-    # except renderRegimeBanner which is replaced INSIDE zone 6).
+    # Count function definitions — catches accidental wholesale deletion.
     v1_fn_count = len(re.findall(r"\bfunction\s+\w+\s*\(", v1_text))
     v2_fn_count = len(re.findall(r"\bfunction\s+\w+\s*\(", v2_stripped))
-    # Allow ±1 for renderRegimeBanner (it's inside zone 6, stripped out)
-    assert abs(v1_fn_count - v2_fn_count) <= 2, \
+    # Allow ±5 — accounts for renderRegimeBanner (zone 6) plus intentional
+    # removal of prototype-only scaffolding (buildPrompt / refreshPrompt and
+    # the originalRender* wrappers that hosted them).
+    assert abs(v1_fn_count - v2_fn_count) <= 5, \
         f"function definition count drift: v1={v1_fn_count} v2(stripped)={v2_fn_count}"

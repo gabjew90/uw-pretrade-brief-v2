@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <!-- HYDRATION_TARGET -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Weekly Options Decision Dashboard · Playground</title>
+<title>Weekly Options Decision Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -909,11 +909,10 @@
     <span class="regime-label" id="regime-label">Markets normal</span>
     <span class="regime-detail" id="regime-detail">VIX —</span>
   </div>
-  <button class="regime-demo-btn" id="regime-toggle" style="display:none">[DEMO]</button>
 </header>
 <div class="demo-banner" id="snapshot-age-banner">
   <span class="demo-icon">⏱</span>
-  <span><strong id="snapshot-age">—</strong> · <span id="snapshot-detail">awaiting first snapshot</span></span>
+  <span><strong id="snapshot-age">—</strong> · <span id="snapshot-detail">loading…</span></span>
 </div>
 <!-- V2-EDIT-5-END -->
 
@@ -921,7 +920,6 @@
 <section class="watchlist-section">
   <h2>
     <span>Watchlist</span>
-    <button class="nothing-toggle" id="nothing-toggle" title="DEMO: simulate empty-day state" style="display:none">⚠ nothing today</button>
   </h2>
   <div class="watchlist-search">
     <input type="text" id="watchlist-search-input" placeholder="Search ticker (e.g., AAPL)" autocomplete="off" spellcheck="false">
@@ -936,34 +934,9 @@
   <div id="deepdive-content"></div>
 </section>
 
-<!-- Task 16: Calibration values footer panel -->
-<details class="calibration-panel" style="display:none">
-  <summary>⚠️ CALIBRATION VALUES — defaults pending empirical calibration before production use (open questions from spec §12 + v2.1/v2.2 amendments)</summary>
-  <table>
-    <thead><tr><th>Question</th><th>Default used</th><th>TODO</th></tr></thead>
-    <tbody>
-      <tr><td>Cross-sectional universe definition</td><td>Today's hot-flow tickers (15)</td><td class="todo">Empirical decision — every UW-tracked ticker, all with ≥1 alert today, or top N by volume?</td></tr>
-      <tr><td>Sector tide threshold</td><td>|tide| > 0.30 = green</td><td class="todo">Empirical calibration against UW's sector-tide distribution</td></tr>
-      <tr><td>Gate 3 flip distance</td><td>within 1.5% of spot to pass</td><td class="todo">Calibrate against accessible-universe data</td></tr>
-      <tr><td>Gate 3 wall distance (trade direction)</td><td>within 1% of spot = blocking (Gate 3 fail)</td><td class="todo">Same calibration</td></tr>
-      <tr><td>Stale data handling</td><td>flow alerts >4h flagged yellow on watchlist timestamp</td><td class="todo">Explicit time-decay logic in production</td></tr>
-      <tr><td>Earnings reference fallback</td><td>missing earnings → assume within 7d → fail Gate 4 conservatively</td><td class="todo">Better fallback (e.g., check Companies endpoint if accessible — currently Advanced-tier locked)</td></tr>
-      <tr><td>Protected-ITM threshold (opposing wall distance)</td><td>within 2% in opposite direction</td><td class="todo">Calibrate against win-rate of structurally-protected ITM trades</td></tr>
-      <tr><td>IV curve inversion thresholds</td><td>mild > 3 vol pts, severe > 8 vol pts</td><td class="todo">Empirical calibration on historical inverted-curve outcomes</td></tr>
-      <tr><td>Cost/day shift trigger</td><td>longer-dated < 70% of thisFri cost/day</td><td class="todo">Calibrate the cutoff against realized cost-efficacy</td></tr>
-      <tr><td>Approx contracts-per-unusual-alert (Tile 2 $ Δ approx)</td><td>1,000</td><td class="todo">Empirical: distribution of contracts-per-trade for "unusual" UW flow alerts. Affects Tile 2's $ Δ approximation magnitude.</td></tr>
-    </tbody>
-  </table>
-</details>
-
-<!-- Task 17: Prompt-output footer + copy button (prototype-only, hidden in v2) -->
-<footer class="prompt-area" style="display:none">
-  <h3>Prompt output · paste into Claude to spec the Streamlit implementation</h3>
-  <div class="prompt-row">
-    <textarea id="prompt" readonly></textarea>
-    <button id="copy-btn">Copy prompt</button>
-  </div>
-</footer>
+<!-- v2: prototype-only calibration-panel + prompt-output footer removed.
+     Calibration thresholds are documented in tile tooltips; the spec/prompt
+     scaffold lived in the prototype and has no role in the production app. -->
 
 <!-- Task 15: Tooltip bottom-sheet overlay (single shared modal) -->
 <div class="tooltip-overlay" id="tooltip-overlay">
@@ -1201,11 +1174,6 @@ function renderRegimeBanner() {
 }
 /* V2-EDIT-6-END */
 
-document.getElementById("regime-toggle").addEventListener("click", () => {
-  state.regime = state.regime === "normal" ? "risk-off" : "normal";
-  renderRegimeBanner();
-});
-
 renderRegimeBanner();
 
 /* ============================================================
@@ -1347,13 +1315,6 @@ function renderNothingTodayCard() {
   // Body-level delegation on [data-tooltip-trigger] (see ~line 1522) handles the click —
   // no dedicated listener needed here (I-2 fix).
 }
-
-document.getElementById("nothing-toggle").addEventListener("click", () => {
-  state.nothingToday = !state.nothingToday;
-  state.selected = null;  // deselect when entering/leaving nothing-today mode
-  renderWatchlist();
-  renderDeepDive();
-});
 
 /* Search input — filters the visible watchlist as the user types. If the typed
  * query exactly matches a ticker, auto-select it so the deep-dive populates. */
@@ -1824,10 +1785,18 @@ function renderTile3Structural(row) {
   `;
 }
 
-/* 3-sentence structural-setup insight. Deterministic placeholder for the
- * production Gemini call — when wired, swap the body for an LLM call seeded
- * with the same row data so the prose summarizes what the chart shows. */
+/* 3-sentence structural-setup insight. Prefer Gemini-generated prose from the
+ * snapshot (row.insights.structural); fall back to deterministic template
+ * when the Gemini call failed or hasn't run yet. */
 function renderStructuralInsight(row, gex, spot, flipStrike, callWall, putWall) {
+  if (row.insights && row.insights.structural) {
+    return `
+      <div class="insight" data-llm="gemini">
+        <div class="label">chart insight · Gemini</div>
+        ${row.insights.structural}
+      </div>
+    `;
+  }
   const isCall = row.direction === "calls";
   const flipPct = gex.flip_dist_pct;
   const flipDir = flipPct >= 0 ? "above" : "below";
@@ -2035,8 +2004,17 @@ function renderTile4Cost(row) {
   `;
 }
 
-/* 1-sentence term-structure insight. Placeholder for future Gemini call. */
+/* 1-sentence term-structure insight. Prefer Gemini prose from the snapshot
+ * (row.insights.curve); fall back to deterministic template on miss. */
 function renderCurveInsight(row, cs) {
+  if (row.insights && row.insights.curve) {
+    return `
+      <div class="insight" data-llm="gemini">
+        <div class="label">chart insight · Gemini</div>
+        ${row.insights.curve}
+      </div>
+    `;
+  }
   const c = row.iv_term_curve;
   if (!c || c.length < 2) return "";
   const front = (c[0] * 100).toFixed(0);
@@ -2504,49 +2482,49 @@ const TOOLTIPS = {
     whatItIs: "Whether broader market conditions support our strategy.",
     whyHere: "Our setups rely on dealer hedging behavior, which breaks down when VIX is over 22 or when major macro events (Fed meetings, inflation reports) are within 3 days.",
     threshold: "Risk-off when VIX > 22 OR macro event within 3 days. Dims the watchlist below to 60% as a reminder.",
-    provenance: "🔵 LIVE for VIX from UW spot-exposures; 🔵 LIVE for macro calendar from UW market endpoints.",
+    provenance: "⚠️ Today: the regime label + detail text are operator-set env vars (REGIME, REGIME_DETAIL_TEXT) — not live-derived. To make this LIVE we'd add SPY/VIX via /api/market/oi-change and macro calendar via /api/market/economic-calendar (Advanced-tier).",
   },
   tile1: {
     title: "Tile 1: Flow Conviction",
     whatItIs: "Is unusual options activity loading aggressively in one direction? Each vertical bar in the chart = one unusual trade. X = time it fired (4hr session). Y = the strike that trade is at. Label = $ premium. The grey line is the underlying stock price over the same window.",
     whyHere: "Demand signal — who's buying, how big, and where they're concentrating. The first gate in the funnel. Strikes appearing here are the same strikes you see in Tile 2's OI table — Tile 1 shows when activity happened; Tile 2 confirms whether OI actually grew at those strikes. High alert $ + Tile 2 OI ↑ = opening flow (green). High alert $ + Tile 2 OI ↓ = closing (red) — the sweep was someone exiting.",
     threshold: "Gate 1 passes (green) if the ticker's bullish flow rank is in the top 15% of today's universe; yellow up to top 35%; red beyond.",
-    provenance: "Alert count + total premium 🔵 LIVE; flow rank 📊 CROSS computed across the universe. Bars carry no ask/bid direction encoding (not reliable on this tier).",
+    provenance: "Endpoints used: /api/option-trades/flow-alerts (60s) → alert count, $ premium, cross-sectional rank. ALSO INGESTED for this tile, not yet wired: /api/net-flow/expiry (per-ticker, 5min) — qualifies whether flow is front-week speculation or 30-45 DTE institutional positioning; /api/lit-flow/recent (cross-ticker, 60s) — distinguishes lit vs dark venue. Bars carry no ask/bid direction encoding (not reliable on this tier).",
   },
   tile2: {
     title: "Tile 2: OI Confirmation",
     whatItIs: "Did flow buyers actually open NEW positions (not close old ones)? Shows the top 5 strikes with the largest OI change overnight, with a status badge per strike (Opening / Marginal / Closing).",
     whyHere: "About 60% of impressive-looking flow alerts fail this test — they were exits, not entries. This is the single most important filter the app applies. The $ Δ column is a PROXY estimate: UW gives OI in contracts only, no dollar-OI field. We approximate dollar inflow as OI Δ × (avg per-alert $ from Tile 1) ÷ assumed-contracts-per-alert.",
     threshold: "Gate 2 passes if at least one strike with significant flow shows ≥20% OI growth overnight (opening); yellow 5-20%; red <-5% (closing).",
-    provenance: "🔵 LIVE OI in contracts from UW oi-change endpoint. ⚠️ PROXY $ Δ column (no dollar-OI on Basic tier).",
+    provenance: "Endpoints used: /api/stock/{ticker}/oi-per-strike (60s) called twice per cycle — once for today, once with ?date=YYYY-MM-DD for yesterday — Δ% is (today-yesterday)/yesterday. NOTE: prev=today on every row right now suggests UW Basic may not honor the date param; needs probe. ⚠️ PROXY $ Δ column (no dollar-OI on Basic tier).",
   },
   tile3: {
     title: "Tile 3: Structural Setup",
     whatItIs: "Is the stock near a gamma flip in a position to break through it?",
     whyHere: "Supply-side response — how dealers will react. The structural position (not the regime) is what matters: when spot is close to the flip and your trade direction is across it, dealer hedging is most likely to amplify the move.",
     threshold: "Gate 3 passes when gamma flip is within 1.5% of spot AND on the trade-favorable side AND no opposing wall within 1% in trade direction.",
-    provenance: "🔵 LIVE from UW spot-exposures/strike endpoint.",
+    provenance: "Endpoints used: /api/stock/{ticker}/spot-exposures/strike (60s) — per-strike call/put gamma → flip strike + call/put walls. NOTE: the per-strike bar chart bars are currently visually synthesized from the flip distance (lossy display) — the underlying anchor values (flip %, walls, spot, GEX sign) are LIVE. Gemini-generated chart explanation (row.insights.structural) is fetched but not yet rendered in this template.",
   },
   tile4: {
     title: "Tile 4: Cost & Timing",
     whatItIs: "Are options reasonably priced, with no earnings vol-crush risk?",
     whyHere: "High IV means the expected move is already priced in. You can be right and still lose money if IV crashes.",
     threshold: "Gate 4 passes when IV rank < 60 AND no earnings within 7 days of expiration.",
-    provenance: "🔵 LIVE — UW pre-computes IV rank from longer history than our raw data access.",
+    provenance: "Endpoints used: /api/stock/{ticker}/interpolated-iv (5min) — IV rank; /api/stock/{ticker}/volatility/term-structure (5min) — 4-point IV curve (7d/14d/30d/60d); /api/stock/{ticker}/earnings (24h) — earnings date. ALSO INGESTED for this tile: /api/seasonality/{ticker}/monthly + /api/seasonality/market (both 24h) — calendar-weighted historical drift baseline. Gemini-generated curve explanation (row.insights.curve) is fetched but not yet rendered in this template.",
   },
   tile5: {
     title: "Tile 5: Confirmation Stack",
     whatItIs: "Tiebreakers — not gates. Sector tide, news catalysts, and dark-pool conviction. Used to break ties between two qualifying setups.",
     whyHere: "Sector agreement strengthens single-name conviction. News catalysts shift the trade profile from flow-driven to event-driven. Dark pool net premium reveals where institutions are positioning off-exchange — when it agrees with your direction, that's confirmation; when it fights it, that's a tiebreak against the trade.",
     threshold: "Sector tide: |reading| > 0.30 → green. News: any recent headlines → flag for review. Dark pool: |net premium| ≥ $500k AND direction agrees with trade → green; fights trade → red; below threshold → no signal.",
-    provenance: "🔵 LIVE sector tide, news, and dark-pool net premium from UW. ⚠️ PROXY: dark-pool % of consolidated volume (Basic tier doesn't surface the OHLC denominator cleanly).",
+    provenance: "Endpoints used: /api/stock/{ticker}/info (24h) → sector slug; /api/market/{sector}/sector-tide (5min) → tide value; /api/news/headlines?ticker={t} (15min) → headlines; /api/darkpool/{ticker} (60s) → dark-pool net premium. ALSO INGESTED for this tile: /api/group-flow/sp500/greek-flow (60s) — broad-market Greek-flow regime as sector-rotation tailwind context. ⚠️ PROXY: dark-pool % of consolidated volume (Basic tier doesn't surface the OHLC denominator cleanly).",
   },
   tile6: {
     title: "Tile 6: Contract Picker",
     whatItIs: "The condensed option chain showing the recommended contract and 4 alternatives.",
     whyHere: "Default = next-week expiration, ATM + 1-OTM. Next-week aligns with the 5-10 day natural horizon of the signal stack; this-week races against theta.",
     threshold: "Spread % under 5% is acceptable. Volume ≥ 1000 and OI ≥ 5000 for liquidity.",
-    provenance: "🔵 LIVE bid/ask/IV/vol/OI from UW option-chains endpoint.",
+    provenance: "⚠️ Bid/ask/IV/vol/OI rows shown in this tile are currently SYNTHESIZED (seeded random per row), NOT live. The real per-contract data IS being ingested: /api/stock/{ticker}/option-contracts (500 contracts, 5min) → full chain snapshot, and /api/option-contract/{symbol}/historic (5min) → per-contract execution-quality drill. Wiring those into this tile is the v0.3 task.",
   },
   nothing_today: {
     title: "No qualifying setups right now",
@@ -2632,78 +2610,9 @@ document.body.addEventListener("click", (e) => {
   }
 });
 
-/* ============================================================
- * Task 17: Prompt-output footer + copy button
- * ============================================================ */
-
-function buildPrompt() {
-  const sel = state.selected ? ROWS.find(r => r.ticker === state.selected) : null;
-  const lines = [];
-  lines.push(`Build a Streamlit page implementing the Weekly Options Decision Dashboard per weekly_options_ui_requirements_v2.md.`);
-  lines.push(``);
-  lines.push(`Architecture: one scrollable page, three persistent zones top-to-bottom — sticky regime banner, watchlist with row dot-rating + sort, deep-dive card with 4 gate tiles + Tile 5 confirmation + Tile 6 contract picker. Mobile-first (375-414px), gracefully wide on desktop.`);
-  lines.push(``);
-  lines.push(`Endpoints to wire:`);
-  lines.push(`  - /api/option-trades/flow-alerts  →  Tile 1 (count + premium); cross-sectional rank computed locally`);
-  lines.push(`  - /api/stock/{t}/oi-change         →  Tile 2 (opening vs closing classification)`);
-  lines.push(`  - /api/stock/{t}/spot-exposures/strike  →  Tile 3 (γ ladder, flip, walls)`);
-  lines.push(`  - /api/stock/{t}/interpolated-iv   →  Tile 4 (IV rank, LIVE — UW pre-computes)`);
-  lines.push(`  - /api/stock/{t}/volatility/term-structure  →  Tile 4 curve-shape indicator (v2.2)`);
-  lines.push(`  - /api/stock/{t}/earnings          →  Tile 4 (days to next earnings)`);
-  lines.push(`  - /api/market/{sector}/sector-tide →  Tile 5 (sector agreement)`);
-  lines.push(`  - /api/news/headlines              →  Tile 5 (news count)`);
-  lines.push(`  - /api/darkpool/{ticker}           →  Tile 5 (dark-pool net premium)`);
-  lines.push(`  - /api/stock/{t}/option-chains     →  Tile 6 (contract picker)`);
-  lines.push(`  - VIX intraday quote + macro calendar  →  Regime banner`);
-  lines.push(``);
-  lines.push(`Critical UX invariants:`);
-  lines.push(`  - 🔵 LIVE / 📊 CROSS / ⚠️ PROXY pills on every metric — only these three labels`);
-  lines.push(`  - Tooltip text VERBATIM from the spec (bottom-sheet modal)`);
-  lines.push(`  - Tile 1 dots size by premium only, NOT colored by direction (same discipline as removed ask/bid % headline)`);
-  lines.push(`  - "Nothing today" replaces watchlist ONLY when zero rows have 4/4 green`);
-  lines.push(`  - Synthetic-row timestamps display — (no fabricated minute-level values)`);
-  lines.push(`  - Gate 3 logic: flip within 1.5% AND favorable side AND no wall within 1% in trade direction`);
-  lines.push(`  - Tile 6 default = next-week expiration, ATM + 1-OTM; this-week shown only on toggle`);
-  lines.push(`  - Tile 6 strike choice is structural (reads Tile 3's γ data), not generic ATM — see annotateStrike + pickRecommendedStrike (v2.1)`);
-  lines.push(`  - Tile 4 curve-shape indicator + Tile 6 Cost/day column catch event-driven premium that IV rank misses (TSLA-earnings type setup) (v2.2)`);
-  lines.push(`  - No conviction score / no ask-side % (v2 honesty decisions)`);
-  lines.push(`  - Tile 5 dark-pool net premium = 🔵 LIVE; dark-pool % of consolidated volume = ⚠️ PROXY (Basic tier limitation)`);
-  lines.push(``);
-  lines.push(`Calibration defaults (user-configurable in production):`);
-  lines.push(`  flow_rank_green_cross_pct=15, flow_rank_yellow_cross_pct=35`);
-  lines.push(`  oi_green_pct=20, oi_yellow_pct=5, oi_red_pct=-5`);
-  lines.push(`  gate3_flip_dist_pct=1.5, gate3_wall_dist_pct=1.0`);
-  lines.push(`  ivr_green_max=60, ivr_yellow_max=80, earnings_days_min=7`);
-  lines.push(`  sector_tide_green_abs=0.30, stale_alert_hours=4`);
-  lines.push(`  iv_curve_inversion_threshold_pts=3, iv_curve_severe_inversion_pts=8  (v2.2)`);
-  lines.push(`  protected_itm_opp_wall_pct=2.0  (v2.1 — opposing wall within X% of spot → ITM has structural floor)`);
-  lines.push(``);
-  lines.push(`Aesthetic: financial-terminal dark (Tokyo Night). Monospace for numbers. Palette: --pos #7AA2F7 / --neg #F7768E / --warn #E0AF68 / --ok #9ECE6A / --hot #BB9AF7.`);
-  lines.push(``);
-  if (sel) lines.push(`Current playground state: ${sel.ticker} selected, gates = flow:${sel.gates.flow} oi:${sel.gates.oi} structural:${sel.gates.structural} cost:${sel.gates.cost}, regime banner: ${state.regime}.`);
-  else lines.push(`Current playground state: no ticker selected (empty deep-dive).`);
-  return lines.join("\n");
-}
-
-function refreshPrompt() {
-  document.getElementById("prompt").value = buildPrompt();
-}
-
-document.getElementById("copy-btn").addEventListener("click", () => {
-  const btn = document.getElementById("copy-btn");
-  navigator.clipboard.writeText(document.getElementById("prompt").value).then(() => {
-    btn.textContent = "Copied!"; btn.classList.add("copied");
-    setTimeout(() => { btn.textContent = "Copy prompt"; btn.classList.remove("copied"); }, 1200);
-  });
-});
-
-// Hook prompt refresh into existing renders so it always reflects state.
-const originalRenderDeepDive = renderDeepDive;
-renderDeepDive = function() { originalRenderDeepDive(); refreshPrompt(); };
-const originalRenderWatchlist = renderWatchlist;
-renderWatchlist = function() { originalRenderWatchlist(); refreshPrompt(); };
-
-refreshPrompt();
+/* v2: prototype-only buildPrompt() removed — was scaffolding for generating
+   the Streamlit re-implementation spec; obsolete now that v2 is the
+   implementation, not the prompt. */
 
 /* Initial render */
 renderWatchlist();
