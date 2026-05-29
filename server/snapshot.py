@@ -39,6 +39,19 @@ async def refresh_snapshot() -> Snapshot:
     hot_15 = universe.top_15_unique_tickers(flow_alerts)
     flow_by_ticker = _aggregate_flow_per_ticker(flow_alerts, hot_15)
 
+    # 1b. Cross-ticker ingest (parqueted, not yet consumed by tiles):
+    # - lit_flow_recent: lit/dark divergence companion to darkpool
+    # - group_flow (sp500): broad-market Greek-flow regime
+    # - seasonality_market: 24h-cached market drift baseline
+    # - net_flow_expiry (no ticker): cross-market expiry term-structure
+    await asyncio.gather(
+        loop.run_in_executor(_POOL, partial(storage.fetch_lit_flow_recent)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_group_flow, "sp500")),
+        loop.run_in_executor(_POOL, partial(storage.fetch_seasonality_market)),
+        loop.run_in_executor(_POOL, partial(storage.fetch_net_flow_expiry, None)),
+        return_exceptions=True,
+    )
+
     # 2. tracked_universe
     sticky = universe.StickyState(storage.load_sticky())
     sticky.touch(hot_15, now=now)
@@ -114,9 +127,13 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     # option_contracts: real bid/ask/IV/vol/OI for Tile 6 picker
     # max_pain: additional Tile 4 context
     # net_prem_ticks: time-series flow context
+    # net_flow_expiry: front-week-vs-30-45-DTE qualifier for flow alerts (per-ticker)
+    # seasonality_ticker: 24h-cached per-ticker calendar drift baseline
     await loop.run_in_executor(_POOL, partial(storage.fetch_option_contracts, ticker, 500))
     await loop.run_in_executor(_POOL, partial(storage.fetch_max_pain, ticker))
     await loop.run_in_executor(_POOL, partial(storage.fetch_net_prem_ticks, ticker))
+    await loop.run_in_executor(_POOL, partial(storage.fetch_net_flow_expiry, ticker))
+    await loop.run_in_executor(_POOL, partial(storage.fetch_seasonality_ticker, ticker))
 
     failures = [r.endpoint for r in (spot_data, oi_data, vol_data, ivr_data, dp_data, earn_data)
                 if isinstance(r, storage.UWFailure)]

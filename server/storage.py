@@ -108,12 +108,18 @@ _TTL_QUASI_STATIC_SECONDS = 86400  # 24h — earnings, ticker_info, max_pain, pr
 _TTL_MEDIUM_SECONDS = 300      # 5min — volatility, IV rank, sector tide, market tide, option_contracts, net_prem_ticks
 _TTL_NEWS_SECONDS = 900        # 15min — news headlines
 
-_QUASI_STATIC_ENDPOINTS = {"earnings", "ticker_info", "max_pain"}
+_QUASI_STATIC_ENDPOINTS = {
+    "earnings", "ticker_info", "max_pain",
+    "seasonality_market", "seasonality_ticker",
+}
 _MEDIUM_ENDPOINTS = {
     "volatility_term_structure", "interpolated_iv",
     "sector_tide", "market_tide", "option_contracts", "net_prem_ticks",
+    "net_flow_expiry", "option_contract_history",
 }
 _NEWS_ENDPOINTS = {"news_headlines"}
+# group_flow + lit_flow_recent fall through to the hot/sleeper default (is_hot
+# arg controls TTL); both wrappers above pass is_hot=True → 60s.
 
 # UW Basic tier = 120 req/min = 2 calls/sec sustained. With ThreadPoolExecutor
 # at 8 workers, no throttle means up to 8 calls in parallel completing in
@@ -346,6 +352,47 @@ def fetch_net_prem_ticks(ticker: str, date: str | None = None):
     params = {"date": date} if date else None
     return _through("net_prem_ticks", ticker, params, False,
                     lambda: uw.fetch_net_prem_ticks(ticker, date=date))
+
+
+def fetch_group_flow(group: str = "sp500"):
+    """Aggregate per-Greek flow for an index/sector group. Hot TTL (60s) for
+    sp500 so sector-rotation regime is fresh per cycle."""
+    return _through("group_flow", group, None, True,
+                    lambda: uw.fetch_group_flow(group))
+
+
+def fetch_net_flow_expiry(ticker: str | None = None):
+    """Net premium flow grouped by expiry. Medium TTL (5min). Per-ticker when
+    `ticker` set; cross-market aggregate otherwise."""
+    params = {"ticker_symbol": ticker} if ticker else None
+    return _through("net_flow_expiry", ticker, params, False,
+                    lambda: uw.fetch_net_flow_expiry(ticker))
+
+
+def fetch_lit_flow_recent():
+    """Recent lit-exchange flow (complement to darkpool). Hot TTL (60s) so we
+    catch lit/dark divergence in near-real-time."""
+    return _through("lit_flow_recent", None, None, True,
+                    lambda: uw.fetch_lit_flow_recent())
+
+
+def fetch_option_contract_history(symbol: str):
+    """Per-contract historic bid/ask/vol/IV. Medium TTL (5min). Lazy-fetched
+    on contract selection — not in the per-cycle snapshot fan-out."""
+    return _through("option_contract_history", symbol, None, False,
+                    lambda: uw.fetch_option_contract_history(symbol))
+
+
+def fetch_seasonality_market():
+    """Market-level seasonality. Quasi-static (24h TTL)."""
+    return _through("seasonality_market", None, None, False,
+                    lambda: uw.fetch_seasonality_market())
+
+
+def fetch_seasonality_ticker(ticker: str):
+    """Per-ticker monthly seasonality. Quasi-static (24h TTL)."""
+    return _through("seasonality_ticker", ticker, None, False,
+                    lambda: uw.fetch_seasonality_ticker(ticker))
 
 
 # ── Snapshot JSONL appender ───────────────────────────────────────────────────

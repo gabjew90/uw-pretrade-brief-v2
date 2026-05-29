@@ -57,6 +57,18 @@ def stub_uw(monkeypatch):
                         lambda t, date=None: {"data": [{"max_pain": 100}]})
     monkeypatch.setattr(uw, "fetch_net_prem_ticks",
                         lambda t, date=None: {"data": [{"net_call_premium": 0, "net_put_premium": 0}]})
+    monkeypatch.setattr(uw, "fetch_group_flow",
+                        lambda group="sp500": {"data": [{"greek": "delta", "net_flow": 1.0}]})
+    monkeypatch.setattr(uw, "fetch_net_flow_expiry",
+                        lambda ticker=None: {"data": [{"expiry": "2026-06-06", "net_premium": 0}]})
+    monkeypatch.setattr(uw, "fetch_lit_flow_recent",
+                        lambda: {"data": [{"ticker": "NVDA", "premium": 100}]})
+    monkeypatch.setattr(uw, "fetch_option_contract_history",
+                        lambda symbol: {"data": [{"date": "2026-05-27", "bid": 1.0, "ask": 1.2}]})
+    monkeypatch.setattr(uw, "fetch_seasonality_market",
+                        lambda: {"data": [{"month": "May", "avg_return": 0.012}]})
+    monkeypatch.setattr(uw, "fetch_seasonality_ticker",
+                        lambda t: {"data": [{"month": "May", "avg_return": 0.018}]})
 
 
 async def test_refresh_snapshot_happy_path_assembles_15_rows(stub_uw, fresh_storage_state, tmp_data_dir):

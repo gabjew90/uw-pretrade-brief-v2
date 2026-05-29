@@ -162,6 +162,43 @@ def fetch_ticker_info(ticker: str) -> dict:
     return _get(f"/api/stock/{ticker}/info")
 
 
+def fetch_group_flow(group: str = "sp500") -> dict:
+    """Aggregate per-Greek flow for an index/sector group. `group` slugs
+    verified via probe: sp500, airline, bank, basic-materials, …"""
+    return _get(f"/api/group-flow/{group}/greek-flow")
+
+
+def fetch_net_flow_expiry(ticker: str | None = None) -> dict:
+    """Net premium flow grouped by expiry — front-week vs 30-45 DTE vs back
+    months. Qualifies flow alerts as speculation vs institutional positioning."""
+    params = {"ticker_symbol": ticker} if ticker else None
+    return _get("/api/net-flow/expiry", params=params)
+
+
+def fetch_lit_flow_recent() -> dict:
+    """Recent exchange-displayed (lit) flow — complement to /api/darkpool/{t}.
+    Cross-ticker, parallel to flow-alerts but distinguishes lit vs dark venue."""
+    return _get("/api/lit-flow/recent")
+
+
+def fetch_option_contract_history(symbol: str) -> dict:
+    """Per-contract historical bid/ask/volume/IV — drilldown used by Tile 6's
+    execution-quality strip once a contract is selected. `symbol` is the OCC
+    standard (e.g. SPY260605C00750000)."""
+    return _get(f"/api/option-contract/{symbol}/historic")
+
+
+def fetch_seasonality_market() -> dict:
+    """Market-level seasonality (calendar-weighted historical drift). Quasi-
+    static — refresh once per day."""
+    return _get("/api/seasonality/market")
+
+
+def fetch_seasonality_ticker(ticker: str) -> dict:
+    """Per-ticker seasonality. Quasi-static — refresh once per day."""
+    return _get(f"/api/seasonality/{ticker}/monthly")
+
+
 # ---------- Shape normalizers ----------
 
 def _unwrap(payload):
