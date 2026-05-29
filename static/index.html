@@ -1603,13 +1603,19 @@ function renderTile2OI(row) {
   // strike (Tile 2 row × Tile 1 alert data). UW gives OI in contracts only — this
   // estimates the dollar inflow from the OI Δ using Tile 1's avg per-alert premium
   // and a CALIBRATION assumption for typical contracts-per-unusual-alert.
-  const flowData = row.is_synthetic ? row.flow : {
-    rank_cross: row.flow_rank_cross,
-    alerts: row.alerts_count,
-    premium_usd: row.alerts_total_premium_usd,
-  };
-  const aggregates = computeAlertStrikeAggregates(row, flowData.alerts, flowData.premium_usd);
-  const aggByStrike = Object.fromEntries(aggregates.map(a => [a.strike, a]));
+  // Per-strike aggregate of real flow alerts (replaces the v0.1 synthesized
+  // computeAlertStrikeAggregates that pre-dated row.flow_alerts_detail).
+  const aggByStrike = {};
+  for (const a of (row.flow_alerts_detail || [])) {
+    if (!a || !a.strike) continue;
+    if (!aggByStrike[a.strike]) aggByStrike[a.strike] = {count: 0, premium: 0};
+    aggByStrike[a.strike].count++;
+    aggByStrike[a.strike].premium += (a.total_premium || 0);
+  }
+  for (const k of Object.keys(aggByStrike)) {
+    const x = aggByStrike[k];
+    x.avgPerAlert = x.count > 0 ? x.premium / x.count : 0;
+  }
 
   function approxDollarDelta(s) {
     // OI Δ (contracts) × (avg per-alert $ premium) ÷ assumed-contracts-per-alert
