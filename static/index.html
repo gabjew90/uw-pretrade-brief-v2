@@ -1734,7 +1734,10 @@ function renderT2StatusCards(t2) {
  * (provisional). Bar color: green building / gray flat / red unwinding. */
 function renderOiSessionChart(t2) {
   const strikes = t2.strikes || [];
-  const fmtK = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+  const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T`
+                  : n >= 1e9  ? `${(n / 1e9).toFixed(1)}B`
+                  : n >= 1e6  ? `${(n / 1e6).toFixed(1)}M`
+                  : n >= 1e3  ? `${Math.round(n / 1e3)}k` : `${n}`;
   const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
   const trendColor = t => t === "building" ? "#9ECE6A" : t === "unwinding" ? "#F7768E" : "#5a6378";
 
