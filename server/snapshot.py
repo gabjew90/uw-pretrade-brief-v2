@@ -346,6 +346,25 @@ def _per_strike_net_delta(spot_data: Any) -> dict[float, float]:
     return out
 
 
+def _nearest_delta(delta_by_strike: dict[float, float], k: float, tol_pct: float = 1.5) -> float:
+    """Greek-exposure strikes are gridded (e.g. $5 spacing) and rarely match a
+    flow strike exactly. Match to the nearest greek strike within tol_pct of k."""
+    if not delta_by_strike or k <= 0:
+        return 0.0
+    if k in delta_by_strike:
+        return delta_by_strike[k]
+    best = min(delta_by_strike, key=lambda x: abs(x - k))
+    return delta_by_strike[best] if abs(best - k) / k * 100 <= tol_pct else 0.0
+
+
+def _median(xs: list[float]) -> float:
+    if not xs:
+        return 0.0
+    s = sorted(xs)
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
+
+
 def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
                  spot_data: Any, spot: float) -> Tile2:
     """Assemble Tile 2's positioning-reality model from:
@@ -358,14 +377,19 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     n = len(flow_alerts)
     opening_n = sum(1 for a in flow_alerts if a.all_opening_trades)
     opening_pct = (opening_n / n * 100) if n else 0.0
+    # Median, not mean — a single brand-new far-OTM strike (tiny prior OI) can
+    # blow a mean vol/OI ratio into the hundreds and misrepresent the batch.
     vois = [a.volume_oi_ratio for a in flow_alerts if a.volume_oi_ratio > 0]
-    avg_voi = (sum(vois) / len(vois)) if vois else 0.0
+    med_voi = _median(vois)
 
-    # ── Per-strike premium (flow concentration) ───────────────────────────
+    # ── Per-strike premium (flow concentration) + today vol/OI ────────────
     prem_by_strike: dict[float, float] = {}
+    voi_by_strike: dict[float, list] = {}
     for a in flow_alerts:
         if a.strike > 0:
             prem_by_strike[a.strike] = prem_by_strike.get(a.strike, 0.0) + a.total_premium
+            if a.volume_oi_ratio > 0:
+                voi_by_strike.setdefault(a.strike, []).append(a.volume_oi_ratio)
 
     # ── Expiry distribution (premium grouped by expiry) ───────────────────
     prem_by_expiry: dict[str, float] = {}
@@ -381,7 +405,6 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
 
     # ── Per-strike OI history (from parquet archive) ──────────────────────
     delta_by_strike = _per_strike_net_delta(spot_data)
-    sessions_available = len(oi_history)
     # Focus on the strikes the flow actually targets (top 6 by premium), so the
     # chart isn't cluttered with deep-OTM index OI. Fall back to most-recent-
     # session top-OI strikes when flow carries no strike premium.
@@ -393,44 +416,49 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     else:
         focus = []
 
+    # Spec: today's OI is NOT settled until ~9am next session, so it is shown
+    # as a live vol/OI ratio — never as a settled bar. Treat the most-recent
+    # archived session as "today" (provisional) and bar only the settled days.
+    today_date = datetime.now(tz=timezone.utc).date().isoformat()
+    settled = [s for s in oi_history if s["date"] != today_date]
+    settled_dates = [s["date"] for s in settled]
+
     strike_hist: list[StrikeOIHistory] = []
-    last_idx = sessions_available - 1
     for k in sorted(focus):
-        bars = []
-        for i, sess in enumerate(oi_history):
-            oi_val = int(sess["strikes"].get(k, 0))
-            bars.append(OISessionBar(date=sess["date"], oi=oi_val,
-                                      provisional=(i == last_idx)))
-        # delta_oi = newest vs prior session
+        bars = [OISessionBar(date=s["date"], oi=int(s["strikes"].get(k, 0)),
+                             provisional=False)
+                for s in settled]
+        # delta_oi = newest settled vs prior settled
         delta_oi = 0
-        if len(bars) >= 2:
+        if len(bars) >= 2 and bars[-2].oi > 0:
             delta_oi = bars[-1].oi - bars[-2].oi
-        if delta_oi > 0 and bars and bars[-2].oi > 0 and (delta_oi / bars[-2].oi) >= 0.05:
-            trend = "building"
-        elif delta_oi < 0 and len(bars) >= 2 and bars[-2].oi > 0 and (delta_oi / bars[-2].oi) <= -0.05:
-            trend = "unwinding"
+            ratio = delta_oi / bars[-2].oi
+            trend = "building" if ratio >= 0.05 else "unwinding" if ratio <= -0.05 else "flat"
         else:
             trend = "flat"
+        voi_list = voi_by_strike.get(k, [])
         strike_hist.append(StrikeOIHistory(
             strike=k,
             sessions=bars,
             delta_oi=delta_oi,
-            net_delta=delta_by_strike.get(k, 0.0),
+            net_delta=_nearest_delta(delta_by_strike, k),
             premium_usd=prem_by_strike.get(k, 0.0),
             trend=trend,
+            today_vol_oi=round(_median(voi_list), 2),
         ))
 
-    # ── Aggregate 5-day OI trend across focus strikes ─────────────────────
+    # ── Aggregate OI trend across focus strikes (settled days only) ───────
+    n_settled = len(settled)
     oi_trend_5d_pct = 0.0
-    if sessions_available >= 2 and strike_hist:
+    if n_settled >= 2 and strike_hist:
         first_total = sum(s.sessions[0].oi for s in strike_hist if s.sessions)
         last_total = sum(s.sessions[-1].oi for s in strike_hist if s.sessions)
         if first_total > 0:
             oi_trend_5d_pct = round((last_total - first_total) / first_total * 100, 1)
 
     # ── Confirmation state ────────────────────────────────────────────────
-    if sessions_available < 2:
-        confirmation = "unconfirmed"   # not enough archive history yet
+    if n_settled < 2:
+        confirmation = "unconfirmed"   # not enough settled archive history yet
     elif oi_trend_5d_pct >= 5:
         confirmation = "building"
     elif oi_trend_5d_pct <= -5:
@@ -448,10 +476,10 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
 
     return Tile2(
         opening_pct=round(opening_pct, 1),
-        avg_volume_oi_ratio=round(avg_voi, 2),
+        avg_volume_oi_ratio=round(med_voi, 2),
         oi_trend_5d_pct=oi_trend_5d_pct,
         confirmation=confirmation,
-        sessions_available=sessions_available,
+        sessions_available=n_settled,   # settled days that actually bar
         strikes=strike_hist,
         expiry_distribution=expiry_dist,
         low_conviction=low_conviction,

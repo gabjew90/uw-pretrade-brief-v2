@@ -567,6 +567,18 @@
   .t2-bar-date { font-family: var(--ff-mono); font-size: 7px; color: var(--axis); white-space: nowrap; }
   .t2-group-foot { display: flex; justify-content: space-between; font-family: var(--ff-mono); font-size: 8.5px; }
   .t2-netdelta { color: var(--axis); }
+  .t2-bars-warming {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    height: 100%; font-family: var(--ff-mono); font-size: 8px; color: var(--axis);
+    border: 1px dashed var(--grid); border-radius: 4px; padding: 0 4px; line-height: 1.3;
+  }
+  .t2-today {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 3px; padding: 2px 5px; border: 1px dashed var(--pos);
+    border-radius: 4px; background: rgba(122,162,247,0.06);
+  }
+  .t2-today-lbl { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.04em; }
+  .t2-today-val { font-family: var(--ff-mono); font-size: 10px; font-weight: 700; color: var(--pos); }
   .t2-foot { margin-top: 10px; font-size: 9.5px; color: var(--axis); font-family: var(--ff-mono); line-height: 1.4; }
   .t2-empty, .t2-lowconv {
     padding: 22px 14px; text-align: center; color: var(--axis);
@@ -1684,6 +1696,7 @@ function renderT2StatusCards(t2) {
   // 1) Opening activity  2) 5-day OI trend  3) Confirmation state
   const openColor = t2.opening_pct >= 60 ? "var(--ok)" : t2.opening_pct >= 30 ? "var(--warn)" : "var(--neg)";
   const voi = t2.avg_volume_oi_ratio || 0;
+  const voiLbl = voi <= 0 ? "opening trades" : voi >= 10 ? "vol/OI 10×+ (heavy)" : `vol/OI ${voi.toFixed(2)}×`;
   const trendPct = t2.oi_trend_5d_pct || 0;
   const trendColor = trendPct >= 5 ? "var(--ok)" : trendPct <= -5 ? "var(--neg)" : "var(--axis)";
   const trendArrow = trendPct >= 5 ? "↑" : trendPct <= -5 ? "↓" : "→";
@@ -1701,7 +1714,7 @@ function renderT2StatusCards(t2) {
       <div class="t2-card">
         <span class="lbl">Opening activity</span>
         <span class="val" style="color:${openColor}">${(t2.opening_pct || 0).toFixed(0)}%</span>
-        <span class="sub">${voi > 0 ? `vol/OI ${voi.toFixed(2)}×` : "opening trades"}</span>
+        <span class="sub">${voiLbl}</span>
       </div>
       <div class="t2-card">
         <span class="lbl">5-day OI trend</span>
@@ -1726,22 +1739,33 @@ function renderOiSessionChart(t2) {
   const trendColor = t => t === "building" ? "#9ECE6A" : t === "unwinding" ? "#F7768E" : "#5a6378";
 
   const groups = strikes.map(s => {
-    const sessions = s.sessions || [];
+    const sessions = s.sessions || [];          // SETTLED days only
     const maxOi = Math.max(...sessions.map(b => b.oi), 1);  // per-group scale
-    const bars = sessions.map(b => {
-      const hPct = Math.max(2, (b.oi / maxOi) * 100);
-      const cls = b.provisional ? "t2-bar provisional" : "t2-bar";
-      const col = trendColor(s.trend);
-      const dateLbl = (b.date || "").slice(5);  // MM-DD
-      return `<div class="t2-bar-wrap" title="${dateLbl}: ${b.oi.toLocaleString()} OI${b.provisional ? " (provisional)" : ""}">
-        <div class="${cls}" style="height:${hPct}%;background:${b.provisional ? "transparent" : col};border-color:${col};"></div>
-        <span class="t2-bar-date">${dateLbl}</span>
-      </div>`;
-    }).join("");
+    const col = trendColor(s.trend);
+    const bars = sessions.length
+      ? sessions.map(b => {
+          const hPct = Math.max(2, (b.oi / maxOi) * 100);
+          const dateLbl = (b.date || "").slice(5);  // MM-DD
+          return `<div class="t2-bar-wrap" title="${dateLbl}: ${b.oi.toLocaleString()} OI (settled)">
+            <div class="t2-bar" style="height:${hPct}%;background:${col};border-color:${col};"></div>
+            <span class="t2-bar-date">${dateLbl}</span>
+          </div>`;
+        }).join("")
+      : `<div class="t2-bars-warming">settled bars build over the week</div>`;
+    // Today = live vol/OI ratio (NOT a settled bar) — spec hard rule.
+    const voi = s.today_vol_oi || 0;
+    const voiTxt = voi <= 0 ? "" : voi >= 10 ? "10×+" : `${voi.toFixed(1)}×`;
+    const todayCell = voiTxt
+      ? `<div class="t2-today" title="Today's volume/OI ratio — OI confirms ~9am next session">
+           <span class="t2-today-lbl">today</span>
+           <span class="t2-today-val">${voiTxt}</span>
+         </div>`
+      : "";
     const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";
     const deltaColor = s.delta_oi > 0 ? "var(--ok)" : s.delta_oi < 0 ? "var(--neg)" : "var(--axis)";
     const premLbl = s.premium_usd > 0 ? fmtPrem(s.premium_usd) : "";
-    const deltaSign = s.net_delta >= 0 ? "+" : "";
+    const hasDelta = Math.abs(s.net_delta) >= 1;
+    const deltaSign = s.net_delta >= 0 ? "+" : "−";
     return `
       <div class="t2-group">
         <div class="t2-group-head">
@@ -1749,9 +1773,10 @@ function renderOiSessionChart(t2) {
           ${premLbl ? `<span class="t2-prem">${premLbl} flow</span>` : ""}
         </div>
         <div class="t2-bars">${bars}</div>
+        ${todayCell}
         <div class="t2-group-foot">
           <span style="color:${deltaColor}">ΔOI ${deltaLbl}</span>
-          <span class="t2-netdelta">δ ${deltaSign}${fmtK(Math.round(s.net_delta))}</span>
+          <span class="t2-netdelta">${hasDelta ? `δ ${deltaSign}${fmtK(Math.abs(Math.round(s.net_delta)))}` : "δ —"}</span>
         </div>
       </div>`;
   }).join("");
