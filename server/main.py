@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from server import market_hours
 from server import snapshot as snapshot_mod
 from server.schema import Snapshot
 
@@ -24,6 +25,9 @@ log = logging.getLogger(__name__)
 
 _snapshot_cache: dict[str, Snapshot | None] = {"latest": None}
 _REFRESH_INTERVAL_SECONDS = 120  # 15 tickers × 9 endpoints = 135 calls/cycle; 120s = ~68/min, fits 120/min budget
+# When the market is closed we re-check the clock every 5 min instead of every
+# 120s — resumes within 5 min of the open without spinning UW-free clock checks.
+_CLOSED_RECHECK_SECONDS = 300
 
 
 @asynccontextmanager
@@ -44,12 +48,24 @@ async def _refresh_loop():
         if os.environ.get("SNAPSHOT_PAUSED", "").lower() in ("1", "true", "yes"):
             log.info("snapshot loop paused (SNAPSHOT_PAUSED env var set); sleeping %ds",
                      _REFRESH_INTERVAL_SECONDS)
-        else:
-            try:
-                snap = await snapshot_mod.refresh_snapshot()
-                _snapshot_cache["latest"] = snap
-            except Exception as e:
-                log.exception("snapshot refresh failed: %s", e)
+            await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
+            continue
+
+        # Market-hours gate: options data only moves during RTH. Outside the
+        # window we hold the last-close snapshot and re-check every 5 min. Set
+        # MARKET_GATE_DISABLED=true to force 24/7 (e.g. for debugging).
+        gate_off = os.environ.get("MARKET_GATE_DISABLED", "").lower() in ("1", "true", "yes")
+        if not gate_off and not market_hours.market_is_open():
+            log.info("market closed; holding last-close snapshot, re-check in %ds",
+                     _CLOSED_RECHECK_SECONDS)
+            await asyncio.sleep(_CLOSED_RECHECK_SECONDS)
+            continue
+
+        try:
+            snap = await snapshot_mod.refresh_snapshot()
+            _snapshot_cache["latest"] = snap
+        except Exception as e:
+            log.exception("snapshot refresh failed: %s", e)
         await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
 
 
