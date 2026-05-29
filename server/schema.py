@@ -62,7 +62,11 @@ class Insights(BaseModel):
 
 
 class FlowAlert(BaseModel):
-    """Per-alert detail powering Tile 1's scatter. One bubble per alert.
+    """Per-alert detail powering Tile 1's scatter and Tile 2's positioning reads.
+    The flow-alerts fetch is shared between both tiles — the volume / OI fields
+    aren't drawn in Tile 1 (it's at its 6-channel ceiling) but Tile 2 reads
+    them, so we capture them on the same call.
+
     All numeric fields are floats so JS doesn't have to parse the UW string-
     typed payload (`total_premium` etc. arrive as strings)."""
     created_at: str           # ISO-8601 UTC; JS converts to ET for display
@@ -78,6 +82,12 @@ class FlowAlert(BaseModel):
     option_chain: str = ""
     expiry: str = ""
     total_size: int = 0
+    # Tile 2 inputs (captured on this fetch; not drawn in Tile 1 except for
+    # the opening tag in the per-bubble hover).
+    all_opening_trades: bool = False
+    volume_oi_ratio: float = 0.0
+    volume: int = 0
+    open_interest: int = 0
 
 
 class OHLCBar(BaseModel):

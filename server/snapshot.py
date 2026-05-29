@@ -310,6 +310,10 @@ def _project_flow_alerts(raw_alerts: list[dict]) -> list[FlowAlert]:
                 option_chain=str(r.get("option_chain") or ""),
                 expiry=str(r.get("expiry") or ""),
                 total_size=int(float(r.get("total_size") or 0)),
+                all_opening_trades=bool(r.get("all_opening_trades", False)),
+                volume_oi_ratio=float(r.get("volume_oi_ratio") or 0),
+                volume=int(float(r.get("volume") or 0)),
+                open_interest=int(float(r.get("open_interest") or 0)),
             ))
         except (TypeError, ValueError):
             continue

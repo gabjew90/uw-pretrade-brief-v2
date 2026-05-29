@@ -1541,7 +1541,7 @@ function renderFlowChart(row) {
     const tET = fmtET(epoch);
     const premLbl = a.total_premium >= 1e6 ? `$${(a.total_premium / 1e6).toFixed(1)}M` : `$${Math.round(a.total_premium / 1e3)}k`;
     const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : 0;
-    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}${a.has_sweep ? " · swept" : ""}`;
+    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}${a.has_sweep ? " · swept" : ""}${a.all_opening_trades ? " · opening" : ""}`;
     bubblesSvg += `${ring}<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92"><title>${hover.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</title></circle>`;
   }
 

@@ -26,7 +26,9 @@ def stub_uw(monkeypatch):
                              "has_sweep": False, "has_singleleg": True,
                              "has_multileg": False, "total_size": 10,
                              "expiry": "2026-06-06", "option_chain": f"{t}260606C00100000",
-                             "created_at": "2026-05-28T14:30:00Z"}
+                             "created_at": "2026-05-28T14:30:00Z",
+                             "all_opening_trades": True, "volume_oi_ratio": "0.3",
+                             "volume": 2442, "open_interest": 7913}
                             for t in ["NVDA", "TSLA", "AMD", "PLTR", "AMC",
                                       "AAPL", "GOOGL", "MSFT", "META", "NFLX",
                                       "AMZN", "F", "BAC", "WMT", "JPM"]]})
