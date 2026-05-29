@@ -539,6 +539,50 @@
   .oi-table tr:last-child td { border-bottom: none; }
   .oi-table .status-cell { text-align: center; }
 
+  /* Tile 2 — Positioning Reality Check */
+  .t2-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .t2-card {
+    background: rgba(255,255,255,0.02); border: 1px solid var(--grid);
+    border-radius: 6px; padding: 8px 9px; font-family: var(--ff-mono);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .t2-card .lbl { font-size: 8.5px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.06em; }
+  .t2-card .val { font-size: 15px; font-weight: 700; color: var(--title); letter-spacing: -0.01em; display: flex; align-items: center; gap: 4px; }
+  .t2-card .val .gate-dot { width: 8px; height: 8px; }
+  .t2-card .sub { font-size: 8.5px; color: var(--axis); }
+  .t2-chart {
+    display: flex; gap: 8px; margin-top: 14px; overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .t2-group {
+    flex: 1 1 0; min-width: 56px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .t2-group-head { display: flex; flex-direction: column; gap: 1px; min-height: 26px; }
+  .t2-strike { font-family: var(--ff-mono); font-size: 11px; font-weight: 700; color: var(--title); }
+  .t2-prem { font-family: var(--ff-mono); font-size: 8.5px; color: var(--hot); }
+  .t2-bars { display: flex; align-items: flex-end; gap: 3px; height: 80px; border-bottom: 1px solid var(--grid); }
+  .t2-bar-wrap { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 2px; }
+  .t2-bar { width: 100%; border-radius: 2px 2px 0 0; border: 1px solid; min-height: 2px; }
+  .t2-bar.provisional { border-style: dashed; opacity: 0.8; }
+  .t2-bar-date { font-family: var(--ff-mono); font-size: 7px; color: var(--axis); white-space: nowrap; }
+  .t2-group-foot { display: flex; justify-content: space-between; font-family: var(--ff-mono); font-size: 8.5px; }
+  .t2-netdelta { color: var(--axis); }
+  .t2-foot { margin-top: 10px; font-size: 9.5px; color: var(--axis); font-family: var(--ff-mono); line-height: 1.4; }
+  .t2-empty, .t2-lowconv {
+    padding: 22px 14px; text-align: center; color: var(--axis);
+    font-family: var(--ff-mono); font-size: 11px; line-height: 1.5;
+    border: 1px dashed var(--grid); border-radius: 6px; margin-top: 10px;
+  }
+  .t2-lowconv { color: var(--warn); }
+  .t2-expiry { margin-top: 14px; }
+  .t2-exp-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .t2-exp-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--panel-3); }
+  .t2-exp-seg { height: 100%; min-width: 2px; transition: opacity 0.15s ease; }
+  .t2-exp-seg:hover { opacity: 0.8; }
+  .t2-exp-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+  .t2-exp-leg { font-family: var(--ff-mono); font-size: 9px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px; }
+  .t2-exp-leg .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
   /* Task 11: Tile 3 Structural Setup — γ ladder */
   .ladder-wrap {
     padding: 10px 8px 6px;
@@ -1600,110 +1644,139 @@ function renderFlowChart(row) {
 }
 
 /* ============================================================
- * Task 10: Tile 2 — OI Confirmation (mini-table)
+ * Task 10: Tile 2 — Positioning Reality Check (tile2_build_spec.md)
+ * Is the flow real, is OI building, what expiry holds it, still held?
  * ============================================================ */
 
 function renderTile2OI(row) {
   const g = row.gates.oi;
-  let strikes;
-  let strikeSource = "live";
-  if (row.is_synthetic && row.oi && row.oi.strikes) {
-    strikes = row.oi.strikes;
-  } else {
-    // Synthesize 5 strikes around spot for LIVE rows (Basic-tier snapshot
-    // doesn't include oi-change in the leaderboard fetch). Deterministic.
-    const h = strHash(row.ticker);
-    const spot = row.spot;
-    const step = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
-    const atm = Math.round(spot / step) * step;
-    const isCalls = row.direction === "calls" || (row.gex_aggregate || 0) >= 0;
-    const offsets = isCalls ? [0, 1, 2, -1, 3] : [0, -1, -2, 1, -3];
-    strikes = offsets.map((off, i) => {
-      const strike = atm + off * step;
-      const prev = Math.round(seededRand(h + i * 7, 4000, 11000));
-      const pctRaw = seededRand(h + i * 11, isCalls ? -8 : -25, isCalls ? 40 : 6);
-      const pct = Math.round(pctRaw);
-      const today = Math.round(prev * (1 + pct / 100));
-      return { strike, prev, today, pct };
-    }).sort((a, b) => b.pct - a.pct);
-    strikeSource = "proxy";
+  const t2 = row.tile2 || {};
+  const head = `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 2: Positioning Reality Check</span>
+      <button class="help-icon" data-help="tile2">?</button>
+    </h3>`;
+
+  // Low-conviction short-circuit (spec): scattered flow → no clear target.
+  if (t2.low_conviction) {
+    return `${head}
+      <div class="t2-lowconv">${t2.low_conviction_msg || "Flow scattered — no clear target."}</div>
+      ${renderExpiryDistribution(t2.expiry_distribution || [])}`;
   }
-  if (!strikes || strikes.length === 0 || (strikes[0].prev === 0 && strikes[0].today === 0)) {
-    return `
-      <h3>
-        <span><span class="gate-dot ${g}"></span>Tile 2: OI Confirmation</span>
-        <button class="help-icon" data-help="tile2">?</button>
-      </h3>
-      <div style="padding:14px; text-align:center; color:var(--axis); font-family:var(--ff-mono); font-size:11px;">
-        No OI data available for ${row.ticker}. ${pill("proxy")}
+
+  const strikes = t2.strikes || [];
+  if (strikes.length === 0) {
+    return `${head}
+      <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
+  }
+
+  return `${head}
+    ${renderT2StatusCards(t2)}
+    ${renderOiSessionChart(t2)}
+    ${renderExpiryDistribution(t2.expiry_distribution || [])}
+    <div class="t2-foot">
+      OI history from our own archive ${pill("live")} · delta from greek-exposure ${pill("live")}
+      · today's OI provisional until settle (~9am next session).
+    </div>`;
+}
+
+function renderT2StatusCards(t2) {
+  // 1) Opening activity  2) 5-day OI trend  3) Confirmation state
+  const openColor = t2.opening_pct >= 60 ? "var(--ok)" : t2.opening_pct >= 30 ? "var(--warn)" : "var(--neg)";
+  const voi = t2.avg_volume_oi_ratio || 0;
+  const trendPct = t2.oi_trend_5d_pct || 0;
+  const trendColor = trendPct >= 5 ? "var(--ok)" : trendPct <= -5 ? "var(--neg)" : "var(--axis)";
+  const trendArrow = trendPct >= 5 ? "↑" : trendPct <= -5 ? "↓" : "→";
+  const confMap = {
+    building: {t: "Building", c: "var(--ok)", d: "green"},
+    unwinding: {t: "Unwinding", c: "var(--neg)", d: "red"},
+    flat: {t: "Flat", c: "var(--axis)", d: "yellow"},
+    unconfirmed: {t: "Warming", c: "var(--axis)", d: "yellow"},
+  };
+  const conf = confMap[t2.confirmation] || confMap.unconfirmed;
+  const sess = t2.sessions_available || 0;
+  const trendSub = sess < 2 ? `archive warming (${sess}/5d)` : `${sess}-session`;
+  return `
+    <div class="t2-cards">
+      <div class="t2-card">
+        <span class="lbl">Opening activity</span>
+        <span class="val" style="color:${openColor}">${(t2.opening_pct || 0).toFixed(0)}%</span>
+        <span class="sub">${voi > 0 ? `vol/OI ${voi.toFixed(2)}×` : "opening trades"}</span>
       </div>
-    `;
-  }
-  // Compute Tile 1's per-strike aggregates so we can approximate the $ flow per
-  // strike (Tile 2 row × Tile 1 alert data). UW gives OI in contracts only — this
-  // estimates the dollar inflow from the OI Δ using Tile 1's avg per-alert premium
-  // and a CALIBRATION assumption for typical contracts-per-unusual-alert.
-  // Per-strike aggregate of real flow alerts (replaces the v0.1 synthesized
-  // computeAlertStrikeAggregates that pre-dated row.flow_alerts_detail).
-  const aggByStrike = {};
-  for (const a of (row.flow_alerts_detail || [])) {
-    if (!a || !a.strike) continue;
-    if (!aggByStrike[a.strike]) aggByStrike[a.strike] = {count: 0, premium: 0};
-    aggByStrike[a.strike].count++;
-    aggByStrike[a.strike].premium += (a.total_premium || 0);
-  }
-  for (const k of Object.keys(aggByStrike)) {
-    const x = aggByStrike[k];
-    x.avgPerAlert = x.count > 0 ? x.premium / x.count : 0;
-  }
+      <div class="t2-card">
+        <span class="lbl">5-day OI trend</span>
+        <span class="val" style="color:${trendColor}">${trendArrow} ${trendPct >= 0 ? "+" : ""}${trendPct.toFixed(0)}%</span>
+        <span class="sub">${trendSub}</span>
+      </div>
+      <div class="t2-card">
+        <span class="lbl">Confirmation</span>
+        <span class="val" style="color:${conf.c}"><span class="gate-dot ${conf.d}"></span>${conf.t}</span>
+        <span class="sub">positioning</span>
+      </div>
+    </div>`;
+}
 
-  function approxDollarDelta(s) {
-    // OI Δ (contracts) × (avg per-alert $ premium) ÷ assumed-contracts-per-alert
-    // = OI Δ × (price × 100 × ~assumed_size) ÷ assumed_size = OI Δ × price × 100
-    // Returns null if no Tile 1 alert data exists for this strike.
-    const agg = aggByStrike[s.strike];
-    if (!agg || agg.count === 0) return null;
-    const deltaContracts = s.today - s.prev;
-    return deltaContracts * (agg.avgPerAlert / CALIBRATION.approx_contracts_per_alert);
-  }
+/* Grouped bar chart: per focus-strike, one bar per archived session.
+ * Scale is per-strike-group (NOT global) per spec. Today's bar is hollow
+ * (provisional). Bar color: green building / gray flat / red unwinding. */
+function renderOiSessionChart(t2) {
+  const strikes = t2.strikes || [];
+  const fmtK = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+  const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
+  const trendColor = t => t === "building" ? "#9ECE6A" : t === "unwinding" ? "#F7768E" : "#5a6378";
 
-  function fmtDollarDelta(v) {
-    if (v === null) return `<span style="color: var(--axis);">—</span>`;
-    const sign = v >= 0 ? "+" : "−";
-    const abs = Math.abs(v);
-    const out = abs >= 1e6 ? `${sign}$${(abs / 1e6).toFixed(1)}M` : `${sign}$${Math.round(abs / 1e3)}k`;
-    const color = v >= 0 ? "var(--ok)" : "var(--neg)";
-    return `<span style="color: ${color};">${out}</span>`;
-  }
-
-  const rowsHtml = strikes.map(s => {
-    const status = s.pct >= 20 ? "green" : s.pct <= -5 ? "red" : "yellow";
-    const label = status === "green" ? "Opening" : status === "red" ? "Closing" : "Marginal";
-    const approxDollar = approxDollarDelta(s);
+  const groups = strikes.map(s => {
+    const sessions = s.sessions || [];
+    const maxOi = Math.max(...sessions.map(b => b.oi), 1);  // per-group scale
+    const bars = sessions.map(b => {
+      const hPct = Math.max(2, (b.oi / maxOi) * 100);
+      const cls = b.provisional ? "t2-bar provisional" : "t2-bar";
+      const col = trendColor(s.trend);
+      const dateLbl = (b.date || "").slice(5);  // MM-DD
+      return `<div class="t2-bar-wrap" title="${dateLbl}: ${b.oi.toLocaleString()} OI${b.provisional ? " (provisional)" : ""}">
+        <div class="${cls}" style="height:${hPct}%;background:${b.provisional ? "transparent" : col};border-color:${col};"></div>
+        <span class="t2-bar-date">${dateLbl}</span>
+      </div>`;
+    }).join("");
+    const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";
+    const deltaColor = s.delta_oi > 0 ? "var(--ok)" : s.delta_oi < 0 ? "var(--neg)" : "var(--axis)";
+    const premLbl = s.premium_usd > 0 ? fmtPrem(s.premium_usd) : "";
+    const deltaSign = s.net_delta >= 0 ? "+" : "";
     return `
-      <tr>
-        <td>$${s.strike}</td>
-        <td>${s.prev.toLocaleString()}</td>
-        <td>${s.today.toLocaleString()}</td>
-        <td>${s.pct >= 0 ? "+" : ""}${s.pct}%</td>
-        <td>${fmtDollarDelta(approxDollar)}</td>
-        <td class="status-cell"><span class="gate-dot ${status}"></span> ${label}</td>
-      </tr>
-    `;
+      <div class="t2-group">
+        <div class="t2-group-head">
+          <span class="t2-strike">$${s.strike}</span>
+          ${premLbl ? `<span class="t2-prem">${premLbl} flow</span>` : ""}
+        </div>
+        <div class="t2-bars">${bars}</div>
+        <div class="t2-group-foot">
+          <span style="color:${deltaColor}">ΔOI ${deltaLbl}</span>
+          <span class="t2-netdelta">δ ${deltaSign}${fmtK(Math.round(s.net_delta))}</span>
+        </div>
+      </div>`;
+  }).join("");
+  return `<div class="t2-chart">${groups}</div>`;
+}
+
+/* Horizontal expiry-distribution bar: where premium concentrates by expiry. */
+function renderExpiryDistribution(dist) {
+  if (!dist || dist.length === 0) return "";
+  const colors = ["#7AA2F7", "#BB9AF7", "#9ECE6A", "#E0AF68", "#F7768E", "#7DCFFF"];
+  const segs = dist.slice(0, 6).map((d, i) => {
+    const c = colors[i % colors.length];
+    return `<div class="t2-exp-seg" style="width:${d.pct}%;background:${c};"
+                 title="${d.expiry}: ${d.pct.toFixed(0)}% of flow premium"></div>`;
+  }).join("");
+  const legend = dist.slice(0, 6).map((d, i) => {
+    const c = colors[i % colors.length];
+    return `<span class="t2-exp-leg"><span class="sw" style="background:${c}"></span>${d.expiry} ${d.pct.toFixed(0)}%</span>`;
   }).join("");
   return `
-    <h3>
-      <span><span class="gate-dot ${g}"></span>Tile 2: OI Confirmation</span>
-      <button class="help-icon" data-help="tile2">?</button>
-    </h3>
-    <table class="oi-table">
-      <thead><tr><th>Strike</th><th>Yesterday OI</th><th>Today OI</th><th>Change</th><th data-tooltip-trigger="oi_dollar_approx">$ Δ (approx)</th><th>Status</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-    <div style="margin-top:8px; font-size:10px; color:var(--axis); font-family:var(--ff-mono);">
-      OI in contracts ${pill("live")} · $ Δ ${pill("proxy")} — tap "?" or column header for math.
-    </div>
-  `;
+    <div class="t2-expiry">
+      <div class="t2-exp-title">Flow premium by expiry</div>
+      <div class="t2-exp-bar">${segs}</div>
+      <div class="t2-exp-legend">${legend}</div>
+    </div>`;
 }
 
 /* ============================================================
@@ -2464,11 +2537,11 @@ const TOOLTIPS = {
     provenance: "Data (live):\n/api/option-trades/flow-alerts — the dots + top numbers\n/api/stock/{ticker}/ohlc/{candle_size} — the price line",
   },
   tile2: {
-    title: "Tile 2: OI Confirmation",
-    whatItIs: "Did flow buyers actually open NEW positions (not close old ones)? Shows the top 5 strikes with the largest OI change overnight, with a status badge per strike (Opening / Marginal / Closing).",
-    whyHere: "About 60% of impressive-looking flow alerts fail this test — they were exits, not entries. This is the single most important filter the app applies. The $ Δ column is a PROXY estimate: UW gives OI in contracts only, no dollar-OI field. We approximate dollar inflow as OI Δ × (avg per-alert $ from Tile 1) ÷ assumed-contracts-per-alert.",
-    threshold: "Gate 2 passes if at least one strike with significant flow shows ≥20% OI growth overnight (opening); yellow 5-20%; red <-5% (closing).",
-    provenance: "Endpoints used: /api/stock/{ticker}/oi-per-strike (60s) called twice per cycle — once for today, once with ?date=YYYY-MM-DD for yesterday — Δ% is (today-yesterday)/yesterday. NOTE: prev=today on every row right now suggests UW Basic may not honor the date param; needs probe. ⚠️ PROXY $ Δ column (no dollar-OI on Basic tier).",
+    title: "Tile 2: Positioning Reality Check",
+    whatItIs: "Is the flow from Tile 1 actually REAL positioning — or noise that vanishes by tomorrow? Answers four questions:\n\n• Is positioning real? (opening activity %)\n• Is open interest building? (5-day OI trend)\n• What expiry holds it? (premium-by-expiry bar)\n• Still held or unwinding? (per-strike OI bars: green building, gray flat, red unwinding)",
+    whyHere: "About 60% of impressive flow alerts fail this — they were exits, not entries. The grouped bars show OI per strike across the last 5 sessions; rising bars = real new positions accumulating. Today's bar is hollow because OI isn't settled until ~9am next session — it's provisional, never fabricated. The 'δ' figure is net dealer delta at that strike (from greek-exposure).",
+    threshold: "Building when 5-session OI grows ≥5%; unwinding when it falls ≥5%; flat otherwise. Low-conviction warning fires when flow is scattered across ≥4 expirations or ≥8 strikes with no single expiry holding >40% of premium.",
+    provenance: "Data (live):\n/api/option-trades/flow-alerts — opening read (all_opening_trades, volume/OI ratio) + premium-by-expiry + premium-by-strike\nOur own parquet OI archive — 5-session OI history per strike (tier-independent; fills to 5 sessions over a trading week)\n/api/stock/{ticker}/spot-exposures/strike — per-strike net delta",
   },
   tile3: {
     title: "Tile 3: Structural Setup",

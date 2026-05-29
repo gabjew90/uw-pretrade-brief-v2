@@ -261,3 +261,41 @@ def test_through_skips_uw_when_parquet_has_fresh_row(tmp_data_dir, fresh_cache, 
 
     assert result == {"data": [{"strike": 100, "from_parquet": True}]}
     assert calls == [], "UW must not be called when parquet has a fresh row"
+
+
+# ── OI history reader (Tile 2) ────────────────────────────────────────────────
+
+
+def test_read_oi_history_returns_sessions_oldest_to_newest(tmp_data_dir):
+    """Three days of archived oi_per_strike → 3 sessions, oldest first, with
+    per-strike total OI (call_oi + put_oi)."""
+    from datetime import datetime, timezone
+    for day, oi in ((25, 1000), (26, 1200), (27, 1500)):
+        storage.write_response(
+            endpoint="oi_per_strike", ticker="NVDA", params=None,
+            response={"data": [{"strike": "150", "call_oi": oi, "put_oi": 0}]},
+            status_code=200, latency_ms=50,
+            fetched_at=datetime(2026, 5, day, 14, 0, 0, tzinfo=timezone.utc),
+        )
+    sessions = storage.read_oi_history("NVDA", n_sessions=5)
+    assert [s["date"] for s in sessions] == ["2026-05-25", "2026-05-26", "2026-05-27"]
+    assert sessions[0]["strikes"][150.0] == 1000
+    assert sessions[-1]["strikes"][150.0] == 1500
+
+
+def test_read_oi_history_caps_at_n_sessions(tmp_data_dir):
+    from datetime import datetime, timezone
+    for day in range(20, 28):  # 8 days archived
+        storage.write_response(
+            endpoint="oi_per_strike", ticker="TSLA", params=None,
+            response={"data": [{"strike": "250", "call_oi": 100 * day, "put_oi": 0}]},
+            status_code=200, latency_ms=50,
+            fetched_at=datetime(2026, 5, day, 14, 0, 0, tzinfo=timezone.utc),
+        )
+    sessions = storage.read_oi_history("TSLA", n_sessions=5)
+    assert len(sessions) == 5, "must cap at the 5 most-recent sessions"
+    assert sessions[-1]["date"] == "2026-05-27"  # newest retained
+
+
+def test_read_oi_history_empty_when_no_archive(tmp_data_dir):
+    assert storage.read_oi_history("NOPE", n_sessions=5) == []

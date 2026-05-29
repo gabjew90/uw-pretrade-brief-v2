@@ -217,6 +217,64 @@ def _read_latest_from_parquet(
     return None
 
 
+def read_oi_history(ticker: str, n_sessions: int = 5) -> list[dict]:
+    """Read up to `n_sessions` of daily OI-per-strike snapshots for `ticker`
+    from our own parquet archive (endpoint=oi_per_strike). Tier-independent —
+    sources history from the days we've already archived, not from UW ?date=
+    lookups (which the Basic tier may not honor).
+
+    Returns oldest→newest: [{"date": "YYYY-MM-DD",
+                             "strikes": {strike_float: total_oi_int, ...}}].
+    Each session uses the latest hour-file's latest no-date-param row for that
+    day (the live "today" snapshot captured during that session)."""
+    base = _data_dir() / "raw" / "endpoint=oi_per_strike"
+    if not base.is_dir():
+        return []
+    # dt= dirs, newest first
+    dt_dirs = sorted(
+        [d for d in base.glob("dt=*") if (d / f"ticker={ticker}").is_dir()],
+        key=lambda d: d.name, reverse=True,
+    )[:n_sessions]
+    sessions: list[dict] = []
+    for d in dt_dirs:
+        date_str = d.name.replace("dt=", "")
+        tdir = d / f"ticker={ticker}"
+        files = sorted(tdir.glob("part-*.parquet"), reverse=True)
+        strikes: dict[float, int] = {}
+        for path in files:
+            try:
+                table = pq.read_table(path)
+                if table.num_rows == 0:
+                    continue
+                # Prefer the no-date-param row (the live today snapshot).
+                mask = pc.equal(table["params_json"], "{}")
+                filtered = table.filter(mask)
+                src = filtered if filtered.num_rows else table
+                latest_idx = pc.sort_indices(
+                    src.select(["fetched_at"]),
+                    sort_keys=[("fetched_at", "descending")],
+                )[0].as_py()
+                payload = json.loads(src["response"][latest_idx].as_py())
+                rows = payload.get("data") if isinstance(payload, dict) else payload
+                for r in (rows or []):
+                    try:
+                        k = float(r.get("strike") or 0)
+                        oi = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
+                        if k > 0:
+                            strikes[k] = oi
+                    except (TypeError, ValueError):
+                        continue
+                if strikes:
+                    break  # got this day's snapshot from the newest file
+            except Exception as e:
+                log.warning("oi-history read failed %s @ %s: %s", ticker, path.name, e)
+                continue
+        if strikes:
+            sessions.append({"date": date_str, "strikes": strikes})
+    sessions.reverse()  # oldest → newest
+    return sessions
+
+
 def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: bool,
              uw_call):
     """Read-through cache with parquet persistence:

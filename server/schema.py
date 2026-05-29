@@ -44,6 +44,43 @@ class OI(BaseModel):
     strikes: list[OIStrike] = Field(default_factory=list)
 
 
+class OISessionBar(BaseModel):
+    """One day's OI for a strike — a single bar in Tile 2's grouped chart."""
+    date: str
+    oi: int
+    provisional: bool = False   # True for today (OI not settled until ~9am next session)
+
+
+class StrikeOIHistory(BaseModel):
+    """5-session OI progression for one strike + its positioning reads."""
+    strike: float
+    sessions: list[OISessionBar] = Field(default_factory=list)  # oldest→newest
+    delta_oi: int = 0           # newest vs prior session OI change
+    net_delta: float = 0.0      # per-strike net delta from greek-exposure (call+put delta_oi)
+    premium_usd: float = 0.0    # flow premium concentrated at this strike (preferred $ label)
+    trend: Literal["building", "flat", "unwinding"] = "flat"
+
+
+class ExpirySegment(BaseModel):
+    """One slice of Tile 2's horizontal expiry-distribution bar."""
+    expiry: str
+    premium_usd: float
+    pct: float                  # share of total flow premium (0-100)
+
+
+class Tile2(BaseModel):
+    """Positioning Reality Check — is the flow real, building, where, still held?"""
+    opening_pct: float = 0.0            # % of single-leg alerts flagged all_opening_trades
+    avg_volume_oi_ratio: float = 0.0    # >1 = today's volume exceeds existing OI (opening intensity)
+    oi_trend_5d_pct: float = 0.0        # aggregate OI change across available sessions
+    confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
+    sessions_available: int = 0         # 1-5; <5 means archive still filling in
+    strikes: list[StrikeOIHistory] = Field(default_factory=list)
+    expiry_distribution: list[ExpirySegment] = Field(default_factory=list)
+    low_conviction: bool = False
+    low_conviction_msg: str = ""
+
+
 class DarkPool(BaseModel):
     net_premium_usd: float = 0.0
     pct_of_volume: int = 0
@@ -136,6 +173,7 @@ class Row(BaseModel):
     # Aggregate of total_ask_side_prem / (ask + bid) across alerts. 0.0 when
     # the ask/bid premium fields are empty on this tier.
     ask_side_pct: float = 0.0
+    tile2: Tile2 = Field(default_factory=Tile2)
 
 
 class Regime(BaseModel):

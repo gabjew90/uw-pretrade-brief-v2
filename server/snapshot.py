@@ -18,8 +18,9 @@ from functools import partial
 from typing import Any
 
 from server import gates, insights, storage, uw, universe
-from server.schema import (DarkPool, Flow, FlowAlert, Insights, NewsItem, OHLCBar,
-                            OI, OIStrike, Regime, Row, Snapshot)
+from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, Insights,
+                            NewsItem, OHLCBar, OI, OISessionBar, OIStrike, Regime,
+                            Row, Snapshot, StrikeOIHistory, Tile2)
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +156,10 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     flow_alerts_detail = _project_flow_alerts(flow_info.get("raw_alerts", []))
     ohlc_bars = _extract_ohlc(ohlc_data)
     ask_side_pct = float(flow_info.get("ask_side_pct", 0.0))
+    # Tile 2: positioning reality check. 5-session OI from our own parquet
+    # archive (tier-independent); per-strike delta from spot_exposures.
+    oi_history = await loop.run_in_executor(_POOL, partial(storage.read_oi_history, ticker, 5))
+    tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot)
     # Chained sector-tide fetch once we know the sector slug. Skip if unknown.
     sector_tide_value = 0.0
     if sector:
@@ -222,6 +227,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         flow_alerts_detail=flow_alerts_detail,
         ohlc=ohlc_bars,
         ask_side_pct=ask_side_pct,
+        tile2=tile2,
         _failures=failures,
     )
 
@@ -318,6 +324,139 @@ def _project_flow_alerts(raw_alerts: list[dict]) -> list[FlowAlert]:
         except (TypeError, ValueError):
             continue
     return out
+
+
+def _per_strike_net_delta(spot_data: Any) -> dict[float, float]:
+    """Map strike → net delta (call_delta_oi + put_delta_oi) from the
+    greek-exposure (spot-exposures/strike) payload. Spec: delta sourced from
+    greek-exposure endpoint ONLY."""
+    out: dict[float, float] = {}
+    if isinstance(spot_data, storage.UWFailure) or not isinstance(spot_data, dict):
+        return out
+    for r in (spot_data.get("data") or []):
+        try:
+            k = float(r.get("strike") or 0)
+            if k <= 0:
+                continue
+            cd = float(r.get("call_delta_oi") or 0)
+            pd = float(r.get("put_delta_oi") or 0)
+            out[k] = cd + pd
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
+                 spot_data: Any, spot: float) -> Tile2:
+    """Assemble Tile 2's positioning-reality model from:
+      - flow_alerts: opening read (all_opening_trades, volume_oi_ratio) +
+        per-strike premium + expiry distribution
+      - oi_history: oldest→newest daily OI snapshots from our parquet archive
+      - spot_data: per-strike net delta (greek-exposure)
+    """
+    # ── Opening read ──────────────────────────────────────────────────────
+    n = len(flow_alerts)
+    opening_n = sum(1 for a in flow_alerts if a.all_opening_trades)
+    opening_pct = (opening_n / n * 100) if n else 0.0
+    vois = [a.volume_oi_ratio for a in flow_alerts if a.volume_oi_ratio > 0]
+    avg_voi = (sum(vois) / len(vois)) if vois else 0.0
+
+    # ── Per-strike premium (flow concentration) ───────────────────────────
+    prem_by_strike: dict[float, float] = {}
+    for a in flow_alerts:
+        if a.strike > 0:
+            prem_by_strike[a.strike] = prem_by_strike.get(a.strike, 0.0) + a.total_premium
+
+    # ── Expiry distribution (premium grouped by expiry) ───────────────────
+    prem_by_expiry: dict[str, float] = {}
+    for a in flow_alerts:
+        if a.expiry:
+            prem_by_expiry[a.expiry] = prem_by_expiry.get(a.expiry, 0.0) + a.total_premium
+    total_prem = sum(prem_by_expiry.values())
+    expiry_dist = [
+        ExpirySegment(expiry=e, premium_usd=p,
+                      pct=round(p / total_prem * 100, 1) if total_prem else 0.0)
+        for e, p in sorted(prem_by_expiry.items(), key=lambda kv: -kv[1])
+    ]
+
+    # ── Per-strike OI history (from parquet archive) ──────────────────────
+    delta_by_strike = _per_strike_net_delta(spot_data)
+    sessions_available = len(oi_history)
+    # Focus on the strikes the flow actually targets (top 6 by premium), so the
+    # chart isn't cluttered with deep-OTM index OI. Fall back to most-recent-
+    # session top-OI strikes when flow carries no strike premium.
+    if prem_by_strike:
+        focus = sorted(prem_by_strike, key=lambda k: -prem_by_strike[k])[:6]
+    elif oi_history:
+        latest = oi_history[-1]["strikes"]
+        focus = sorted(latest, key=lambda k: -latest[k])[:6]
+    else:
+        focus = []
+
+    strike_hist: list[StrikeOIHistory] = []
+    last_idx = sessions_available - 1
+    for k in sorted(focus):
+        bars = []
+        for i, sess in enumerate(oi_history):
+            oi_val = int(sess["strikes"].get(k, 0))
+            bars.append(OISessionBar(date=sess["date"], oi=oi_val,
+                                      provisional=(i == last_idx)))
+        # delta_oi = newest vs prior session
+        delta_oi = 0
+        if len(bars) >= 2:
+            delta_oi = bars[-1].oi - bars[-2].oi
+        if delta_oi > 0 and bars and bars[-2].oi > 0 and (delta_oi / bars[-2].oi) >= 0.05:
+            trend = "building"
+        elif delta_oi < 0 and len(bars) >= 2 and bars[-2].oi > 0 and (delta_oi / bars[-2].oi) <= -0.05:
+            trend = "unwinding"
+        else:
+            trend = "flat"
+        strike_hist.append(StrikeOIHistory(
+            strike=k,
+            sessions=bars,
+            delta_oi=delta_oi,
+            net_delta=delta_by_strike.get(k, 0.0),
+            premium_usd=prem_by_strike.get(k, 0.0),
+            trend=trend,
+        ))
+
+    # ── Aggregate 5-day OI trend across focus strikes ─────────────────────
+    oi_trend_5d_pct = 0.0
+    if sessions_available >= 2 and strike_hist:
+        first_total = sum(s.sessions[0].oi for s in strike_hist if s.sessions)
+        last_total = sum(s.sessions[-1].oi for s in strike_hist if s.sessions)
+        if first_total > 0:
+            oi_trend_5d_pct = round((last_total - first_total) / first_total * 100, 1)
+
+    # ── Confirmation state ────────────────────────────────────────────────
+    if sessions_available < 2:
+        confirmation = "unconfirmed"   # not enough archive history yet
+    elif oi_trend_5d_pct >= 5:
+        confirmation = "building"
+    elif oi_trend_5d_pct <= -5:
+        confirmation = "unwinding"
+    else:
+        confirmation = "flat"
+
+    # ── Low-conviction state ──────────────────────────────────────────────
+    n_expiries = len(prem_by_expiry)
+    n_strikes = len(prem_by_strike)
+    low_conviction = n > 0 and (n_expiries >= 4 or n_strikes >= 8) and \
+        (max(prem_by_expiry.values(), default=0) / total_prem if total_prem else 0) < 0.4
+    low_msg = (f"Flow scattered across {n_expiries} expirations / {n_strikes} strikes "
+               f"— no clear target.") if low_conviction else ""
+
+    return Tile2(
+        opening_pct=round(opening_pct, 1),
+        avg_volume_oi_ratio=round(avg_voi, 2),
+        oi_trend_5d_pct=oi_trend_5d_pct,
+        confirmation=confirmation,
+        sessions_available=sessions_available,
+        strikes=strike_hist,
+        expiry_distribution=expiry_dist,
+        low_conviction=low_conviction,
+        low_conviction_msg=low_msg,
+    )
 
 
 def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
