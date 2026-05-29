@@ -54,8 +54,12 @@ async def _refresh_loop():
         # Market-hours gate: options data only moves during RTH. Outside the
         # window we hold the last-close snapshot and re-check every 5 min. Set
         # MARKET_GATE_DISABLED=true to force 24/7 (e.g. for debugging).
+        # Exception: always build ONE snapshot on a cold boot (empty cache) even
+        # when closed, so a freshly-started container never serves a blank
+        # dashboard overnight. Only the *repeated* off-hours fetches are skipped.
         gate_off = os.environ.get("MARKET_GATE_DISABLED", "").lower() in ("1", "true", "yes")
-        if not gate_off and not market_hours.market_is_open():
+        have_snapshot = _snapshot_cache.get("latest") is not None
+        if not gate_off and have_snapshot and not market_hours.market_is_open():
             log.info("market closed; holding last-close snapshot, re-check in %ds",
                      _CLOSED_RECHECK_SECONDS)
             await asyncio.sleep(_CLOSED_RECHECK_SECONDS)
