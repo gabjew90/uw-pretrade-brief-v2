@@ -446,6 +446,12 @@
   .flow-legend-row .legend-swatch.white { background: #FFFFFF; box-shadow: 0 0 4px rgba(255,255,255,0.5); }
   .flow-legend-row .legend-swatch.warn  { background: var(--warn); height: 2px; border-top: 2px dashed var(--warn); background: transparent; }
   .flow-legend-row .legend-swatch.hot   { background: var(--hot); width: 4px; height: 12px; box-shadow: 0 0 4px var(--hot-glow); }
+  .flow-legend-row .legend-swatch.call  { width: 10px; height: 10px; border-radius: 50%; background: #639922; }
+  .flow-legend-row .legend-swatch.put   { width: 10px; height: 10px; border-radius: 50%; background: #E24B4A; }
+  .flow-empty {
+    padding: 36px 12px; color: var(--axis); font-family: var(--ff-mono); font-size: 11px;
+    text-align: center; border: 1px dashed var(--grid); border-radius: 6px;
+  }
   .flow-strike-summary {
     display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
     font-family: var(--ff-mono); font-size: 11px;
@@ -817,13 +823,13 @@
     text-transform: uppercase; letter-spacing: 0.12em;
     margin-bottom: 4px; font-weight: 700;
   }
-  .tooltip-sheet .section .body { color: var(--text); }
+  .tooltip-sheet .section .body { color: var(--text); white-space: pre-line; }
   .tooltip-sheet .provenance {
     margin-top: 14px; padding: 10px 12px;
     background: rgba(122,162,247,0.06);
     border-left: 2px solid var(--pos); border-radius: 0 6px 6px 0;
     font-family: var(--ff-mono); font-size: 11px; color: var(--text-dim);
-    line-height: 1.5;
+    line-height: 1.5; white-space: pre-line;
   }
 
   /* Task 16: Calibration values footer panel */
@@ -1390,245 +1396,165 @@ function pill(kind) {
 
 function renderTile1Flow(row) {
   const g = row.gates.flow;
-  // Read flow fields: synthetic rows have nested .flow; live rows have top-level
-  const flowData = row.is_synthetic ? row.flow : {
-    rank_cross: row.flow_rank_cross,
-    alerts: row.alerts_count,
-    premium_usd: row.alerts_total_premium_usd,
-  };
+  const flowData = row.flow || {alerts: 0, premium_usd: 0, rank_cross: 100};
+  const askPct = (row.ask_side_pct || 0) * 100;
+  const askColor = askPct >= 75 ? "var(--ok)" : "var(--text)";
+  const premLabel = flowData.premium_usd >= 1e6
+    ? `$${(flowData.premium_usd / 1e6).toFixed(1)}M`
+    : `$${Math.round(flowData.premium_usd / 1e3)}k`;
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 1: Flow Conviction</span>
       <button class="help-icon" data-help="tile1">?</button>
     </h3>
-    <div class="flow-chart-wrap">
-      ${renderFlowChart(row, flowData.alerts, flowData.premium_usd)}
-    </div>
-    ${renderFlowStrikeSummary(row, flowData.alerts, flowData.premium_usd)}
     <div class="flow-stats">
       <div class="flow-stat">
         <span class="lbl">Alerts</span>
         <span class="val">${flowData.alerts}</span>
       </div>
       <div class="flow-stat">
-        <span class="lbl">Premium</span>
-        <span class="val">$${(flowData.premium_usd / 1e6).toFixed(1)}M</span>
+        <span class="lbl">Total premium</span>
+        <span class="val">${premLabel}</span>
       </div>
       <div class="flow-stat">
-        <span class="lbl">Flow rank</span>
-        <span class="val">Top ${flowData.rank_cross}%</span>
+        <span class="lbl">Ask-side %</span>
+        <span class="val" style="color:${askColor}">${askPct.toFixed(0)}%</span>
       </div>
+    </div>
+    <div class="flow-legend-row">
+      <span class="legend-item"><span class="legend-swatch call"></span>call bought</span>
+      <span class="legend-item"><span class="legend-swatch put"></span>put bought</span>
+      <span class="legend-item">hollow = sold</span>
+      <span class="legend-item">◯ ring = swept</span>
+      <span class="legend-item">bigger = more $</span>
+    </div>
+    <div class="flow-chart-wrap">
+      ${renderFlowChart(row)}
     </div>
   `;
 }
 
-/* Tile 1 chart: time-vs-price plot with strike-anchored alert bars.
- * - x-axis = 4-hour session timeline (9:30 → 13:30 as session-time tick labels)
- * - y-axis = stock price; tick labels show min/spot/max of the visible range
- * - Stock price line is a synth sin-walk anchored at row.spot (deterministic from hash)
- * - Each alert renders as a vertical bar from the x-axis up to its strike's y-position,
- *   labeled with the $ premium. Strikes match Tile 2's oi.strikes for synthetic rows
- *   (so the visual reconciles with Tile 2). For live rows, strikes are synthesized
- *   close to spot since the snapshot doesn't carry per-alert strike data. */
-/* Compute per-strike alert aggregates. Shared between Tile 1 (chart guide labels)
- * and Tile 2 ($ Δ approx column). Returns [{strike, count, premium, avgPerAlert}].
- * Deterministic from ticker hash + alertCount + totalPremiumUsd. */
-/* Per-strike aggregate summary rendered below Tile 1's chart. Replaces the
- * right-edge SVG labels removed when the chart was restored to full tile width.
- * One chip per strike showing "$ strike · N× · $X.XM" with dominant strike
- * highlighted. Same data Tile 2 uses for its $ Δ approx column. */
-function renderFlowStrikeSummary(row, alertCount, totalPremiumUsd) {
-  const aggregates = computeAlertStrikeAggregates(row, alertCount, totalPremiumUsd);
-  if (aggregates.length === 0) return "";
-  const dominantStrike = aggregates.reduce((m, x) => x.count > m.count ? x : m, aggregates[0]).strike;
-  const fmt = p => p.toFixed(row.spot >= 100 ? 0 : 2);
-  const chips = aggregates.map(a => {
-    const isDom = a.strike === dominantStrike && aggregates.length > 1;
-    const premLabel = a.premium >= 1e6
-      ? `$${(a.premium / 1e6).toFixed(1)}M`
-      : `$${Math.round(a.premium / 1e3)}k`;
-    return `<span class="chip ${isDom ? "dominant" : ""}"><span class="strike">$${fmt(a.strike)}</span>· ${a.count}× · ${premLabel}<span class="meta">${isDom ? " (dominant)" : ""}</span></span>`;
-  }).join("");
-  return `<div class="flow-strike-summary">${chips}</div>`;
-}
-
-function computeAlertStrikeAggregates(row, alertCount, totalPremiumUsd) {
-  const h = strHash(row.ticker);
-  const spot = row.spot;
-  // Same alert-strike distribution logic as renderFlowChart — keep in sync
-  let alertStrikes;
-  if (row.is_synthetic && row.oi && row.oi.strikes) {
-    const totalAct = row.oi.strikes.reduce((s, k) => s + Math.max(1, Math.abs(k.pct)), 0);
-    const weights = row.oi.strikes.map(k => Math.max(1, Math.abs(k.pct)) / totalAct);
-    alertStrikes = [];
-    let remaining = Math.min(alertCount, 12);
-    for (let i = 0; i < row.oi.strikes.length - 1; i++) {
-      const n = Math.round(remaining * weights[i] * (alertCount / Math.min(alertCount, 12)));
-      const capped = Math.min(remaining, n);
-      for (let j = 0; j < capped; j++) alertStrikes.push(row.oi.strikes[i].strike);
-      remaining -= capped;
-    }
-    while (remaining-- > 0) alertStrikes.push(row.oi.strikes[row.oi.strikes.length - 1].strike);
-  } else {
-    const strikeStep = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
-    const atm = Math.round(spot / strikeStep) * strikeStep;
-    const synthStrikes = row.direction === "calls"
-      ? [atm, atm + strikeStep, atm + strikeStep * 2]
-      : [atm, atm - strikeStep, atm - strikeStep * 2];
-    const n = Math.min(alertCount, 10);
-    alertStrikes = [];
-    for (let i = 0; i < n; i++) alertStrikes.push(synthStrikes[i % synthStrikes.length]);
-  }
-  // Same premium distribution logic as renderFlowChart
-  const perAlertSeed = i => h + 500 + i;
-  const rawWeights = alertStrikes.map((_, i) => seededRand(perAlertSeed(i), 0.5, 2.0));
-  const sumW = rawWeights.reduce((s, x) => s + x, 0);
-  const premiums = rawWeights.map(w => totalPremiumUsd * (w / sumW));
-
-  const uniqStrikes = [...new Set(alertStrikes)];
-  return uniqStrikes.map(s => {
-    const idx = alertStrikes.map((v, i) => v === s ? i : -1).filter(i => i >= 0);
-    const cnt = idx.length;
-    const sumPrem = idx.reduce((acc, i) => acc + premiums[i], 0);
-    return {strike: s, count: cnt, premium: sumPrem, avgPerAlert: cnt > 0 ? sumPrem / cnt : 0};
-  });
-}
-
-function renderFlowChart(row, alertCount, totalPremiumUsd) {
-  const h = strHash(row.ticker);
-  const W = 560, H = 200;
-  const padL = 50, padR = 16, padT = 14, padB = 26;
+/* Tile 1 chart per the build spec: scatter of single-leg alert bubbles plotted
+ * over the underlying OHLC price line.
+ *   x = time (ET, last 4hr session)
+ *   y = price ($, padded to fit lowest put strike and highest call strike + line)
+ *   bubble area ∝ sqrt(total_premium / 600), capped at r=22
+ *   color = type (call=green / put=red)
+ *   fill = ask-dominant solid / bid-dominant hollow
+ *   ring = has_sweep
+ * Multileg excluded; UTC→ET conversion applied. */
+function renderFlowChart(row) {
+  const W = 560, H = 220;
+  const padL = 50, padR = 20, padT = 14, padB = 26;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
-  const spot = row.spot;
+  const spot = row.spot || 0;
 
-  // ---- Synthesize alert distribution across (time, strike, premium) ----
-  // For synthetic rows: respect row.oi.strikes (the strikes that show up in Tile 2).
-  // For live rows: pick 4-5 strikes evenly around spot.
-  let alertStrikes;
-  if (row.is_synthetic && row.oi && row.oi.strikes) {
-    // Weight by OI activity — strikes with higher growth get more alerts
-    const totalAct = row.oi.strikes.reduce((s, k) => s + Math.max(1, Math.abs(k.pct)), 0);
-    const weights = row.oi.strikes.map(k => Math.max(1, Math.abs(k.pct)) / totalAct);
-    alertStrikes = [];
-    let remaining = Math.min(alertCount, 12);  // cap visible bars at 12 for readability
-    for (let i = 0; i < row.oi.strikes.length - 1; i++) {
-      const n = Math.round(remaining * weights[i] * (alertCount / Math.min(alertCount, 12)));
-      const capped = Math.min(remaining, n);
-      for (let j = 0; j < capped; j++) alertStrikes.push(row.oi.strikes[i].strike);
-      remaining -= capped;
-    }
-    // Last strike gets the rest
-    while (remaining-- > 0) alertStrikes.push(row.oi.strikes[row.oi.strikes.length - 1].strike);
-  } else {
-    // Live row: synth 4-5 strikes near spot, distribute alerts across them
-    const strikeStep = spot < 20 ? 0.5 : spot < 100 ? 1 : spot < 500 ? 5 : 25;
-    const atm = Math.round(spot / strikeStep) * strikeStep;
-    const synthStrikes = row.direction === "calls"
-      ? [atm, atm + strikeStep, atm + strikeStep * 2]
-      : [atm, atm - strikeStep, atm - strikeStep * 2];
-    const n = Math.min(alertCount, 10);
-    alertStrikes = [];
-    for (let i = 0; i < n; i++) {
-      alertStrikes.push(synthStrikes[i % synthStrikes.length]);
-    }
+  const alerts = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
+  const ohlc = row.ohlc || [];
+
+  if (alerts.length === 0 && ohlc.length === 0) {
+    return `<div class="flow-empty">No live alerts or OHLC for this ticker yet — first cycle still warming.</div>`;
   }
 
-  // Per-alert premium: distribute totalPremiumUsd weighted by hash so it's varied but stable
-  const perAlertSeed = i => h + 500 + i;
-  const rawWeights = alertStrikes.map((_, i) => seededRand(perAlertSeed(i), 0.5, 2.0));
-  const sumW = rawWeights.reduce((s, x) => s + x, 0);
-  const premiums = rawWeights.map(w => totalPremiumUsd * (w / sumW));
+  // ---- X domain: most-recent 4-hour session window ----
+  // Anchor on the latest of (newest alert, newest OHLC bar) so the chart
+  // always reaches the right edge.
+  const alertEpochs = alerts.map(a => Math.floor(new Date(a.created_at).getTime() / 1000)).filter(t => !isNaN(t));
+  const ohlcEpochs = ohlc.map(b => b.t);
+  const allT = [...alertEpochs, ...ohlcEpochs];
+  const tMax = allT.length ? Math.max(...allT) : Math.floor(Date.now() / 1000);
+  const tMin = tMax - 4 * 3600;
+  const xForT = t => padL + innerW * Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
 
-  // Per-alert timestamp: distribute across [0..1] of the 4-hour session, deterministic
-  const timeFracs = alertStrikes.map((_, i) =>
-    Math.min(0.98, Math.max(0.02, (i + seededRand(h + 700 + i, 0.15, 0.85)) / alertStrikes.length))
-  );
+  // ---- Y domain: spans alert strikes + ohlc price range ----
+  const strikes = alerts.map(a => a.strike).filter(s => s > 0);
+  const prices = ohlc.flatMap(b => [b.h, b.l, b.c]).filter(p => p > 0);
+  const seedRange = [spot * 0.97, spot * 1.03].filter(v => v > 0);
+  const yPool = [...strikes, ...prices, ...seedRange, spot].filter(v => v > 0);
+  let yLo = Math.min(...yPool);
+  let yHi = Math.max(...yPool);
+  const yPad = (yHi - yLo) * 0.06 || spot * 0.01 || 1;
+  yLo -= yPad; yHi += yPad;
+  const yForP = p => padT + innerH * (1 - (p - yLo) / (yHi - yLo || 1));
 
-  // ---- Y-axis range: spans min(strikes, spot * 0.985) to max(strikes, spot * 1.015) ----
-  const allStrikes = alertStrikes.slice();
-  const yMin = Math.min(spot * 0.985, ...allStrikes) * 0.998;
-  const yMax = Math.max(spot * 1.015, ...allStrikes) * 1.002;
-  const yForPrice = p => padT + innerH * (1 - (p - yMin) / (yMax - yMin));
-  const xForFrac = f => padL + innerW * f;
-
-  // ---- Stock price line (deterministic sin-walk around spot) ----
-  const linePts = [];
-  for (let i = 0; i <= 48; i++) {
-    const f = i / 48;
-    const noise = seededRand(h + i, -1, 1);
-    const drift = Math.sin(f * Math.PI * 2 + (h % 7)) * 0.008;
-    const price = spot * (1 + drift + noise * 0.002);
-    linePts.push(`${xForFrac(f).toFixed(1)},${yForPrice(price).toFixed(1)}`);
-  }
-
-  // ---- Tick labels for y-axis (3 ticks: lo / spot / hi) ----
-  const fmt = p => p.toFixed(spot >= 100 ? 0 : 2);
-  // Render bars + labels
-  let barsSvg = "";
-  for (let i = 0; i < alertStrikes.length; i++) {
-    const x = xForFrac(timeFracs[i]);
-    const yStrike = yForPrice(alertStrikes[i]);
-    const yBase = padT + innerH;  // bottom of plot area
-    // Vertical bar from x-axis up to the strike level
-    barsSvg += `<line x1="${x.toFixed(1)}" y1="${yBase}" x2="${x.toFixed(1)}" y2="${yStrike.toFixed(1)}" stroke="var(--hot)" stroke-width="2" opacity="0.85"/>`;
-    // Dot anchor at the strike
-    barsSvg += `<circle cx="${x.toFixed(1)}" cy="${yStrike.toFixed(1)}" r="3" fill="var(--hot)"/>`;
-    // $ label above the strike dot (alternating up/down to reduce label collisions for clustered alerts)
-    const labelY = yStrike - 6 + (i % 2) * -10;
-    const labelText = premiums[i] >= 1e6
-      ? `$${(premiums[i] / 1e6).toFixed(1)}M`
-      : `$${Math.round(premiums[i] / 1e3)}k`;
-    barsSvg += `<text x="${x.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" fill="var(--text)" font-family="ui-monospace,monospace" font-size="9">${labelText}</text>`;
-  }
-
-  // ---- Strike-level horizontal guide lines (per-strike $ aggregate moved
-  // OUT of the SVG into a footer row below the chart, so the chart can use the
-  // full tile width and stay visually consistent with other tiles). ----
-  let guideSvg = "";
-  const uniqStrikes = [...new Set(alertStrikes)];
-  for (const s of uniqStrikes) {
-    const y = yForPrice(s);
-    guideSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + innerW}" y2="${y.toFixed(1)}" stroke="var(--grid)" stroke-width="0.5" stroke-dasharray="2,2"/>`;
-    guideSvg += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--hot)" font-family="ui-monospace,monospace" font-size="9">$${fmt(s)}</text>`;
-  }
-
-  // ---- Time tick labels (4 session-time markers) ----
-  const timeTicks = ["9:30", "10:30", "11:30", "12:30", "13:30"];
-  let timeAxisSvg = "";
-  for (let i = 0; i < timeTicks.length; i++) {
-    const x = xForFrac(i / (timeTicks.length - 1));
-    timeAxisSvg += `<text x="${x.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="ui-monospace,monospace" font-size="9">${timeTicks[i]}</text>`;
-  }
-
-  // ---- Axis box ----
+  // ---- Background grid + axes ----
   const axisBox = `
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>
     <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>
   `;
 
-  // ---- Y-axis labels (left of plot area) ----
-  // Orange horizontal reference line marks the CURRENT spot price (right now);
-  // the white polyline is the stock price walking through the 4-hour session.
-  // Both are "spot" in different senses — relabeled below to avoid confusion.
-  const ySpotLabel = `<text x="${padL - 4}" y="${(yForPrice(spot) + 3).toFixed(1)}" text-anchor="end" fill="var(--warn)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="700">now $${fmt(spot)}</text>`;
-  const ySpotLine = `<line x1="${padL}" y1="${yForPrice(spot).toFixed(1)}" x2="${padL + innerW}" y2="${yForPrice(spot).toFixed(1)}" stroke="var(--warn)" stroke-width="1" opacity="0.5" stroke-dasharray="3,3"/>`;
+  // ---- Y ticks: 5 evenly-spaced price labels ----
+  const fmt = p => p < 10 ? p.toFixed(2) : p < 100 ? p.toFixed(1) : Math.round(p).toString();
+  let yTicksSvg = "";
+  for (let i = 0; i <= 4; i++) {
+    const p = yLo + (yHi - yLo) * (i / 4);
+    const y = yForP(p);
+    yTicksSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + innerW}" y2="${y.toFixed(1)}" stroke="var(--grid)" stroke-width="0.4" opacity="0.5"/>`;
+    yTicksSvg += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">$${fmt(p)}</text>`;
+  }
+
+  // ---- X ticks: 5 time labels in ET ----
+  const fmtET = epoch => {
+    const d = new Date(epoch * 1000);
+    // toLocaleTimeString w/ America/New_York zone, no seconds
+    return d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
+  };
+  let xTicksSvg = "";
+  for (let i = 0; i <= 4; i++) {
+    const t = tMin + (tMax - tMin) * (i / 4);
+    const x = xForT(t);
+    xTicksSvg += `<text x="${x.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${fmtET(t)}</text>`;
+  }
+
+  // ---- OHLC price line (gray, thin, smoothed close-of-bar) ----
+  let priceLine = "";
+  if (ohlc.length >= 2) {
+    const sorted = ohlc.slice().sort((a, b) => a.t - b.t);
+    const pts = sorted.map(b => `${xForT(b.t).toFixed(1)},${yForP(b.c).toFixed(1)}`).join(" ");
+    priceLine = `<polyline points="${pts}" fill="none" stroke="var(--axis)" stroke-width="1.2" opacity="0.85"/>`;
+  }
+
+  // ---- Spot reference (dashed horizontal at row.spot) ----
+  const spotY = yForP(spot);
+  const spotLine = `<line x1="${padL}" y1="${spotY.toFixed(1)}" x2="${padL + innerW}" y2="${spotY.toFixed(1)}" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4,4" opacity="0.55"/>`;
+  const spotLabel = `<text x="${(padL + innerW - 2).toFixed(1)}" y="${(spotY - 4).toFixed(1)}" text-anchor="end" fill="var(--warn)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="700">now $${fmt(spot)}</text>`;
+
+  // ---- Alert bubbles ----
+  // Size: r = max(6, sqrt(premium / 600)) clamped to 22  (spec hard constraint)
+  // Sort biggest-first so smaller bubbles render on top and remain hoverable.
+  let bubblesSvg = "";
+  const sortedAlerts = alerts.slice().sort((a, b) => b.total_premium - a.total_premium);
+  for (const a of sortedAlerts) {
+    const epoch = Math.floor(new Date(a.created_at).getTime() / 1000);
+    if (isNaN(epoch) || epoch < tMin) continue;
+    const cx = xForT(epoch);
+    const cy = yForP(a.strike);
+    const r = Math.min(22, Math.max(6, Math.sqrt(a.total_premium / 600)));
+    const color = a.type === "call" ? "#639922" : "#E24B4A";
+    const askBidSum = a.total_ask_side_prem + a.total_bid_side_prem;
+    const askDom = askBidSum > 0 ? (a.total_ask_side_prem / askBidSum) >= 0.5 : true;
+    const fill = askDom ? color : "none";
+    const strokeW = a.has_sweep ? 2.5 : 1.4;
+    const ring = a.has_sweep ? `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="0.55"/>` : "";
+    // Hover tooltip via <title> child of <circle>
+    const tET = fmtET(epoch);
+    const premLbl = a.total_premium >= 1e6 ? `$${(a.total_premium / 1e6).toFixed(1)}M` : `$${Math.round(a.total_premium / 1e3)}k`;
+    const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : 0;
+    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}${a.has_sweep ? " · swept" : ""}`;
+    bubblesSvg += `${ring}<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92"><title>${hover.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</title></circle>`;
+  }
 
   return `
-    <div class="flow-legend-row">
-      <span class="legend-item"><span class="legend-swatch white"></span>stock price (4hr session)</span>
-      <span class="legend-item"><span class="legend-swatch warn"></span>now: $${fmt(spot)}</span>
-      <span class="legend-item"><span class="legend-swatch hot"></span>unusual trade ($ premium)</span>
-    </div>
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:220px;display:block;">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:240px;display:block;">
+      ${yTicksSvg}
       ${axisBox}
-      ${guideSvg}
-      ${ySpotLine}
-      ${ySpotLabel}
-      <polyline points="${linePts.join(" ")}" fill="none" stroke="#FFFFFF" stroke-width="1.6" opacity="0.95" filter="drop-shadow(0 0 3px rgba(255,255,255,0.35))"/>
-      ${barsSvg}
-      ${timeAxisSvg}
-      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">session time (4-hour window)</text>
+      ${priceLine}
+      ${spotLine}
+      ${spotLabel}
+      ${bubblesSvg}
+      ${xTicksSvg}
+      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">time (ET, last 4hr session)</text>
     </svg>
   `;
 }
@@ -2486,10 +2412,10 @@ const TOOLTIPS = {
   },
   tile1: {
     title: "Tile 1: Flow Conviction",
-    whatItIs: "Is unusual options activity loading aggressively in one direction? Each vertical bar in the chart = one unusual trade. X = time it fired (4hr session). Y = the strike that trade is at. Label = $ premium. The grey line is the underlying stock price over the same window.",
-    whyHere: "Demand signal — who's buying, how big, and where they're concentrating. The first gate in the funnel. Strikes appearing here are the same strikes you see in Tile 2's OI table — Tile 1 shows when activity happened; Tile 2 confirms whether OI actually grew at those strikes. High alert $ + Tile 2 OI ↑ = opening flow (green). High alert $ + Tile 2 OI ↓ = closing (red) — the sweep was someone exiting.",
+    whatItIs: "Flow Conviction — what big money is betting on this stock right now. Each dot is one large options bet.\n\n<strong>The dots</strong>\n🟢 Green = betting up (calls) · 🔴 Red = betting down (puts)\nHeight = the price they're targeting\nBigger = more money\nSolid = bought aggressively · Hollow = actually sold (flip the meaning)\nRing = rushed to fill (urgency)\n\n<strong>The lines</strong>\nGray = the stock's price through the day\nDashed = where it's trading now",
+    whyHere: "<strong>How to read it</strong>\nBig solid green dots clustered above the line = bullish conviction\nSame in red below the line = bearish\nTop \"ask-side %\" is the tell — above ~75% = real buying\n\nBest time: mid-morning to midday. Skip the first and last hour. Skip entirely if dots are mixed colors or mostly hollow.",
     threshold: "Gate 1 passes (green) if the ticker's bullish flow rank is in the top 15% of today's universe; yellow up to top 35%; red beyond.",
-    provenance: "Endpoints used: /api/option-trades/flow-alerts (60s) → alert count, $ premium, cross-sectional rank. ALSO INGESTED for this tile, not yet wired: /api/net-flow/expiry (per-ticker, 5min) — qualifies whether flow is front-week speculation or 30-45 DTE institutional positioning; /api/lit-flow/recent (cross-ticker, 60s) — distinguishes lit vs dark venue. Bars carry no ask/bid direction encoding (not reliable on this tier).",
+    provenance: "Data (live):\n/api/option-trades/flow-alerts — the dots + top numbers\n/api/stock/{ticker}/ohlc/{candle_size} — the price line",
   },
   tile2: {
     title: "Tile 2: OI Confirmation",

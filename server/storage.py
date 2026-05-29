@@ -395,6 +395,13 @@ def fetch_seasonality_ticker(ticker: str):
                     lambda: uw.fetch_seasonality_ticker(ticker))
 
 
+def fetch_ohlc(ticker: str, candle_size: str = "5m", is_hot: bool = True):
+    """OHLC candles for Tile 1's price line. Hot TTL (60s) so the line tracks
+    intraday price moves within one polling cycle of the dashboard."""
+    return _through("ohlc", ticker, {"candle_size": candle_size}, is_hot,
+                    lambda: uw.fetch_ohlc(ticker, candle_size=candle_size))
+
+
 # ── Snapshot JSONL appender ───────────────────────────────────────────────────
 
 def _snapshots_path() -> Path:

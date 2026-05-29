@@ -61,6 +61,36 @@ class Insights(BaseModel):
     curve: str | None = None
 
 
+class FlowAlert(BaseModel):
+    """Per-alert detail powering Tile 1's scatter. One bubble per alert.
+    All numeric fields are floats so JS doesn't have to parse the UW string-
+    typed payload (`total_premium` etc. arrive as strings)."""
+    created_at: str           # ISO-8601 UTC; JS converts to ET for display
+    strike: float
+    type: Literal["call", "put"]
+    total_premium: float
+    total_ask_side_prem: float
+    total_bid_side_prem: float
+    has_sweep: bool = False
+    has_singleleg: bool = True
+    has_multileg: bool = False
+    underlying_price: float = 0.0
+    option_chain: str = ""
+    expiry: str = ""
+    total_size: int = 0
+
+
+class OHLCBar(BaseModel):
+    """One OHLC candle — feeds Tile 1's gray price line. `t` is epoch-seconds
+    (UTC) so JS can render a time-vs-price line without parsing strings."""
+    t: int
+    o: float
+    h: float
+    l: float
+    c: float
+    v: float = 0.0
+
+
 class Row(BaseModel):
     # extra="allow" lets _failures and _timestamp pass through as extra fields.
     # Pydantic 2 forbids leading-underscore formal field names, so this is the
@@ -89,6 +119,13 @@ class Row(BaseModel):
     dark_pool: DarkPool = Field(default_factory=DarkPool)
     news_items: list[NewsItem] = Field(default_factory=list)
     insights: Insights = Field(default_factory=Insights)
+    # Per-alert detail + OHLC for Tile 1's scatter-over-line chart. Empty when
+    # the upstream fetches haven't run / failed.
+    flow_alerts_detail: list[FlowAlert] = Field(default_factory=list)
+    ohlc: list[OHLCBar] = Field(default_factory=list)
+    # Aggregate of total_ask_side_prem / (ask + bid) across alerts. 0.0 when
+    # the ask/bid premium fields are empty on this tier.
+    ask_side_pct: float = 0.0
 
 
 class Regime(BaseModel):

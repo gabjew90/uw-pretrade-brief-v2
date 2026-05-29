@@ -19,10 +19,17 @@ def stub_uw(monkeypatch):
     writes parquet naturally."""
     from server import uw
     monkeypatch.setattr(uw, "fetch_flow_alerts",
-                        lambda limit=100: {"data": [{"ticker": t} for t in
-                                                     ["NVDA", "TSLA", "AMD", "PLTR", "AMC",
-                                                      "AAPL", "GOOGL", "MSFT", "META", "NFLX",
-                                                      "AMZN", "F", "BAC", "WMT", "JPM"]]})
+                        lambda limit=100: {"data": [
+                            {"ticker": t, "underlying_price": "100.0",
+                             "type": "call", "strike": "100", "total_premium": "1000",
+                             "total_ask_side_prem": "800", "total_bid_side_prem": "200",
+                             "has_sweep": False, "has_singleleg": True,
+                             "has_multileg": False, "total_size": 10,
+                             "expiry": "2026-06-06", "option_chain": f"{t}260606C00100000",
+                             "created_at": "2026-05-28T14:30:00Z"}
+                            for t in ["NVDA", "TSLA", "AMD", "PLTR", "AMC",
+                                      "AAPL", "GOOGL", "MSFT", "META", "NFLX",
+                                      "AMZN", "F", "BAC", "WMT", "JPM"]]})
     monkeypatch.setattr(uw, "fetch_spot_exposures_strike",
                         lambda t: {"data": [{"strike": 100.0,
                                               "call_gamma_oi": 1.0,
@@ -69,6 +76,11 @@ def stub_uw(monkeypatch):
                         lambda: {"data": [{"month": "May", "avg_return": 0.012}]})
     monkeypatch.setattr(uw, "fetch_seasonality_ticker",
                         lambda t: {"data": [{"month": "May", "avg_return": 0.018}]})
+    monkeypatch.setattr(uw, "fetch_ohlc",
+                        lambda t, candle_size="5m": {"data": [
+                            {"start_time": "2026-05-28T14:30:00Z",
+                             "open": 100.0, "high": 101.0, "low": 99.5, "close": 100.5,
+                             "volume": 12345}]})
 
 
 async def test_refresh_snapshot_happy_path_assembles_15_rows(stub_uw, fresh_storage_state, tmp_data_dir):

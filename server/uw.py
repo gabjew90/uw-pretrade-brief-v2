@@ -199,6 +199,12 @@ def fetch_seasonality_ticker(ticker: str) -> dict:
     return _get(f"/api/seasonality/{ticker}/monthly")
 
 
+def fetch_ohlc(ticker: str, candle_size: str = "5m") -> dict:
+    """OHLC candles — feeds Tile 1's underlying price line. `candle_size` per
+    UW: 1m / 5m / 15m / 1h / 1d (1m+5m are intraday). Returns most-recent bars."""
+    return _get(f"/api/stock/{ticker}/ohlc/{candle_size}")
+
+
 # ---------- Shape normalizers ----------
 
 def _unwrap(payload):

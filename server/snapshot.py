@@ -18,8 +18,8 @@ from functools import partial
 from typing import Any
 
 from server import gates, insights, storage, uw, universe
-from server.schema import (DarkPool, Flow, Insights, NewsItem, OI,
-                            OIStrike, Regime, Row, Snapshot)
+from server.schema import (DarkPool, Flow, FlowAlert, Insights, NewsItem, OHLCBar,
+                            OI, OIStrike, Regime, Row, Snapshot)
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +134,8 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     await loop.run_in_executor(_POOL, partial(storage.fetch_net_prem_ticks, ticker))
     await loop.run_in_executor(_POOL, partial(storage.fetch_net_flow_expiry, ticker))
     await loop.run_in_executor(_POOL, partial(storage.fetch_seasonality_ticker, ticker))
+    # OHLC for Tile 1's price line. 5m candles match the 4hr session view.
+    ohlc_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ohlc, ticker, "5m", is_hot))
 
     failures = [r.endpoint for r in (spot_data, oi_data, vol_data, ivr_data, dp_data, earn_data)
                 if isinstance(r, storage.UWFailure)]
@@ -150,6 +152,9 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b = _extract_gex(spot_data, spot)
     sector = _extract_sector(info_data, flow_info)
     news_items = _extract_news_items(news_data)
+    flow_alerts_detail = _project_flow_alerts(flow_info.get("raw_alerts", []))
+    ohlc_bars = _extract_ohlc(ohlc_data)
+    ask_side_pct = float(flow_info.get("ask_side_pct", 0.0))
     # Chained sector-tide fetch once we know the sector slug. Skip if unknown.
     sector_tide_value = 0.0
     if sector:
@@ -214,6 +219,9 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         sector_tide_value=sector_tide_value,
         dark_pool=dp,
         news_items=news_items,
+        flow_alerts_detail=flow_alerts_detail,
+        ohlc=ohlc_bars,
+        ask_side_pct=ask_side_pct,
         _failures=failures,
     )
 
@@ -221,11 +229,14 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
 # ── Flow aggregation ─────────────────────────────────────────────────────────
 
 def _aggregate_flow_per_ticker(flow_alerts_payload: dict, hot_15: list[str]) -> dict[str, dict]:
-    """Group flow_alerts response by ticker → {alerts, premium_usd, spot, rank_cross}.
+    """Group flow_alerts response by ticker → {alerts, premium_usd, spot,
+    rank_cross, raw_alerts, ask_side_pct}.
 
-    UW flow-alerts row shape: {ticker, underlying_price, total_premium, ...}.
-    rank_cross is derived from position in hot_15 (1st = top 7%, last = ~100%).
-    """
+    UW flow-alerts row shape: {ticker, underlying_price, total_premium,
+    total_ask_side_prem, total_bid_side_prem, has_sweep, has_singleleg, ...}.
+    rank_cross is derived from cross-sectional premium percentile across all
+    tickers in the response. raw_alerts preserves the per-alert detail Tile 1
+    plots as bubbles."""
     rows = flow_alerts_payload.get("data", flow_alerts_payload) if isinstance(flow_alerts_payload, dict) else flow_alerts_payload
     if not isinstance(rows, list):
         return {}
@@ -236,10 +247,19 @@ def _aggregate_flow_per_ticker(flow_alerts_payload: dict, hot_15: list[str]) -> 
         t = r.get("ticker") or r.get("ticker_symbol") or r.get("underlying")
         if not t:
             continue
-        cur = agg.setdefault(t, {"alerts": 0, "premium_usd": 0.0, "spot": 0.0})
+        cur = agg.setdefault(t, {"alerts": 0, "premium_usd": 0.0, "spot": 0.0,
+                                  "ask_sum": 0.0, "bid_sum": 0.0, "raw_alerts": []})
         cur["alerts"] += 1
         try:
             cur["premium_usd"] += float(r.get("total_premium") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            cur["ask_sum"] += float(r.get("total_ask_side_prem") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            cur["bid_sum"] += float(r.get("total_bid_side_prem") or 0)
         except (TypeError, ValueError):
             pass
         if cur["spot"] == 0.0:
@@ -247,19 +267,86 @@ def _aggregate_flow_per_ticker(flow_alerts_payload: dict, hot_15: list[str]) -> 
                 cur["spot"] = float(r.get("underlying_price") or 0)
             except (TypeError, ValueError):
                 pass
+        cur["raw_alerts"].append(r)
     # Cross-sectional rank: order ALL tickers in the flow_alerts response by
     # total premium descending, then map percentile. Top ~7% of tickers in
-    # today's universe = green; top ~35% = yellow. Hot_15 is a subset of the
-    # full ranked list, so a hot_15 ticker can still rank "yellow" if its
-    # premium is small compared to the leaders.
+    # today's universe = green; top ~35% = yellow.
     ranked = sorted(agg.items(), key=lambda kv: -kv[1]["premium_usd"])
     total_n = max(len(ranked), 1)
     for i, (t, info) in enumerate(ranked):
         info["rank_cross"] = int(round((i + 1) / total_n * 100))
+        ask_bid = info["ask_sum"] + info["bid_sum"]
+        info["ask_side_pct"] = (info["ask_sum"] / ask_bid) if ask_bid > 0 else 0.0
     return agg
 
 
 # ── Extractors (use v1-tested parsers from server.uw) ────────────────────────
+
+def _project_flow_alerts(raw_alerts: list[dict]) -> list[FlowAlert]:
+    """Project UW flow_alerts rows (string-typed numerics) onto FlowAlert
+    models — Tile 1's scatter consumes this. Skips multileg in line with the
+    Tile 1 build spec's default-view rule (single-leg only)."""
+    out: list[FlowAlert] = []
+    for r in raw_alerts:
+        if not isinstance(r, dict):
+            continue
+        try:
+            if not bool(r.get("has_singleleg", False)):
+                continue
+            t = r.get("type") or ""
+            if t not in ("call", "put"):
+                continue
+            out.append(FlowAlert(
+                created_at=str(r.get("created_at") or ""),
+                strike=float(r.get("strike") or 0),
+                type=t,
+                total_premium=float(r.get("total_premium") or 0),
+                total_ask_side_prem=float(r.get("total_ask_side_prem") or 0),
+                total_bid_side_prem=float(r.get("total_bid_side_prem") or 0),
+                has_sweep=bool(r.get("has_sweep", False)),
+                has_singleleg=bool(r.get("has_singleleg", False)),
+                has_multileg=bool(r.get("has_multileg", False)),
+                underlying_price=float(r.get("underlying_price") or 0),
+                option_chain=str(r.get("option_chain") or ""),
+                expiry=str(r.get("expiry") or ""),
+                total_size=int(float(r.get("total_size") or 0)),
+            ))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
+    """Map UW OHLC payload → OHLCBar list. UW timestamp is usually ISO; we
+    convert to epoch-seconds so the JS chart code doesn't have to parse."""
+    if isinstance(ohlc_data, storage.UWFailure) or not isinstance(ohlc_data, dict):
+        return []
+    rows = ohlc_data.get("data") or []
+    bars: list[OHLCBar] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            ts_raw = r.get("start_time") or r.get("t") or r.get("timestamp") or ""
+            if isinstance(ts_raw, (int, float)):
+                t_epoch = int(ts_raw)
+            else:
+                dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                t_epoch = int(dt.timestamp())
+            bars.append(OHLCBar(
+                t=t_epoch,
+                o=float(r.get("open") or r.get("o") or 0),
+                h=float(r.get("high") or r.get("h") or 0),
+                l=float(r.get("low") or r.get("l") or 0),
+                c=float(r.get("close") or r.get("c") or 0),
+                v=float(r.get("volume") or r.get("v") or 0),
+            ))
+        except (TypeError, ValueError):
+            continue
+    # Trim to the most recent 4-hour window (5m candles = 48 bars max).
+    bars.sort(key=lambda b: b.t)
+    return bars[-48:]
+
 
 def _extract_oi(today_data: Any, prev_data: Any) -> list[dict]:
     """Top 5 strikes by today's total OI (call+put), with Δ% computed against
