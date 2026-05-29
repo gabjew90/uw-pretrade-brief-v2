@@ -452,10 +452,23 @@
     padding: 36px 12px; color: var(--axis); font-family: var(--ff-mono); font-size: 11px;
     text-align: center; border: 1px dashed var(--grid); border-radius: 6px;
   }
-  .flow-bubble { cursor: pointer; transition: filter 0.12s ease; }
+  .flow-bubble {
+    cursor: pointer; transition: filter 0.12s ease;
+    /* Mobile: kill the 300ms tap delay AND ensure the SVG circle catches
+       touch events (some iOS/Android combos won't fire click on SVG
+       children unless pointer-events is explicit). */
+    pointer-events: all;
+    touch-action: manipulation;
+  }
   .flow-bubble:hover { filter: brightness(1.25) drop-shadow(0 0 4px currentColor); }
   .flow-bubble.selected { filter: brightness(1.4) drop-shadow(0 0 6px currentColor); }
   .flow-bubble-ring { pointer-events: none; }
+  /* Ensure ONLY .flow-bubble receives taps — otherwise overlapping price-line
+     polyline, spot label, or tick labels can swallow taps on touch devices
+     and the handler never fires. */
+  .flow-chart-wrap svg text,
+  .flow-chart-wrap svg line,
+  .flow-chart-wrap svg polyline { pointer-events: none; }
   .flow-alert-detail {
     margin-top: 10px; padding: 10px 12px;
     background: rgba(255,255,255,0.03); border: 1px solid var(--grid); border-radius: 6px;
@@ -1456,8 +1469,12 @@ function renderTile1Flow(row) {
  *   ring = has_sweep
  * Multileg excluded; UTC→ET conversion applied. */
 function renderFlowChart(row) {
-  const W = 560, H = 220;
-  const padL = 50, padR = 20, padT = 14, padB = 26;
+  // viewBox matches the visual aspect we want on phone (320×200 ≈ 1.6:1)
+  // and uses default preserveAspectRatio (xMidYMid meet) so circles stay
+  // circular regardless of rendered container width. height:auto lets the
+  // SVG match its natural aspect — no letterboxing.
+  const W = 320, H = 200;
+  const padL = 40, padR = 12, padT = 10, padB = 22;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const spot = row.spot || 0;
@@ -1533,11 +1550,11 @@ function renderFlowChart(row) {
   const spotLabel = `<text x="${(padL + innerW - 2).toFixed(1)}" y="${(spotY - 4).toFixed(1)}" text-anchor="end" fill="var(--warn)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="700">now $${fmt(spot)}</text>`;
 
   // ---- Alert bubbles ----
-  // Size: log-based so the realistic $10k → $10M premium range is visually
-  // discriminating (the spec's sqrt(premium/600) saturates at ~$300k, making
-  // every bubble in a typical index batch hit the cap and look identical).
-  // r = clamp(6 + 3 * log10(premium / 50000), 5, 22)  — calibrated so:
-  //   $50k = floor (6), $200k = 8, $1M = 10, $10M = 13, $100M = 16
+  // Size: log-based, recalibrated for the 320-unit-wide viewBox so even the
+  // biggest bubble is only ~4% of chart width. r is in SVG units (which now
+  // map 1:1 to circular pixels since viewBox aspect = container aspect).
+  // r = clamp(3 + 2 * log10(premium / 50000), 3, 12)
+  //   $50k = 3 (floor)  · $200k = 4.2  · $1M = 5.6  · $10M = 7  · $100M = 11
   // Sort biggest-first so smaller bubbles render on top and remain clickable.
   let bubblesSvg = "";
   const sortedAlerts = alerts.slice().sort((a, b) => b.total_premium - a.total_premium);
@@ -1551,7 +1568,7 @@ function renderFlowChart(row) {
     const cx = xForT(epoch);
     const cy = yForP(a.strike);
     const prem = Math.max(1, a.total_premium);
-    const r = Math.min(22, Math.max(5, 6 + 3 * Math.log10(prem / 50000)));
+    const r = Math.min(12, Math.max(3, 3 + 2 * Math.log10(prem / 50000)));
     const color = a.type === "call" ? "#639922" : "#E24B4A";
     const askBidSum = a.total_ask_side_prem + a.total_bid_side_prem;
     const askDom = askBidSum > 0 ? (a.total_ask_side_prem / askBidSum) >= 0.5 : true;
@@ -1569,7 +1586,7 @@ function renderFlowChart(row) {
   }
 
   return `
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:240px;display:block;">
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:280px;">
       ${yTicksSvg}
       ${axisBox}
       ${priceLine}
@@ -1577,7 +1594,7 @@ function renderFlowChart(row) {
       ${spotLabel}
       ${bubblesSvg}
       ${xTicksSvg}
-      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">time (ET, last 4hr session)</text>
+      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="7">time (ET, last 4hr session)</text>
     </svg>
   `;
 }
