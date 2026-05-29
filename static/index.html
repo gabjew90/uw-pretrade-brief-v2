@@ -452,6 +452,17 @@
     padding: 36px 12px; color: var(--axis); font-family: var(--ff-mono); font-size: 11px;
     text-align: center; border: 1px dashed var(--grid); border-radius: 6px;
   }
+  .flow-bubble { cursor: pointer; transition: filter 0.12s ease; }
+  .flow-bubble:hover { filter: brightness(1.25) drop-shadow(0 0 4px currentColor); }
+  .flow-bubble.selected { filter: brightness(1.4) drop-shadow(0 0 6px currentColor); }
+  .flow-bubble-ring { pointer-events: none; }
+  .flow-alert-detail {
+    margin-top: 10px; padding: 10px 12px;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--grid); border-radius: 6px;
+    font-family: var(--ff-mono); font-size: 11px; color: var(--text); line-height: 1.45;
+    min-height: 32px;
+  }
+  .flow-alert-detail[data-empty="true"] { color: var(--axis); font-style: italic; }
   .flow-strike-summary {
     display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
     font-family: var(--ff-mono); font-size: 11px;
@@ -1431,6 +1442,7 @@ function renderTile1Flow(row) {
     <div class="flow-chart-wrap">
       ${renderFlowChart(row)}
     </div>
+    <div class="flow-alert-detail" data-empty="true">Tap a bubble for trade detail</div>
   `;
 }
 
@@ -1521,28 +1533,39 @@ function renderFlowChart(row) {
   const spotLabel = `<text x="${(padL + innerW - 2).toFixed(1)}" y="${(spotY - 4).toFixed(1)}" text-anchor="end" fill="var(--warn)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="700">now $${fmt(spot)}</text>`;
 
   // ---- Alert bubbles ----
-  // Size: r = max(6, sqrt(premium / 600)) clamped to 22  (spec hard constraint)
-  // Sort biggest-first so smaller bubbles render on top and remain hoverable.
+  // Size: log-based so the realistic $10k → $10M premium range is visually
+  // discriminating (the spec's sqrt(premium/600) saturates at ~$300k, making
+  // every bubble in a typical index batch hit the cap and look identical).
+  // r = clamp(6 + 3 * log10(premium / 50000), 5, 22)  — calibrated so:
+  //   $50k = floor (6), $200k = 8, $1M = 10, $10M = 13, $100M = 16
+  // Sort biggest-first so smaller bubbles render on top and remain clickable.
   let bubblesSvg = "";
   const sortedAlerts = alerts.slice().sort((a, b) => b.total_premium - a.total_premium);
+  // ask/bid populated check — spec hard-constraint #5 fallback: if every alert
+  // has empty ask/bid premium, drop the solid/hollow distinction and color
+  // by type only (everything solid). Aggregate signal stays in header strip.
+  const askBidPopulated = alerts.some(a => (a.total_ask_side_prem + a.total_bid_side_prem) > 0);
   for (const a of sortedAlerts) {
     const epoch = Math.floor(new Date(a.created_at).getTime() / 1000);
     if (isNaN(epoch) || epoch < tMin) continue;
     const cx = xForT(epoch);
     const cy = yForP(a.strike);
-    const r = Math.min(22, Math.max(6, Math.sqrt(a.total_premium / 600)));
+    const prem = Math.max(1, a.total_premium);
+    const r = Math.min(22, Math.max(5, 6 + 3 * Math.log10(prem / 50000)));
     const color = a.type === "call" ? "#639922" : "#E24B4A";
     const askBidSum = a.total_ask_side_prem + a.total_bid_side_prem;
     const askDom = askBidSum > 0 ? (a.total_ask_side_prem / askBidSum) >= 0.5 : true;
-    const fill = askDom ? color : "none";
+    const fill = askBidPopulated ? (askDom ? color : "none") : color;
     const strokeW = a.has_sweep ? 2.5 : 1.4;
-    const ring = a.has_sweep ? `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="0.55"/>` : "";
-    // Hover tooltip via <title> child of <circle>
+    const ring = a.has_sweep ? `<circle class="flow-bubble-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="0.55"/>` : "";
     const tET = fmtET(epoch);
     const premLbl = a.total_premium >= 1e6 ? `$${(a.total_premium / 1e6).toFixed(1)}M` : `$${Math.round(a.total_premium / 1e3)}k`;
-    const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : 0;
-    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}${a.has_sweep ? " · swept" : ""}${a.all_opening_trades ? " · opening" : ""}`;
-    bubblesSvg += `${ring}<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92"><title>${hover.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</title></circle>`;
+    const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : null;
+    const sideLbl = askPctAlert == null ? "ask/bid n/a"
+                                         : `${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}`;
+    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${sideLbl}${a.has_sweep ? " · swept" : ""}${a.all_opening_trades ? " · opening" : ""}`;
+    const dataHover = hover.replace(/"/g, "&quot;").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    bubblesSvg += `${ring}<circle class="flow-bubble" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92" data-hover="${dataHover}"/>`;
   }
 
   return `
@@ -2555,6 +2578,32 @@ document.getElementById("deepdive-content").addEventListener("click", (e) => {
   if (e.target && e.target.id === "picker-toggle") {
     state.contractPickerShowThisWeek = !state.contractPickerShowThisWeek;
     renderDeepDive();
+  }
+  // Tile 1 alert bubbles — click/tap surfaces the spec one-liner in the
+  // detail strip below the chart. Mobile-friendly (no hover required).
+  const bubble = e.target.closest?.(".flow-bubble");
+  if (bubble) {
+    const hover = bubble.getAttribute("data-hover");
+    const tile = bubble.closest(".tile");
+    const detail = tile?.querySelector(".flow-alert-detail");
+    if (detail && hover) {
+      detail.innerHTML = hover;
+      detail.setAttribute("data-empty", "false");
+      tile.querySelectorAll(".flow-bubble.selected").forEach(c => c.classList.remove("selected"));
+      bubble.classList.add("selected");
+    }
+  }
+});
+// Desktop: hover also surfaces the one-liner (mouse path-of-least-resistance)
+document.getElementById("deepdive-content").addEventListener("mouseover", (e) => {
+  const bubble = e.target.closest?.(".flow-bubble");
+  if (!bubble) return;
+  const hover = bubble.getAttribute("data-hover");
+  const tile = bubble.closest(".tile");
+  const detail = tile?.querySelector(".flow-alert-detail");
+  if (detail && hover && detail.getAttribute("data-empty") !== "false") {
+    // Only auto-update on hover when nothing's been click-selected yet
+    detail.innerHTML = hover;
   }
 });
 /* V2-EDIT-3-BEGIN — poll /snapshot.json every 60s for fresh data */
