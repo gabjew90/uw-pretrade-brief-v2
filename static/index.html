@@ -1920,60 +1920,96 @@ function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
   const maxStrike = Math.max(callWallStrike, spot * 1.06);
   const yForStrike = s => padT + innerH * (1 - (s - minStrike) / (maxStrike - minStrike));
 
-  // 7 strikes evenly spaced around spot — wider rows = thicker bars
-  const strikes = [];
-  for (let i = -3; i <= 3; i++) strikes.push(spot * (1 + i * 0.02));
   const centerX = padL + innerW / 2;
 
-  // Compute γ for each strike first, then scale x-axis to the actual max so
-  // bars fill the available width instead of compressing against an arbitrary cap.
-  const gammaByStrike = strikes.map(s => {
-    const dist = (s - flipStrike) / spot;
-    return (row.direction === "calls" ? 1 : -1) * Math.sign(dist)
-         * (1 - Math.min(1, Math.abs(dist) * 30)) * 2
-         + seededRand(h + Math.round(s * 100), -0.3, 0.3);
-  });
-  const observedMax = Math.max(...gammaByStrike.map(g => Math.abs(g)), 0.5);
-  // 90% headroom — biggest bar reaches ~90% to the edge, never clips
+  // Strikes + per-strike γ: REAL net dealer gamma when the snapshot provides it
+  // (row.tile3, from spot-exposures/strike), else the synthetic fallback so the
+  // ladder still renders while warming or after a UW failure.
+  const realRungs = (row.tile3 && Array.isArray(row.tile3.strikes))
+    ? row.tile3.strikes.filter(s => s.strike >= minStrike && s.strike <= maxStrike)
+                       .sort((a, b) => a.strike - b.strike)
+    : [];
+  const realGamma = realRungs.length >= 3;
+  let strikes, gammaByStrike;
+  if (realGamma) {
+    strikes = realRungs.map(s => s.strike);
+    gammaByStrike = realRungs.map(s => s.net_gamma);
+  } else {
+    strikes = [];
+    for (let i = -3; i <= 3; i++) strikes.push(spot * (1 + i * 0.02));
+    gammaByStrike = strikes.map(s => {
+      const dist = (s - flipStrike) / spot;
+      return (row.direction === "calls" ? 1 : -1) * Math.sign(dist)
+           * (1 - Math.min(1, Math.abs(dist) * 30)) * 2
+           + seededRand(h + Math.round(s * 100), -0.3, 0.3);
+    });
+  }
+
+  // Per-view scaling: biggest |γ| in THIS view reaches ~90% of the half-track,
+  // never clipping. Works for any magnitude (real γ runs to billions).
+  const observedMax = Math.max(...gammaByStrike.map(g => Math.abs(g)), 1e-9);
   const maxAbsG = observedMax / 0.90;
   const halfTrack = innerW / 2 - 6;
   const xForGamma = g => centerX + (g / maxAbsG) * halfTrack;
+
+  // Bar thickness: from the tightest real strike spacing so dense grids don't
+  // overlap; the synthetic 7-strike view keeps its original even spacing.
+  let barH;
+  if (realGamma && strikes.length > 1) {
+    let minGap = innerH;
+    for (let i = 1; i < strikes.length; i++)
+      minGap = Math.min(minGap, Math.abs(yForStrike(strikes[i]) - yForStrike(strikes[i - 1])));
+    barH = Math.max(3, Math.min(minGap - 2, 16));
+  } else {
+    barH = innerH / strikes.length - 2;
+  }
+  const showBarLabel = barH >= 11;
+
+  // Compact γ label for real dollar-gamma; synthetic stays in its ~±2 range.
+  const fmtG = realGamma
+    ? (v => { const a = Math.abs(v), s = v >= 0 ? "+" : "−";
+              return a >= 1e9 ? s + (a / 1e9).toFixed(1) + "B"
+                   : a >= 1e6 ? s + (a / 1e6).toFixed(0) + "M"
+                   : a >= 1e3 ? s + (a / 1e3).toFixed(0) + "K" : s + a.toFixed(0); })
+    : (v => (v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1)));
 
   let svg = "";
 
   // Faint full-width row guides so each strike's lane is obvious
   for (let i = 0; i < strikes.length; i++) {
     const y = yForStrike(strikes[i]);
-    const barH = innerH / strikes.length - 2;
-    svg += `<rect x="${padL}" y="${y - barH/2}" width="${innerW}" height="${barH}" fill="rgba(255,255,255,0.018)" rx="2"/>`;
+    svg += `<rect x="${padL}" y="${(y - barH/2).toFixed(1)}" width="${innerW}" height="${barH.toFixed(1)}" fill="rgba(255,255,255,0.018)" rx="2"/>`;
   }
 
-  // Strike bars (γ synthesized to land flip at flipStrike)
+  // Strike bars — length ∝ |net γ|, right = long γ (blue), left = short γ (red)
   for (let i = 0; i < strikes.length; i++) {
     const s = strikes[i];
     const g = gammaByStrike[i];
     const y = yForStrike(s);
     const x = xForGamma(g);
-    const barH = innerH / strikes.length - 2;
     const isPos = g >= 0;
     const barFill = isPos
       ? "url(#ladderGradPos)"
       : "url(#ladderGradNeg)";
     const barW = Math.max(3, Math.abs(x - centerX));
     svg += `<rect x="${Math.min(centerX, x).toFixed(1)}" y="${(y - barH/2).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barFill}" rx="2" filter="url(#ladderBarGlow)"/>`;
-    // γ value label inside the bar when wide enough, otherwise just outside
-    const gFmt = isPos ? `+${g.toFixed(1)}` : g.toFixed(1);
-    const labelInside = barW >= 28;
-    const labelX = labelInside
-      ? (isPos ? x - 4 : x + 4)
-      : (isPos ? x + 5 : x - 5);
-    const labelAnchor = labelInside
-      ? (isPos ? "end" : "start")
-      : (isPos ? "start" : "end");
-    const labelFill = labelInside ? "#FFFFFF" : "var(--axis)";
-    const labelWeight = labelInside ? "700" : "400";
-    svg += `<text x="${labelX.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${labelAnchor}" fill="${labelFill}" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10" font-weight="${labelWeight}">${gFmt}</text>`;
-    svg += `<text x="${(padL - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">$${s.toFixed(s>100?0:2)}</text>`;
+    // γ value label inside the bar when wide enough, otherwise just outside —
+    // suppressed on dense real-strike grids where rows are too thin to read.
+    if (showBarLabel) {
+      const gFmt = fmtG(g);
+      const labelInside = barW >= 28;
+      const labelX = labelInside
+        ? (isPos ? x - 4 : x + 4)
+        : (isPos ? x + 5 : x - 5);
+      const labelAnchor = labelInside
+        ? (isPos ? "end" : "start")
+        : (isPos ? "start" : "end");
+      const labelFill = labelInside ? "#FFFFFF" : "var(--axis)";
+      const labelWeight = labelInside ? "700" : "400";
+      svg += `<text x="${labelX.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${labelAnchor}" fill="${labelFill}" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10" font-weight="${labelWeight}">${gFmt}</text>`;
+    }
+    if (showBarLabel || i % 2 === 0)
+      svg += `<text x="${(padL - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">$${s.toFixed(s>100?0:2)}</text>`;
   }
 
   // Vertical centerline (zero γ axis)
@@ -1983,7 +2019,7 @@ function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
   for (const tv of tickValues) {
     const tx = xForGamma(tv);
     svg += `<line x1="${tx.toFixed(1)}" x2="${tx.toFixed(1)}" y1="${(padT + innerH).toFixed(1)}" y2="${(padT + innerH + 4).toFixed(1)}" stroke="var(--axis)" stroke-width="0.6"/>`;
-    svg += `<text x="${tx.toFixed(1)}" y="${(padT + innerH + 13).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${tv > 0 ? "+" : ""}${tv.toFixed(1)}</text>`;
+    svg += `<text x="${tx.toFixed(1)}" y="${(padT + innerH + 13).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${fmtG(tv)}</text>`;
   }
   svg += `<text x="${centerX}" y="${padT + innerH + 13}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">0</text>`;
   // Left & right axis labels

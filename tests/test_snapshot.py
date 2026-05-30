@@ -145,6 +145,45 @@ async def test_consumed_endpoints_still_fetched(stub_uw, fresh_storage_state, tm
         assert hits, f"{endpoint} feeds a tile but was not fetched"
 
 
+def _gex_payload(strikes_gamma, spot=100.0):
+    """spot-exposures/strike shape: net gamma per strike from call/put_gamma_oi."""
+    return {"data": [{"strike": k, "call_gamma_oi": g, "put_gamma_oi": 0.0,
+                      "spot_price": spot} for k, g in strikes_gamma]}
+
+
+def test_build_tile3_extracts_net_gamma_per_strike():
+    spot = 100.0
+    data = _gex_payload([(98.0, 1.0), (100.0, 3.0), (102.0, -2.0)], spot)
+    t3 = snapshot._build_tile3(data, spot)
+    by_strike = {s.strike: s.net_gamma for s in t3.strikes}
+    assert by_strike == {98.0: 1.0, 100.0: 3.0, 102.0: -2.0}
+    assert [s.strike for s in t3.strikes] == [98.0, 100.0, 102.0]  # sorted ascending
+
+
+def test_build_tile3_windows_to_near_spot_and_caps():
+    spot = 100.0
+    # strikes from 50..150; only those within +/-8% (92..108) should survive
+    data = _gex_payload([(float(k), 1.0) for k in range(50, 151, 1)], spot)
+    t3 = snapshot._build_tile3(data, spot)
+    assert t3.strikes, "should keep near-spot strikes"
+    assert all(92.0 <= s.strike <= 108.0 for s in t3.strikes)
+    assert len(t3.strikes) <= 25
+
+
+def test_build_tile3_empty_on_failure_or_no_spot():
+    from server import storage
+    fail = storage.UWFailure(endpoint="spot_exposures_strike", ticker="X", message="boom")
+    assert snapshot._build_tile3(fail, 100.0).strikes == []
+    assert snapshot._build_tile3(_gex_payload([(100.0, 1.0)]), 0.0).strikes == []
+
+
+async def test_refresh_snapshot_rows_carry_tile3(stub_uw, fresh_storage_state, tmp_data_dir):
+    snap = await snapshot.refresh_snapshot()
+    assert snap.rows[0].tile3.strikes, "rows must carry a populated tile3 ladder"
+    # stub spot-exposures: call_gamma_oi 1.0 - put_gamma_oi 0.5 = 0.5 net gamma
+    assert snap.rows[0].tile3.strikes[0].net_gamma == 0.5
+
+
 def test_nearest_delta_matches_within_tolerance():
     """Flow strikes rarely match the greek-exposure grid exactly; nearest
     within tolerance should match, beyond tolerance should return 0."""

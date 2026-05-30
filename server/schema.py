@@ -82,6 +82,20 @@ class Tile2(BaseModel):
     low_conviction_msg: str = ""
 
 
+class Tile3Strike(BaseModel):
+    """One rung of Tile 3's gamma ladder: net dealer gamma at a strike
+    (call_gamma_oi - put_gamma_oi). Positive = dealers long γ there."""
+    strike: float
+    net_gamma: float
+
+
+class Tile3(BaseModel):
+    """Structural Setup ladder — real per-strike net dealer gamma near spot.
+    Empty when the greek-exposure fetch failed/warming; the renderer then falls
+    back to its synthetic bars."""
+    strikes: list[Tile3Strike] = Field(default_factory=list)
+
+
 class DarkPool(BaseModel):
     net_premium_usd: float = 0.0
     pct_of_volume: int = 0
@@ -175,6 +189,7 @@ class Row(BaseModel):
     # the ask/bid premium fields are empty on this tier.
     ask_side_pct: float = 0.0
     tile2: Tile2 = Field(default_factory=Tile2)
+    tile3: Tile3 = Field(default_factory=Tile3)
 
 
 class Regime(BaseModel):

@@ -23,6 +23,12 @@ Do **not** suggest Streamlit (this is the v2 specifically pivoting away). Do not
 
 ## Behavior — guardrails
 
-- Don't touch the prototype HTML structure beyond the 6 marker-bracketed V2-EDIT zones. The diff test enforces this.
+- The `frontend-design` plugin is **allowed** for frontend work. The earlier rule
+  restricting `static/index.html` to the 6 marker-bracketed V2-EDIT zones is
+  **relaxed**: deliberate edits to the prototype HTML/CSS/JS (including the tile
+  render functions) are permitted when they serve a real improvement. When a
+  sanctioned change trips `tests/test_html_preservation.py`, update that test to
+  match the new intent rather than contorting the code to keep the old diff —
+  but keep the test meaningful (it still guards against *accidental* drift).
 - Don't suggest dropping the storage layer "for simplicity" — it's load-bearing for the v0.2 percentile gates.
 - Don't suggest hosting on Streamlit Cloud.

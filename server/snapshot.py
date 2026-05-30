@@ -20,7 +20,7 @@ from typing import Any
 from server import gates, insights, storage, uw, universe
 from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, Insights,
                             NewsItem, OHLCBar, OI, OISessionBar, OIStrike, Regime,
-                            Row, Snapshot, StrikeOIHistory, Tile2)
+                            Row, Snapshot, StrikeOIHistory, Tile2, Tile3, Tile3Strike)
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +149,9 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     # archive (tier-independent); per-strike delta from spot_exposures.
     oi_history = await loop.run_in_executor(_POOL, partial(storage.read_oi_history, ticker, 5))
     tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot)
+    # Tile 3: real per-strike net dealer gamma for the structural ladder, from
+    # the spot-exposures payload already fetched above (no extra UW call).
+    tile3 = _build_tile3(spot_data, spot)
     # Chained sector-tide fetch once we know the sector slug. Skip if unknown.
     sector_tide_value = 0.0
     if sector:
@@ -217,6 +220,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         ohlc=ohlc_bars,
         ask_side_pct=ask_side_pct,
         tile2=tile2,
+        tile3=tile3,
         _failures=failures,
     )
 
@@ -474,6 +478,26 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         low_conviction=low_conviction,
         low_conviction_msg=low_msg,
     )
+
+
+def _build_tile3(spot_data: Any, spot: float, window_pct: float = 8.0,
+                 max_strikes: int = 25) -> Tile3:
+    """Real per-strike net dealer gamma for Tile 3's ladder, from the
+    greek-exposure (spot-exposures/strike) payload we already fetch. Keeps strikes
+    within ±window_pct of spot, nearest-spot first, capped to max_strikes, then
+    sorted ascending for rendering. Empty on failure / no spot."""
+    if isinstance(spot_data, storage.UWFailure) or spot <= 0:
+        return Tile3()
+    recs = uw.gex_records(spot_data)  # [{strike, gamma=call_gamma_oi - put_gamma_oi}]
+    if not recs:
+        return Tile3()
+    lo, hi = spot * (1 - window_pct / 100), spot * (1 + window_pct / 100)
+    near = [r for r in recs if lo <= r["strike"] <= hi]
+    near.sort(key=lambda r: abs(r["strike"] - spot))
+    near = near[:max_strikes]
+    near.sort(key=lambda r: r["strike"])
+    return Tile3(strikes=[Tile3Strike(strike=r["strike"], net_gamma=r["gamma"])
+                          for r in near])
 
 
 def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
