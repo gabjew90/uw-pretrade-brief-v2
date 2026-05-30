@@ -94,6 +94,37 @@ def test_admin_backfill_valid_token_returns_probe_and_starts(client, monkeypatch
     assert body["window_days"] == 7
 
 
+def test_tile3_detail_route_returns_payload(client, monkeypatch):
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from server.schema import Snapshot, Regime
+    from server import tile3_detail
+    main._snapshot_cache["latest"] = Snapshot.model_construct(
+        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
+        rows=[SimpleNamespace(ticker="SPY", spot=756.0, direction="calls")], stale_since=None)
+    seen = {}
+    monkeypatch.setattr(tile3_detail, "build_tile3_detail",
+                        lambda t, flow_spot, direction:
+                        seen.update(t=t, spot=flow_spot, dir=direction) or
+                        {"status": "ok", "ticker": t, "views": {}})
+    r = client.get("/api/tile3/spy")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+    assert seen == {"t": "SPY", "spot": 756.0, "dir": "calls"}
+
+
+def test_tile3_detail_route_unavailable_when_ticker_not_in_snapshot(client, monkeypatch):
+    from server import tile3_detail
+    main._snapshot_cache["latest"] = None
+    called = []
+    monkeypatch.setattr(tile3_detail, "build_tile3_detail",
+                        lambda t, flow_spot, direction: called.append((t, flow_spot)) or
+                        {"status": "unavailable", "ticker": t})
+    r = client.get("/api/tile3/ZZZZ")
+    assert r.status_code == 200
+    assert r.json()["status"] == "unavailable"
+
+
 def test_admin_backfill_reports_unsupported_without_starting(client, monkeypatch):
     monkeypatch.setenv("BACKFILL_TOKEN", "s3cret")
     _seed_rows("SPY")

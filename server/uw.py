@@ -120,6 +120,31 @@ def fetch_flow_alerts(ticker: str | None = None, limit: int = 50) -> dict:
     return _get("/api/option-trades/flow-alerts", params=params)
 
 
+def fetch_greek_exposure_expiry(ticker: str, date: str | None = None) -> dict:
+    """Per-EXPIRY aggregated greek exposure: call/put × charm/delta/gex/vanna +
+    dte + expiry. Drives Tile 3 Phase 2's per-expiry regime headline + the
+    charm/vanna drift gauges, and supplies the available-expiry list."""
+    params = {"date": date} if date else None
+    return _get(f"/api/stock/{ticker}/greek-exposure/expiry", params=params)
+
+
+def fetch_spot_exposures_expiry_strike(ticker: str, expirations: list[str],
+                                       min_strike: float | None = None,
+                                       max_strike: float | None = None,
+                                       date: str | None = None) -> dict:
+    """Per-strike spot/greek exposure for SPECIFIC expiries (each greek as
+    _oi/_vol/_ask/_bid). `expirations` is REQUIRED. Like spot-exposures/strike,
+    pass a near-spot min/max window + limit or you get the lowest strikes."""
+    params: dict = {"expirations[]": expirations, "limit": 500}
+    if min_strike is not None:
+        params["min_strike"] = min_strike
+    if max_strike is not None:
+        params["max_strike"] = max_strike
+    if date:
+        params["date"] = date
+    return _get(f"/api/stock/{ticker}/spot-exposures/expiry-strike", params=params)
+
+
 def fetch_volatility(ticker: str, date: str | None = None) -> dict:
     """IV term structure for the ticker (avg ATM call+put IV per expiry)."""
     params = {"date": date} if date else None

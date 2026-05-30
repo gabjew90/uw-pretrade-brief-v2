@@ -357,6 +357,29 @@ def fetch_oi_strike(ticker: str, is_hot: bool = False, date: str | None = None):
                     lambda: uw.fetch_oi_strike(ticker, date=date))
 
 
+def fetch_greek_exposure_expiry(ticker: str, is_hot: bool = True):
+    """Per-expiry greek exposure (charm/vanna/gex + dte). Hot TTL — drives the
+    on-demand Tile 3 detail; fresh per ticker-select."""
+    return _through("greek_exposure_expiry", ticker, None, is_hot,
+                    lambda: uw.fetch_greek_exposure_expiry(ticker))
+
+
+def fetch_spot_exposures_expiry_strike(ticker: str, expirations: list[str],
+                                       min_strike: float | None = None,
+                                       max_strike: float | None = None,
+                                       is_hot: bool = True):
+    """Per-strike spot exposures for specific expiries (OI/Vol toggle source).
+    expirations + near-spot window go into the cache key + the UW call."""
+    params: dict = {"expirations": list(expirations)}
+    if min_strike is not None:
+        params["min_strike"] = min_strike
+    if max_strike is not None:
+        params["max_strike"] = max_strike
+    return _through("spot_exposures_expiry_strike", ticker, params, is_hot,
+                    lambda: uw.fetch_spot_exposures_expiry_strike(
+                        ticker, expirations, min_strike=min_strike, max_strike=max_strike))
+
+
 def fetch_volatility(ticker: str, is_hot: bool = False):
     return _through("volatility_term_structure", ticker, None, is_hot,
                     lambda: uw.fetch_volatility(ticker))

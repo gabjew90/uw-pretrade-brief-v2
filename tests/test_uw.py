@@ -80,6 +80,25 @@ def test_gex_records_sorted_by_strike(gex_strike_spy):
         assert isinstance(r["gamma"], float)
 
 
+def test_fetch_greek_exposure_expiry_hits_right_path(monkeypatch):
+    from server import uw
+    seen = {}
+    monkeypatch.setattr(uw, "_get", lambda path, params=None: seen.update(path=path, params=params) or {"data": []})
+    uw.fetch_greek_exposure_expiry("SPY")
+    assert seen["path"] == "/api/stock/SPY/greek-exposure/expiry"
+
+
+def test_fetch_spot_exposures_expiry_strike_sends_expirations_window_limit(monkeypatch):
+    from server import uw
+    seen = {}
+    monkeypatch.setattr(uw, "_get", lambda path, params=None: seen.update(path=path, params=params or {}) or {"data": []})
+    uw.fetch_spot_exposures_expiry_strike("SPY", ["2026-06-05"], min_strike=605, max_strike=905)
+    assert seen["path"] == "/api/stock/SPY/spot-exposures/expiry-strike"
+    assert seen["params"].get("expirations[]") == ["2026-06-05"]   # required, list form
+    assert seen["params"].get("limit") == 500
+    assert seen["params"].get("min_strike") == 605 and seen["params"].get("max_strike") == 905
+
+
 def test_spot_exposures_sends_limit_and_strike_window(monkeypatch):
     """UW's default limit returns only ~50 strikes (the lowest in the chain), so
     we must send limit=500 alongside the min/max window to actually get the full

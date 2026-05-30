@@ -9,6 +9,17 @@ import pytest
 from server import storage
 
 
+def test_expiry_strike_passes_expirations_and_window_to_uw(tmp_data_dir, monkeypatch):
+    from server import uw
+    storage._cache._store.clear()
+    seen = {}
+    monkeypatch.setattr(uw, "fetch_spot_exposures_expiry_strike",
+                        lambda t, expirations, min_strike=None, max_strike=None:
+                        seen.update(exp=expirations, mn=min_strike, mx=max_strike) or {"data": []})
+    storage.fetch_spot_exposures_expiry_strike("SPY", ["2026-06-05"], min_strike=605, max_strike=905)
+    assert seen == {"exp": ["2026-06-05"], "mn": 605, "mx": 905}
+
+
 def test_spot_exposures_passes_min_max_strike_to_uw(tmp_data_dir, monkeypatch):
     """Near-spot strike window must reach UW — without min/max_strike the endpoint
     returns the lowest strikes in the chain (far below spot). Regression for the

@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from server import backfill, budget, market_hours
+from server import backfill, budget, market_hours, tile3_detail
 from server import snapshot as snapshot_mod
 from server.schema import Snapshot
 
@@ -119,6 +119,20 @@ async def root():
         snapshot_json = json.dumps(snap.model_dump(mode="json"), default=str)
     hydration = f"<script>window.__SNAPSHOT__ = {snapshot_json};</script>"
     return HTMLResponse(html.replace(_HYDRATION_MARKER, hydration))
+
+
+@app.get("/api/tile3/{ticker}")
+async def tile3_detail_route(ticker: str):
+    """On-demand rich Tile 3 (Phase 2): per-expiry gamma map + OI/Vol + drift,
+    fetched when a ticker is selected. Heavy UW calls fire here, not per-cycle.
+    spot/direction come from the cached snapshot row."""
+    t = ticker.upper()
+    snap = _snapshot_cache.get("latest")
+    row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
+    flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
+    direction = getattr(row, "direction", "calls") or "calls"
+    detail = await asyncio.to_thread(tile3_detail.build_tile3_detail, t, flow_spot, direction)
+    return JSONResponse(detail)
 
 
 @app.get("/snapshot.json")
