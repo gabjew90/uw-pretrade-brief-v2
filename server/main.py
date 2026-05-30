@@ -168,3 +168,42 @@ async def admin_backfill(days: int = 30, token: str | None = None):
     asyncio.create_task(asyncio.to_thread(backfill.backfill_oi_history, tickers, days))
     return JSONResponse({**result, "backfill": "started", "tickers": len(tickers)},
                         status_code=202)
+
+
+@app.get("/admin/gex-debug")
+async def admin_gex_debug(ticker: str, token: str | None = None):
+    """TEMPORARY diagnostic: return the raw spot-exposures/strike payload for a
+    ticker plus the flow spot, to investigate the flip/wall strike-range bug.
+    Token-guarded (reuses BACKFILL_TOKEN). Remove after diagnosis."""
+    expected = os.environ.get("BACKFILL_TOKEN")
+    if not expected or token != expected:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from server import storage
+    t = ticker.upper()
+    snap = _snapshot_cache.get("latest")
+    row = next((r for r in (snap.rows if snap else []) if r.ticker == t), None)
+    data = storage.fetch_spot_exposures_strike(t, True)
+    if isinstance(data, storage.UWFailure):
+        return JSONResponse({"ticker": t, "uw_failure": data.message,
+                             "flow_spot": row.spot if row else None})
+    rows = data.get("data") or []
+
+    def _f(x):
+        try: return float(x)
+        except (TypeError, ValueError): return None
+    strikes = sorted(s for s in (_f(r.get("strike")) for r in rows) if s)
+    prices = sorted({_f(r.get("price")) for r in rows if _f(r.get("price"))})
+    dates = sorted({r.get("date") for r in rows if r.get("date")})
+    return JSONResponse({
+        "ticker": t,
+        "flow_spot": row.spot if row else None,
+        "n_rows": len(rows),
+        "data_price_field": prices[:3],
+        "data_date_field": dates,
+        "strike_min": strikes[0] if strikes else None,
+        "strike_max": strikes[-1] if strikes else None,
+        "n_strikes_above_flow_spot": sum(1 for s in strikes if row and s > row.spot),
+        "sample_rows": [{k: r.get(k) for k in
+                         ("strike", "price", "date", "call_gamma_oi", "put_gamma_oi")}
+                        for r in rows[:4]],
+    })
