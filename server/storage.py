@@ -121,14 +121,15 @@ _NEWS_ENDPOINTS = {"news_headlines"}
 # group_flow + lit_flow_recent fall through to the hot/sleeper default (is_hot
 # arg controls TTL); both wrappers above pass is_hot=True → 60s.
 
-# UW Basic tier = 120 req/min = 2 calls/sec sustained. With ThreadPoolExecutor
-# at 8 workers, no throttle means up to 8 calls in parallel completing in
-# <1s each → 8-16 calls/sec = WAY past the per-second budget.
-# A semaphore of 2 still admits up to ~4 calls/sec (two sub-250ms calls per
-# second per slot) = ~240/min — DOUBLE the 120/min cap, which is what kept us
-# in a 429 cascade on 2026-05-29. Dropping to 1 caps real throughput to ≤2/sec
-# (≤120/min), inside the quota. Slower per cycle, but the 60s+ TTLs absorb most
-# repeat reads, so warm steady-state stays fast. Better slow than 429'd.
+# UW Basic tier = 120 req/min, 40k req/day. With ThreadPoolExecutor at 8 workers
+# and no throttle, up to 8 calls run in parallel → bursts far past any budget.
+# This semaphore bounds CONCURRENCY to 1 — it does NOT enforce a per-minute rate:
+# with sub-360ms responses a single serial caller still does >2.7/sec (~166/min
+# was observed during the 2026-05-30 backfill, with no 429s). The binding
+# constraint behind the 2026-05-29 outage was the DAILY cap, addressed by the
+# per-cycle call-volume cuts + budget.over_soft_budget guard, not by this gate.
+# If per-minute 429s ever appear (watch /health calls_1m + Retry-After logs), the
+# correct fix is a token-bucket rate limiter here/in uw._get, not a smaller value.
 import threading
 _UW_CONCURRENCY_LIMIT = 1
 _uw_call_gate = threading.BoundedSemaphore(_UW_CONCURRENCY_LIMIT)
