@@ -145,6 +145,40 @@ def fetch_spot_exposures_expiry_strike(ticker: str, expirations: list[str],
     return _get(f"/api/stock/{ticker}/spot-exposures/expiry-strike", params=params)
 
 
+def fetch_greeks(ticker: str, expiry: str) -> dict:
+    """Per-contract greeks (delta/theta/vega/gamma) for an expiry. Tile 4 Greeks
+    check. `expiry` required by UW."""
+    return _get(f"/api/stock/{ticker}/greeks", params={"expiry": expiry})
+
+
+def fetch_atm_chains(ticker: str, expirations: list[str]) -> dict:
+    """ATM straddle / expected move per expiry. Tile 4 Target check. UW requires
+    expirations[]."""
+    return _get(f"/api/stock/{ticker}/atm-chains", params={"expirations[]": expirations})
+
+
+def fetch_risk_reversal_skew(ticker: str, expiry: str, delta: int = 25) -> dict:
+    """25-delta risk-reversal skew for an expiry. Tile 4 Execution check.
+    `expiry` + `delta` required."""
+    return _get(f"/api/stock/{ticker}/historical_risk_reversal_skew",
+                params={"expiry": expiry, "delta": delta})
+
+
+def fetch_realized_vol(ticker: str) -> dict:
+    """Realized volatility — RV-vs-IV overpaying context for Tile 4."""
+    return _get(f"/api/stock/{ticker}/volatility/realized")
+
+
+def fetch_stock_state(ticker: str) -> dict:
+    """Last stock price/volume + prev close. Spot reference for Tile 4."""
+    return _get(f"/api/stock/{ticker}/stock-state")
+
+
+def fetch_fda_calendar(ticker: str) -> dict:
+    """FDA calendar filtered to a ticker — Tile 4 event-gate input."""
+    return _get("/api/market/fda-calendar", params={"ticker": ticker})
+
+
 def fetch_volatility(ticker: str, date: str | None = None) -> dict:
     """IV term structure for the ticker (avg ATM call+put IV per expiry)."""
     params = {"date": date} if date else None

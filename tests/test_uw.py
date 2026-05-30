@@ -80,6 +80,28 @@ def test_gex_records_sorted_by_strike(gex_strike_spy):
         assert isinstance(r["gamma"], float)
 
 
+def test_tile4_endpoint_wrappers_paths_and_params(monkeypatch):
+    """Tile 4's new endpoints hit the right paths with their REQUIRED params
+    (greeks/skew need expiry; atm-chains needs expirations[]; skew needs delta)."""
+    from server import uw
+    seen = []
+    monkeypatch.setattr(uw, "_get", lambda path, params=None: seen.append((path, params or {})) or {"data": []})
+    uw.fetch_greeks("SPY", "2026-06-05")
+    uw.fetch_atm_chains("SPY", ["2026-06-05"])
+    uw.fetch_risk_reversal_skew("SPY", "2026-06-05")
+    uw.fetch_realized_vol("SPY")
+    uw.fetch_stock_state("SPY")
+    uw.fetch_fda_calendar("SPY")
+    by_path = {p: q for p, q in seen}
+    assert by_path["/api/stock/SPY/greeks"]["expiry"] == "2026-06-05"
+    assert by_path["/api/stock/SPY/atm-chains"]["expirations[]"] == ["2026-06-05"]
+    sk = by_path["/api/stock/SPY/historical_risk_reversal_skew"]
+    assert sk["expiry"] == "2026-06-05" and sk.get("delta")
+    assert "/api/stock/SPY/volatility/realized" in by_path
+    assert "/api/stock/SPY/stock-state" in by_path
+    assert by_path["/api/market/fda-calendar"]["ticker"] == "SPY"
+
+
 def test_fetch_greek_exposure_expiry_hits_right_path(monkeypatch):
     from server import uw
     seen = {}

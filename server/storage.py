@@ -111,11 +111,14 @@ _TTL_NEWS_SECONDS = 900        # 15min — news headlines
 _QUASI_STATIC_ENDPOINTS = {
     "earnings", "ticker_info", "max_pain",
     "seasonality_market", "seasonality_ticker",
+    "fda_calendar",
 }
 _MEDIUM_ENDPOINTS = {
     "volatility_term_structure", "interpolated_iv",
     "sector_tide", "market_tide", "option_contracts", "net_prem_ticks",
     "net_flow_expiry", "option_contract_history",
+    # Tile 4
+    "greeks", "atm_chains", "risk_reversal_skew", "realized_vol",
 }
 _NEWS_ENDPOINTS = {"news_headlines"}
 # group_flow + lit_flow_recent fall through to the hot/sleeper default (is_hot
@@ -355,6 +358,42 @@ def fetch_oi_strike(ticker: str, is_hot: bool = False, date: str | None = None):
     params = {"date": date} if date else None
     return _through("oi_per_strike", ticker, params, is_hot,
                     lambda: uw.fetch_oi_strike(ticker, date=date))
+
+
+def fetch_greeks(ticker: str, expiry: str):
+    """Per-contract greeks for an expiry (Tile 4)."""
+    return _through("greeks", ticker, {"expiry": expiry}, False,
+                    lambda: uw.fetch_greeks(ticker, expiry))
+
+
+def fetch_atm_chains(ticker: str, expirations: list[str]):
+    """ATM straddle / expected move per expiry (Tile 4)."""
+    return _through("atm_chains", ticker, {"expirations": list(expirations)}, False,
+                    lambda: uw.fetch_atm_chains(ticker, expirations))
+
+
+def fetch_risk_reversal_skew(ticker: str, expiry: str, delta: int = 25):
+    """25-delta risk-reversal skew for an expiry (Tile 4 Execution)."""
+    return _through("risk_reversal_skew", ticker, {"expiry": expiry, "delta": delta}, False,
+                    lambda: uw.fetch_risk_reversal_skew(ticker, expiry, delta))
+
+
+def fetch_realized_vol(ticker: str):
+    """Realized volatility (Tile 4 RV-vs-IV context)."""
+    return _through("realized_vol", ticker, None, False,
+                    lambda: uw.fetch_realized_vol(ticker))
+
+
+def fetch_stock_state(ticker: str):
+    """Last stock price/volume (Tile 4 spot reference). Hot TTL."""
+    return _through("stock_state", ticker, None, True,
+                    lambda: uw.fetch_stock_state(ticker))
+
+
+def fetch_fda_calendar(ticker: str):
+    """FDA calendar for a ticker (Tile 4 event gate). Quasi-static."""
+    return _through("fda_calendar", ticker, {"ticker": ticker}, False,
+                    lambda: uw.fetch_fda_calendar(ticker))
 
 
 def fetch_greek_exposure_expiry(ticker: str, is_hot: bool = True):
