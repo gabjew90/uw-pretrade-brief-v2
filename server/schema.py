@@ -173,6 +173,11 @@ class Row(BaseModel):
     wall_dn_dist_pct: float = 0.0
     agg_gamma_b: float = 0.0
     gex_sign: Literal["POS", "NEG"] = "POS"
+    # Structural-read availability: "ok" = real γ flip in range; "no_flip" = γ
+    # doesn't cross zero within the window (don't draw a flip level); "unavailable"
+    # = no greek-exposure data for this ticker. Drives gate neutralization + the
+    # Tile 3 "limited" state so we never present a fabricated structural read.
+    gex_status: Literal["ok", "no_flip", "unavailable"] = "ok"
     ivr: int = 50
     days_to_earnings: int | None = None
     iv_term_curve: list[float] = Field(default_factory=list)

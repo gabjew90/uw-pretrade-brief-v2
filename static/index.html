@@ -1822,9 +1822,32 @@ function renderTile3Structural(row) {
     sign: row.gex_sign,
   };
   const spot = row.spot;
+  const status = row.gex_status || "ok";
   const flipStrike = spot * (1 + gex.flip_dist_pct / 100);
   const callWallStrike = spot * (1 + gex.wall_up_dist_pct / 100);
   const putWallStrike = spot * (1 - gex.wall_dn_dist_pct / 100);
+  // No greek-exposure data for this ticker — show an honest limited state rather
+  // than a fabricated flip/wall ladder.
+  if (status === "unavailable") {
+    return `
+      <h3>
+        <span><span class="gate-dot ${g}"></span>Tile 3: Structural Setup</span>
+        <button class="help-icon" data-help="tile3">?</button>
+      </h3>
+      <div class="ladder-wrap" style="display:flex;align-items:center;justify-content:center;height:280px;">
+        <div style="text-align:center;color:var(--axis);max-width:300px;">
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Structural data limited</div>
+          <div style="font-size:11px;line-height:1.5;">No dealer-gamma / greek-exposure data is available for <strong>${row.ticker}</strong> right now — usually a thinly-traded name. Flip &amp; walls can't be computed.</div>
+        </div>
+      </div>
+      ${renderStructuralInsight(row, gex, spot, flipStrike, callWallStrike, putWallStrike)}
+    `;
+  }
+  // "no_flip": γ doesn't cross zero within ±20% — render the ladder but show the
+  // flip as out-of-range rather than a fake level.
+  const flipMeta = status === "no_flip"
+    ? `<span class="val">none within ±20%</span>`
+    : `<span class="val">$${flipStrike.toFixed(2)} (${gex.flip_dist_pct >= 0 ? "+" : ""}${gex.flip_dist_pct.toFixed(1)}%)</span>`;
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 3: Structural Setup</span>
@@ -1851,7 +1874,7 @@ function renderTile3Structural(row) {
     </div>
     <div class="ladder-meta">
       <div class="m"><span class="lbl">Spot</span><span class="val">$${spot.toFixed(2)}</span></div>
-      <div class="m"><span class="lbl">γ Flip</span><span class="val">$${flipStrike.toFixed(2)} (${gex.flip_dist_pct >= 0 ? "+" : ""}${gex.flip_dist_pct.toFixed(1)}%)</span></div>
+      <div class="m"><span class="lbl">γ Flip</span>${flipMeta}</div>
       <div class="m"><span class="lbl">Walls</span><span class="val">+${gex.wall_up_dist_pct.toFixed(1)}% / −${gex.wall_dn_dist_pct.toFixed(1)}%</span></div>
     </div>
     ${renderStructuralInsight(row, gex, spot, flipStrike, callWallStrike, putWallStrike)}
@@ -2031,10 +2054,12 @@ function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
   svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${ys}" y2="${ys}" stroke="var(--warn)" stroke-width="2"/>`;
   svg += `<text x="${padL + innerW + 6}" y="${ys + 4}" fill="var(--warn)" font-family="ui-monospace,monospace" font-size="11" font-weight="700">SPOT $${spot.toFixed(spot > 100 ? 0 : 2)}</text>`;
 
-  // Gamma flip line (purple dashed)
-  const yf = yForStrike(flipStrike);
-  svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${yf}" y2="${yf}" stroke="var(--hot)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
-  svg += `<text x="${padL + innerW + 6}" y="${yf + 4}" fill="var(--hot)" font-family="ui-monospace,monospace" font-size="11" font-weight="700">FLIP $${flipStrike.toFixed(flipStrike > 100 ? 0 : 2)}</text>`;
+  // Gamma flip line (purple dashed) — suppressed when there's no flip in range.
+  if ((row.gex_status || "ok") !== "no_flip") {
+    const yf = yForStrike(flipStrike);
+    svg += `<line x1="${padL}" x2="${padL + innerW}" y1="${yf}" y2="${yf}" stroke="var(--hot)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+    svg += `<text x="${padL + innerW + 6}" y="${yf + 4}" fill="var(--hot)" font-family="ui-monospace,monospace" font-size="11" font-weight="700">FLIP $${flipStrike.toFixed(flipStrike > 100 ? 0 : 2)}</text>`;
+  }
 
   // Wall callouts (call wall above, put wall below) — labels on RIGHT side now that we have width
   const yCW = yForStrike(callWallStrike);

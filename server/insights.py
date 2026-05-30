@@ -43,6 +43,10 @@ def _generate_or_cache(row: dict, kind: str) -> str:
 
 
 def _generate(row: dict, kind: str) -> str:
+    # Honest structural states bypass Gemini entirely — there's no real flip to
+    # narrate, so don't let the model invent one.
+    if kind == "structural" and row.get("gex_status", "ok") != "ok":
+        return _structural_status_msg(row)
     if not os.environ.get("GEMINI_API_KEY"):
         return _fallback(row, kind)
     try:
@@ -101,6 +105,22 @@ def _cache_key(row: dict, kind: str) -> tuple:
         round(front_iv * 100),
         round(back_iv * 100),
     )
+
+
+def _structural_status_msg(row: dict) -> str:
+    """Deterministic, honest copy for the non-ok structural states (no fabricated
+    flip). 'unavailable' = no greek-exposure data; 'no_flip' = γ doesn't cross
+    zero within the window (walls may still be real)."""
+    t = row.get("ticker", "this ticker")
+    if row.get("gex_status") == "unavailable":
+        return (f"Structural γ data is limited for {t} right now — no reliable "
+                f"dealer-positioning read available.")
+    regime = ("long γ (dealers dampen moves — pin)" if row.get("gex_sign") == "POS"
+              else "short γ (dealers amplify moves — trend)")
+    wu = row.get("wall_up_dist_pct", 0.0)
+    wd = row.get("wall_dn_dist_pct", 0.0)
+    return (f"No γ flip within ±20% of spot — dealers sit in <strong>{regime}</strong> "
+            f"across the visible range. Walls bracket it at +{wu:.1f}% / −{wd:.1f}%.")
 
 
 def _fallback(row: dict, kind: str) -> str:

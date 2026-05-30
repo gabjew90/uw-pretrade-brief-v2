@@ -166,6 +166,41 @@ def test_extract_gex_flip_at_sign_crossing_not_lowest_strike():
     assert 95 <= flip_strike <= 105, f"flip {flip_strike} should be near the crossing, not the low strike"
 
 
+def test_extract_gex_status_unavailable_on_failure_or_empty():
+    from server import storage
+    fail = storage.UWFailure(endpoint="spot_exposures_strike", ticker="X", message="boom")
+    assert snapshot._extract_gex(fail, 100.0)[5] == "unavailable"
+    assert snapshot._extract_gex({"data": []}, 100.0)[5] == "unavailable"
+
+
+def test_extract_gex_no_flip_when_gamma_never_crosses_zero():
+    """SOXX/EWY case: γ doesn't cross zero within the window → status 'no_flip'
+    and flip is NOT defaulted to the lowest strike (the -20% band-edge garbage)."""
+    spot = 100.0
+    # net γ negative at every strike → cumulative never crosses zero
+    rows = [{"strike": float(k), "call_gamma_oi": 1e6, "put_gamma_oi": -1e8}
+            for k in (80, 90, 100, 110, 120)]
+    flip_pct, _, _, _, _, status = snapshot._extract_gex({"data": rows}, spot)
+    assert status == "no_flip"
+    assert abs(flip_pct) < 1.0, f"flip {flip_pct}% must not be the band edge"
+
+
+def test_extract_gex_flip_is_crossing_nearest_spot():
+    """With multiple cumulative sign-changes, the flip is the crossing nearest
+    spot, not the first one scanning from the bottom."""
+    spot = 100.0
+    rows = [
+        {"strike": 80, "call_gamma_oi": 0, "put_gamma_oi": -1e8},   # cum -1e8
+        {"strike": 85, "call_gamma_oi": 2e8, "put_gamma_oi": 0},    # cum +1e8  (cross @85, far)
+        {"strike": 95, "call_gamma_oi": 0, "put_gamma_oi": -3e8},   # cum -2e8  (cross @95, near)
+        {"strike": 105, "call_gamma_oi": 4e8, "put_gamma_oi": 0},   # cum +2e8  (cross @105, near)
+    ]
+    flip_pct, _, _, _, _, status = snapshot._extract_gex({"data": rows}, spot)
+    flip_strike = spot * (1 + flip_pct / 100)
+    assert status == "ok"
+    assert flip_strike in (95.0, 105.0), f"flip {flip_strike} should be the nearest crossing to spot"
+
+
 def test_extract_gex_walls_from_call_and_put_gamma_not_atm():
     """Call wall = strike with max call γ ABOVE spot; put wall = max |put γ|
     BELOW spot. Using max|net γ| collapsed both to ATM (net magnitude peaks

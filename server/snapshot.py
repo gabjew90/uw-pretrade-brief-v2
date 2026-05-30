@@ -147,7 +147,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     ivr = _extract_ivr(ivr_data, vol_data)
     dp = _extract_darkpool(dp_data)
     days_to_earn = _extract_days_to_earnings(earn_data)
-    flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b = _extract_gex(spot_data, spot)
+    flip_pct, wall_up_pct, wall_dn_pct, gex_sign, agg_b, gex_status = _extract_gex(spot_data, spot)
     sector = _extract_sector(info_data, flow_info)
     news_items = _extract_news_items(news_data)
     flow_alerts_detail = _project_flow_alerts(flow_info.get("raw_alerts", []))
@@ -191,6 +191,11 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     }
     g = gates.compute_gates(raw_row, history=None)
     gm = gates.compute_gate_method(raw_row, history=None)
+    # When the structural read isn't trustworthy (no γ flip in range, or no
+    # greek-exposure data), force the structural gate neutral — don't let a
+    # fabricated flip/wall drive a green/red verdict.
+    if gex_status != "ok":
+        g = {**g, "structural": "yellow"}
 
     return Row(
         ticker=ticker,
@@ -217,6 +222,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         wall_dn_dist_pct=wall_dn_pct,
         agg_gamma_b=agg_b,
         gex_sign=gex_sign,
+        gex_status=gex_status,
         ivr=ivr,
         days_to_earnings=days_to_earn,
         iv_term_curve=iv_term,
@@ -641,28 +647,44 @@ def _extract_days_to_earnings(data: Any) -> int | None:
     return min(candidates) if candidates else None
 
 
-def _extract_gex(spot_data: Any, spot: float) -> tuple[float, float, float, str, float]:
+def _extract_gex(spot_data: Any, spot: float) -> tuple[float, float, float, str, float, str]:
     """Use v1 gex_records parser to extract per-strike net dealer gamma.
-    Returns (flip_dist_pct, wall_up_dist_pct, wall_dn_dist_pct, gex_sign, agg_gamma_b).
+    Returns (flip_dist_pct, wall_up_dist_pct, wall_dn_dist_pct, gex_sign,
+    agg_gamma_b, status).
 
-    Flip = cumulative sum crosses zero. Wall = max |γ| strike on each side."""
+    status: "ok"          — a γ flip exists within the observed strikes;
+            "no_flip"     — data present but cumulative γ never crosses zero in
+                            range (flip is beyond ±window); flip_dist is 0 and
+                            consumers should not draw a flip level;
+            "unavailable" — no greek-exposure data for this ticker.
+
+    Flip = the cumulative-γ zero-crossing NEAREST spot (not the first scanning
+    from the bottom, which caught noise crossings and, on no crossing, defaulted
+    to the lowest strike — the band-edge garbage). Wall = max call-γ strike above
+    / max put-γ strike below spot."""
     if isinstance(spot_data, storage.UWFailure) or spot <= 0:
-        return 0.0, 5.0, 5.0, "POS", 0.0
+        return 0.0, 5.0, 5.0, "POS", 0.0, "unavailable"
     recs = uw.gex_records(spot_data)
     if not recs:
-        return 0.0, 5.0, 5.0, "POS", 0.0
-    # Cumulative sum from low strike → high; flip = first strike where cum changes sign
+        return 0.0, 5.0, 5.0, "POS", 0.0, "unavailable"
+    # Cumulative net γ from low strike → high; collect every zero-crossing, then
+    # take the one nearest spot. No crossing → no flip in range.
     recs_sorted = sorted(recs, key=lambda r: r["strike"])
     cum = 0.0
-    flip = recs_sorted[0]["strike"]
+    crossings: list[float] = []
     prev_sign = None
     for r in recs_sorted:
         cum += r["gamma"]
         sign = 1 if cum >= 0 else -1
         if prev_sign is not None and sign != prev_sign:
-            flip = r["strike"]
-            break
+            crossings.append(r["strike"])
         prev_sign = sign
+    if crossings:
+        flip = min(crossings, key=lambda k: abs(k - spot))
+        status = "ok"
+    else:
+        flip = spot          # flip is beyond the observed window
+        status = "no_flip"
     # Walls from CALL vs PUT gamma separately, not net |γ|: net magnitude peaks
     # at-the-money (both call & put gamma do), which collapsed both walls onto
     # spot. The call wall is the largest call-γ strike above spot (resistance);
@@ -684,7 +706,8 @@ def _extract_gex(spot_data: Any, spot: float) -> tuple[float, float, float, str,
             (wall_up_strike - spot) / spot * 100,
             (spot - wall_dn_strike) / spot * 100,
             "POS" if agg >= 0 else "NEG",
-            agg)
+            agg,
+            status)
 
 
 def _extract_sector(info_data: Any, flow_info: dict) -> str:
