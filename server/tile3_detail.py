@@ -54,13 +54,14 @@ def build_tile3_detail(ticker: str, flow_spot: float, direction: str) -> dict:
     """Assemble the per-expiry Tile 3 payload. Returns {"status":"unavailable"}
     when greek-exposure data is missing for the ticker."""
     if flow_spot <= 0:
-        return {"status": "unavailable", "ticker": ticker}
+        return {"status": "unavailable", "ticker": ticker, "reason": "no spot"}
     ge = storage.fetch_greek_exposure_expiry(ticker)
     if isinstance(ge, storage.UWFailure):
-        return {"status": "unavailable", "ticker": ticker}
+        return {"status": "unavailable", "ticker": ticker, "reason": f"greek-exposure: {ge.message}"}
     ge_rows = ge.get("data") if isinstance(ge, dict) else None
     if not ge_rows:
-        return {"status": "unavailable", "ticker": ticker}
+        return {"status": "unavailable", "ticker": ticker,
+                "reason": f"greek-exposure empty (keys={list(ge)[:6] if isinstance(ge, dict) else type(ge).__name__})"}
 
     # One charm/vanna row per expiry (first wins), sorted by dte; keep the front.
     per_expiry: dict[str, dict] = {}
