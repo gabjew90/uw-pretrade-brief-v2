@@ -41,6 +41,7 @@ def _get(path: str, params: dict | None = None) -> Any:
         "UW-CLIENT-API-ID": "100001",  # required per UW skill.md anti-hallucination protocol
     }
     last_status = None
+    last_429_hint = ""
     for attempt, delay in enumerate((0,) + _429_RETRY_DELAYS_S):
         if delay:
             _time.sleep(delay)
@@ -50,12 +51,27 @@ def _get(path: str, params: dict | None = None) -> Any:
             raise UWError(f"network error calling {path}: {e}") from e
         if r.status_code == 429:
             last_status = 429
+            # Capture the budget headers so an outage tells us per-minute vs
+            # daily exhaustion (and how long to back off) instead of guessing.
+            last_429_hint = _rate_limit_hint(r.headers)
             continue  # retry after next delay
         if not r.ok:
             raise UWError(f"{r.status_code} on {path}: {r.text[:200]}")
         return r.json()
     # All retries exhausted
-    raise UWError(f"429 rate limited on {path} after {len(_429_RETRY_DELAYS_S)} retries")
+    suffix = f" ({last_429_hint})" if last_429_hint else ""
+    raise UWError(f"429 rate limited on {path} after {len(_429_RETRY_DELAYS_S)} retries{suffix}")
+
+
+def _rate_limit_hint(headers) -> str:
+    """Summarize whatever rate-limit headers UW returned on a 429 (Retry-After,
+    X-RateLimit-Remaining/Limit/Reset, RateLimit-*). Empty string if none — UW
+    Basic doesn't document these, so this is best-effort diagnostics."""
+    keys = ("Retry-After", "X-RateLimit-Remaining", "X-RateLimit-Limit",
+            "X-RateLimit-Reset", "RateLimit-Remaining", "RateLimit-Limit",
+            "RateLimit-Reset")
+    parts = [f"{k}={headers[k]}" for k in keys if headers.get(k) is not None]
+    return "; ".join(parts)
 
 
 # ---------- Endpoint methods ----------

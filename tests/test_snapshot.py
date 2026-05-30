@@ -119,6 +119,32 @@ async def test_refresh_snapshot_updates_sticky_state(stub_uw, fresh_storage_stat
     assert "NVDA" in sticky and "TSLA" in sticky
 
 
+async def test_refresh_snapshot_skips_unconsumed_endpoints(stub_uw, fresh_storage_state,
+                                                           tmp_data_dir):
+    """Budget guard: endpoints no tile consumes must NOT be fetched every cycle.
+    Each cycle previously fired ~5 ingest-only calls per ticker (×15) plus 4
+    cross-ticker ones, helping blow UW Basic's 120/min · 40k/day budget → the
+    429 cascade behind the 2026-05-29 outage. storage writes a parquet partition
+    only on a real UW call, so absence of the partition proves no call was made."""
+    await snapshot.refresh_snapshot()
+    unconsumed = [
+        "group_flow", "lit_flow_recent", "seasonality_market", "seasonality_ticker",
+        "net_flow_expiry", "option_contracts", "max_pain", "net_prem_ticks",
+    ]
+    for endpoint in unconsumed:
+        hits = list(tmp_data_dir.glob(f"raw/endpoint={endpoint}/**/*.parquet"))
+        assert not hits, f"{endpoint} was fetched but no tile consumes it: {hits}"
+
+
+async def test_consumed_endpoints_still_fetched(stub_uw, fresh_storage_state, tmp_data_dir):
+    """Companion guard: the trim must not drop endpoints tiles DO consume."""
+    await snapshot.refresh_snapshot()
+    for endpoint in ("spot_exposures_strike", "oi_per_strike", "volatility_term_structure",
+                     "darkpool", "ohlc"):
+        hits = list(tmp_data_dir.glob(f"raw/endpoint={endpoint}/**/*.parquet"))
+        assert hits, f"{endpoint} feeds a tile but was not fetched"
+
+
 def test_nearest_delta_matches_within_tolerance():
     """Flow strikes rarely match the greek-exposure grid exactly; nearest
     within tolerance should match, beyond tolerance should return 0."""

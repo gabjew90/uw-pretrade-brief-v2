@@ -41,6 +41,31 @@ async def lifespan(app: FastAPI):
         pass
 
 
+def _next_cached_snapshot(current: Snapshot | None, fresh: Snapshot,
+                          now: datetime) -> Snapshot:
+    """Decide what stays in the cache after one refresh cycle.
+
+    A refresh that yields rows is real data and replaces the cache. A refresh
+    that yields NO rows means the upstream fetch failed — `refresh_snapshot`
+    returns `_empty_snapshot` when the leading flow-alerts call 429s/errors. In
+    that case we KEEP the last good snapshot and stamp `stale_since` rather than
+    blanking the dashboard. Only when there is no prior good snapshot (cold boot
+    mid-outage) do we surface the empty/warming snapshot so /health reports it
+    and the loop keeps retrying instead of freezing a blank.
+
+    Regression guard for the 2026-05-29 outage: a single in-window 429 used to
+    overwrite good data with `rows: []`, which the market-gate then froze for
+    the whole closed period.
+    """
+    if fresh.rows:
+        return fresh
+    if current is not None and current.rows:
+        if current.stale_since is None:
+            current.stale_since = now
+        return current
+    return fresh
+
+
 async def _refresh_loop():
     while True:
         # Kill-switch: SNAPSHOT_PAUSED=true skips the UW call entirely. Use this
@@ -52,22 +77,27 @@ async def _refresh_loop():
             continue
 
         # Market-hours gate: options data only moves during RTH. Outside the
-        # window we hold the last-close snapshot and re-check every 5 min. Set
+        # window we hold the last-good snapshot and re-check every 5 min. Set
         # MARKET_GATE_DISABLED=true to force 24/7 (e.g. for debugging).
-        # Exception: always build ONE snapshot on a cold boot (empty cache) even
-        # when closed, so a freshly-started container never serves a blank
-        # dashboard overnight. Only the *repeated* off-hours fetches are skipped.
+        # We gate on having a GOOD (non-empty) snapshot, not merely a non-None
+        # one: a cold boot mid-outage produces an empty snapshot, and we must
+        # keep retrying it rather than freezing a blank dashboard until the open.
         gate_off = os.environ.get("MARKET_GATE_DISABLED", "").lower() in ("1", "true", "yes")
-        have_snapshot = _snapshot_cache.get("latest") is not None
-        if not gate_off and have_snapshot and not market_hours.market_is_open():
-            log.info("market closed; holding last-close snapshot, re-check in %ds",
+        cached = _snapshot_cache.get("latest")
+        have_good = cached is not None and bool(cached.rows)
+        if not gate_off and have_good and not market_hours.market_is_open():
+            log.info("market closed; holding last-good snapshot, re-check in %ds",
                      _CLOSED_RECHECK_SECONDS)
             await asyncio.sleep(_CLOSED_RECHECK_SECONDS)
             continue
 
         try:
-            snap = await snapshot_mod.refresh_snapshot()
-            _snapshot_cache["latest"] = snap
+            fresh = await snapshot_mod.refresh_snapshot()
+            kept = _next_cached_snapshot(cached, fresh, datetime.now(tz=timezone.utc))
+            if kept is cached and not fresh.rows:
+                log.warning("refresh produced 0 rows (upstream failure); holding "
+                            "last-good snapshot, stale_since=%s", kept.stale_since)
+            _snapshot_cache["latest"] = kept
         except Exception as e:
             log.exception("snapshot refresh failed: %s", e)
         await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)

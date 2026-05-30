@@ -40,18 +40,13 @@ async def refresh_snapshot() -> Snapshot:
     hot_15 = universe.top_15_unique_tickers(flow_alerts)
     flow_by_ticker = _aggregate_flow_per_ticker(flow_alerts, hot_15)
 
-    # 1b. Cross-ticker ingest (parqueted, not yet consumed by tiles):
-    # - lit_flow_recent: lit/dark divergence companion to darkpool
-    # - group_flow (sp500): broad-market Greek-flow regime
-    # - seasonality_market: 24h-cached market drift baseline
-    # - net_flow_expiry (no ticker): cross-market expiry term-structure
-    await asyncio.gather(
-        loop.run_in_executor(_POOL, partial(storage.fetch_lit_flow_recent)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_group_flow, "sp500")),
-        loop.run_in_executor(_POOL, partial(storage.fetch_seasonality_market)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_net_flow_expiry, None)),
-        return_exceptions=True,
-    )
+    # 1b. Cross-ticker ingest (lit_flow_recent, group_flow, seasonality_market,
+    # net_flow_expiry) was fetched here to seed the parquet archive, but NO tile
+    # consumes it yet. Each cycle it spent 4 UW calls (2 of them hot, refetched
+    # every cycle) against the 120/min · 40k/day Basic budget — part of the 429
+    # cascade behind the 2026-05-29 blackout. Dropped until a consuming UI ships;
+    # re-add the gather here (and the per-ticker block in _build_dashboard_row)
+    # when that lands.
 
     # 2. tracked_universe
     sticky = universe.StickyState(storage.load_sticky())
@@ -124,17 +119,11 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     earn_data = await loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot))
     info_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ticker_info, ticker))
     news_data = await loop.run_in_executor(_POOL, partial(storage.fetch_news_headlines, ticker, 10))
-    # Ingest-only (not yet consumed by any tile — wires in a later UI pass):
-    # option_contracts: real bid/ask/IV/vol/OI for Tile 6 picker
-    # max_pain: additional Tile 4 context
-    # net_prem_ticks: time-series flow context
-    # net_flow_expiry: front-week-vs-30-45-DTE qualifier for flow alerts (per-ticker)
-    # seasonality_ticker: 24h-cached per-ticker calendar drift baseline
-    await loop.run_in_executor(_POOL, partial(storage.fetch_option_contracts, ticker, 500))
-    await loop.run_in_executor(_POOL, partial(storage.fetch_max_pain, ticker))
-    await loop.run_in_executor(_POOL, partial(storage.fetch_net_prem_ticks, ticker))
-    await loop.run_in_executor(_POOL, partial(storage.fetch_net_flow_expiry, ticker))
-    await loop.run_in_executor(_POOL, partial(storage.fetch_seasonality_ticker, ticker))
+    # Ingest-only per-ticker fetches (option_contracts, max_pain, net_prem_ticks,
+    # net_flow_expiry, seasonality_ticker) were dropped: ~5 calls × 15 tickers =
+    # ~75 UW calls/cycle that no tile reads — a major contributor to the
+    # 2026-05-29 429 budget blowout. Re-add when the consuming UI ships (Tile 6
+    # contract picker, etc.); the wrappers in storage.py/uw.py remain available.
     # OHLC for Tile 1's price line. 5m candles match the 4hr session view.
     ohlc_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ohlc, ticker, "5m", is_hot))
 

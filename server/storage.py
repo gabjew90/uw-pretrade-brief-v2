@@ -124,11 +124,13 @@ _NEWS_ENDPOINTS = {"news_headlines"}
 # UW Basic tier = 120 req/min = 2 calls/sec sustained. With ThreadPoolExecutor
 # at 8 workers, no throttle means up to 8 calls in parallel completing in
 # <1s each → 8-16 calls/sec = WAY past the per-second budget.
-# Setting semaphore to 2 caps real throughput to ~2-4 calls/sec, comfortable
-# within UW's per-minute quota. Yes, this slows the pipeline a lot — that's
-# the point. Better to be slow than 429'd permanently.
+# A semaphore of 2 still admits up to ~4 calls/sec (two sub-250ms calls per
+# second per slot) = ~240/min — DOUBLE the 120/min cap, which is what kept us
+# in a 429 cascade on 2026-05-29. Dropping to 1 caps real throughput to ≤2/sec
+# (≤120/min), inside the quota. Slower per cycle, but the 60s+ TTLs absorb most
+# repeat reads, so warm steady-state stays fast. Better slow than 429'd.
 import threading
-_UW_CONCURRENCY_LIMIT = 2
+_UW_CONCURRENCY_LIMIT = 1
 _uw_call_gate = threading.BoundedSemaphore(_UW_CONCURRENCY_LIMIT)
 
 
