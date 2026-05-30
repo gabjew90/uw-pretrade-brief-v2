@@ -80,6 +80,18 @@ def test_gex_records_sorted_by_strike(gex_strike_spy):
         assert isinstance(r["gamma"], float)
 
 
+def test_spot_exposures_sends_limit_and_strike_window(monkeypatch):
+    """UW's default limit returns only ~50 strikes (the lowest in the chain), so
+    we must send limit=500 alongside the min/max window to actually get the full
+    near-spot coverage. Regression for the band-but-no-limit miss."""
+    from server import uw
+    seen = {}
+    monkeypatch.setattr(uw, "_get", lambda path, params=None: seen.update(params or {}) or {"data": []})
+    uw.fetch_spot_exposures_strike("SPY", min_strike=605, max_strike=905)
+    assert seen.get("limit") == 500
+    assert seen.get("min_strike") == 605 and seen.get("max_strike") == 905
+
+
 def test_gex_records_net_gamma_is_call_plus_signed_put():
     """UW pre-signs put_gamma_oi negative. Net dealer gamma = call + put (the
     signed sum), NOT call - put. Regression: the subtraction double-negated puts,

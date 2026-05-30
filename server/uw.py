@@ -89,15 +89,19 @@ def fetch_spot_exposures_strike(ticker: str, date: str | None = None,
     `date` (ISO YYYY-MM-DD): historical snapshot if provided; latest otherwise.
     `min_strike`/`max_strike`: REQUIRED in practice — without them UW returns the
     lowest strikes in the chain (far below spot for high-priced names), which
-    breaks the gamma flip and wall computation. Pass a window around spot."""
-    params: dict = {}
+    breaks the gamma flip and wall computation. Pass a window around spot.
+
+    `limit` is sent at the max (500): UW's effective default returns only ~50
+    strikes (the lowest in the chain / window), so without it even a min/max
+    window comes back as the lowest 50 — still below spot for wide chains."""
+    params: dict = {"limit": 500}
     if date:
         params["date"] = date
     if min_strike is not None:
         params["min_strike"] = min_strike
     if max_strike is not None:
         params["max_strike"] = max_strike
-    return _get(f"/api/stock/{ticker}/spot-exposures/strike", params=params or None)
+    return _get(f"/api/stock/{ticker}/spot-exposures/strike", params=params)
 
 
 def fetch_oi_strike(ticker: str, date: str | None = None) -> dict:
