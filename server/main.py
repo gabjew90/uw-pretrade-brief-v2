@@ -178,14 +178,22 @@ async def admin_gex_debug(ticker: str, token: str | None = None):
     expected = os.environ.get("BACKFILL_TOKEN")
     if not expected or token != expected:
         raise HTTPException(status_code=403, detail="forbidden")
-    from server import storage
+    from server import storage, uw
     t = ticker.upper()
     snap = _snapshot_cache.get("latest")
     row = next((r for r in (snap.rows if snap else []) if r.ticker == t), None)
-    data = storage.fetch_spot_exposures_strike(t, True)
-    if isinstance(data, storage.UWFailure):
-        return JSONResponse({"ticker": t, "uw_failure": data.message,
-                             "flow_spot": row.spot if row else None})
+    spot = row.spot if row else 0.0
+    # EXPERIMENT: call UW directly with min_strike/max_strike/limit so we can test
+    # whether near-spot strikes exist when we actually request them.
+    params: dict = {"limit": 500}
+    if spot:
+        params["min_strike"] = round(spot * 0.85, 2)
+        params["max_strike"] = round(spot * 1.15, 2)
+    try:
+        data = uw._get(f"/api/stock/{t}/spot-exposures/strike", params=params)
+    except Exception as e:
+        return JSONResponse({"ticker": t, "uw_error": str(e), "params": params,
+                             "flow_spot": spot})
     rows = data.get("data") or []
 
     def _f(x):
