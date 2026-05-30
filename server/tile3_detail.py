@@ -40,6 +40,18 @@ def _rungs(rows: list[dict], oi: bool) -> list[dict]:
     return out
 
 
+def _trim(rungs: list[dict], spot: float, pct: float = 9.0, cap: int = 35) -> list[dict]:
+    """Near-spot display window for the ladder. Levels (flip/walls) are computed
+    from the FULL window; this only trims what the frontend draws so the payload
+    isn't ~200 far-OTM zero-γ strikes."""
+    lo, hi = spot * (1 - pct / 100), spot * (1 + pct / 100)
+    near = [r for r in rungs if lo <= r["strike"] <= hi]
+    near.sort(key=lambda r: abs(r["strike"] - spot))
+    near = near[:cap]
+    near.sort(key=lambda r: r["strike"])
+    return near
+
+
 def _label(expiry: str) -> str:
     # "2026-06-05" -> "Jun 05"
     import calendar
@@ -106,8 +118,8 @@ def build_tile3_detail(ticker: str, flow_spot: float, direction: str) -> dict:
             "charm": {"dir": "up" if charm > 0 else "down" if charm < 0 else "flat", "value": charm},
             "vanna": {"dir": "up_if_iv_rises" if vanna > 0 else "up_if_iv_falls" if vanna < 0 else "flat",
                       "value": vanna},
-            "oi": oi_rungs,
-            "vol": vol_rungs,
+            "oi": _trim(oi_rungs, flow_spot),
+            "vol": _trim(vol_rungs, flow_spot),
         }
 
     return {

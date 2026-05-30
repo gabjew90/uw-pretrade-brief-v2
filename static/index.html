@@ -617,6 +617,54 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Tile 3 Phase 2 — 2× footprint rich gamma map */
+  .tile--wide { grid-column: 1 / -1; }
+  .t3-banner { border-radius: 8px; padding: 10px 14px; margin: 4px 0 12px;
+    border-left: 3px solid; background: var(--bg); }
+  .t3-banner.short { border-color: var(--neg); background: linear-gradient(90deg, rgba(247,118,142,0.10), transparent 70%); }
+  .t3-banner.long  { border-color: var(--pos); background: linear-gradient(90deg, rgba(122,162,247,0.10), transparent 70%); }
+  .t3-banner-h { font-family: var(--ff-mono); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; }
+  .t3-banner.short .t3-banner-h { color: var(--neg); }
+  .t3-banner.long .t3-banner-h { color: var(--pos); }
+  .t3-banner-s { color: var(--text); font-size: 11.5px; line-height: 1.5; margin-top: 3px; }
+  .t3-controls { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; }
+  .t3-grp { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .t3-grp-l { font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.08em; margin-right: 2px; }
+  .t3-tog { font-family: var(--ff-mono); font-size: 11px; color: var(--axis);
+    background: var(--bg); border: 1px solid var(--grid); border-radius: 6px;
+    padding: 4px 9px; cursor: pointer; transition: all .12s; line-height: 1.3; }
+  .t3-tog:hover { color: var(--title); border-color: var(--axis); }
+  .t3-tog.on { color: var(--title); background: var(--panel); border-color: var(--pos); box-shadow: inset 0 0 0 1px rgba(122,162,247,0.4); }
+  .t3-tag { color: var(--axis); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 3px; }
+  .t3-tog.on .t3-tag { color: var(--pos); }
+  .t3-body { display: grid; grid-template-columns: 1fr 240px; gap: 16px; align-items: start; }
+  .t3-ladder { background: var(--bg); border: 1px solid var(--grid); border-radius: 8px; padding: 6px 4px; }
+  .t3-side { display: flex; flex-direction: column; gap: 12px; }
+  .t3-levels { display: flex; flex-direction: column; gap: 1px; background: var(--bg); border: 1px solid var(--grid); border-radius: 8px; overflow: hidden; }
+  .t3-lvl { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-left: 3px solid transparent; }
+  .t3-lvl .l { font-size: 10px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.06em; }
+  .t3-lvl .v { font-family: var(--ff-mono); font-weight: 700; font-size: 12px; color: var(--title); font-variant-numeric: tabular-nums; }
+  .t3-lvl.up { border-left-color: var(--pos); }
+  .t3-lvl.dn { border-left-color: var(--neg); }
+  .t3-lvl.flip { border-left-color: var(--hot); }
+  .t3-lvl.spot { border-left-color: var(--warn); background: rgba(224,175,104,0.06); }
+  .t3-drift { background: var(--bg); border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px; }
+  .t3-drift-h { font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .t3-gauge { margin-bottom: 9px; }
+  .t3-gauge:last-child { margin-bottom: 0; }
+  .t3-gauge .g-l { display: block; font-size: 10px; color: var(--text); margin-bottom: 4px; }
+  .t3-gauge .g-bar { display: block; height: 5px; background: var(--grid); border-radius: 3px; overflow: hidden; }
+  .t3-gauge .g-fill { display: block; height: 100%; background: var(--axis); border-radius: 3px; transition: width .2s; }
+  .t3-gauge .g-fill.up { background: var(--pos); }
+  .t3-gauge .g-fill.dn { background: var(--neg); }
+  .t3-gauge .g-n { display: block; font-size: 9.5px; margin-top: 3px; color: var(--axis); }
+  .t3-gauge .g-n.up { color: var(--pos); }
+  .t3-gauge .g-n.dn { color: var(--neg); }
+  .t3-howto { margin-top: 12px; font-size: 11px; color: var(--text); line-height: 1.6;
+    border-top: 1px solid var(--grid); padding-top: 10px; }
+  .t3-prov { margin-top: 7px; font-size: 9.5px; color: var(--axis); }
+  @media (max-width: 720px) { .t3-body { grid-template-columns: 1fr; } }
+
   /* Task 12: Tile 4 Cost & Timing — IVR gauge + curve indicator */
   .ivr-gauge {
     position: relative; height: 28px;
@@ -1212,7 +1260,8 @@ const ROWS = LIVE_ROWS;
  * Task 3: Regime banner state + render
  * ============================================================ */
 
-const state = { regime: "normal", selected: null, nothingToday: false, contractPickerShowThisWeek: false, searchQuery: "" };
+const state = { regime: "normal", selected: null, nothingToday: false, contractPickerShowThisWeek: false, searchQuery: "",
+  tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
 (function setupDeepLink() {
   const urlT = new URLSearchParams(location.search).get('t');
@@ -1379,9 +1428,29 @@ function visibleWatchlistRows() {
 
 function selectTicker(ticker) {
   state.selected = ticker;
+  state.tile3Expiry = null;          // reset expiry tab for the new ticker
+  state.tile3Weighting = "oi";
+  fetchTile3Detail(ticker);          // async; re-renders Tile 3 when it lands
   renderWatchlist();
   renderDeepDive();
 }
+
+/* On-demand Tile 3 detail (Phase 2): per-expiry gamma map + OI/Vol + drift.
+ * Fetched only when a ticker is selected so the heavy UW calls never hit the
+ * per-cycle snapshot. The lightweight snapshot ladder renders instantly; this
+ * upgrades it in place when it arrives. */
+function fetchTile3Detail(ticker) {
+  const cached = state.tile3Detail[ticker];
+  if (cached && cached !== "loading" && cached !== "error") return;
+  state.tile3Detail[ticker] = "loading";
+  fetch(`/api/tile3/${encodeURIComponent(ticker)}`)
+    .then(r => r.json())
+    .then(d => { state.tile3Detail[ticker] = d; if (state.selected === ticker) renderDeepDive(); })
+    .catch(() => { state.tile3Detail[ticker] = "error"; });
+}
+
+function setTile3Weighting(w) { state.tile3Weighting = w; renderDeepDive(); }
+function setTile3Expiry(e) { state.tile3Expiry = e; renderDeepDive(); }
 
 /* ============================================================
  * Task 6: "Nothing today" card render + toggle
@@ -1445,10 +1514,14 @@ function renderDeepDive() {
 
 function renderAllTiles(row) {
   // Placeholder for now — populated in tasks 8-13
+  const detail = state.tile3Detail[row.ticker];
+  const tile3 = (detail && detail.status === "ok")
+    ? renderTile3Rich(row, detail)
+    : renderTile3Structural(row);
   return `
     <div class="tile">${renderTile1Flow(row)}</div>
     <div class="tile">${renderTile2OI(row)}</div>
-    <div class="tile">${renderTile3Structural(row)}</div>
+    <div class="tile tile--wide">${tile3}</div>
     <div class="tile">${renderTile4Cost(row)}</div>
     <div class="tile tile-confirmation">${renderTile5Confirmation(row)}</div>
     <div class="tile tile-picker">${renderTile6Picker(row)}</div>
@@ -2073,6 +2146,148 @@ function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
     svg += `<text x="${padL + innerW + 6}" y="${yPW + 4}" fill="var(--neg)" font-family="ui-monospace,monospace" font-size="10">PUT WALL $${putWallStrike.toFixed(putWallStrike > 100 ? 0 : 2)}</text>`;
   }
 
+  return svg;
+}
+
+/* ============================================================
+ * Tile 3 Phase 2 — rich on-demand gamma map (2× footprint):
+ * OI/Vol toggle, expiry tabs, diverging call/put ladder (scale-fixed),
+ * structural levels + charm/vanna drift. Fed by /api/tile3/{ticker}.
+ * ============================================================ */
+
+function renderTile3Rich(row, detail) {
+  const g = row.gates.structural;
+  const spot = detail.spot || row.spot;
+  let expiry = state.tile3Expiry;
+  if (!expiry || !detail.views[expiry]) expiry = detail.default_expiry;
+  const view = detail.views[expiry] || Object.values(detail.views)[0];
+  if (!view) return renderTile3Structural(row);
+  const w = state.tile3Weighting === "vol" ? "vol" : "oi";
+
+  const short = view.regime === "short";
+  const bannerHead = short ? "TREND — moves amplified" : "PIN — moves dampened";
+  const flipStrike = spot * (1 + (view.flip_pct || 0) / 100);
+  const flipNear = view.flip_status === "ok" && Math.abs(view.flip_pct || 0) <= 9;
+  const sentence = short
+    ? `Dealers are <strong>short γ</strong> here — breakouts have fuel. ${flipNear ? `γ flip ${view.flip_pct >= 0 ? "above" : "below"} spot at $${flipStrike.toFixed(0)}.` : "No γ flip in the near range."}`
+    : `Dealers are <strong>long γ</strong> — moves get dampened, price pins. ${flipNear ? `Flip at $${flipStrike.toFixed(0)} (${view.flip_pct.toFixed(1)}%).` : "Flip is out of the near range."}`;
+
+  const wBtn = (val, label) => `<button class="t3-tog ${w === val ? "on" : ""}" onclick="setTile3Weighting('${val}')">${label}</button>`;
+  const expTabs = Object.entries(detail.views).map(([e, v]) =>
+    `<button class="t3-tog ${e === expiry ? "on" : ""}" onclick="setTile3Expiry('${e}')">${v.label} <span class="t3-tag">${v.tag}</span></button>`).join("");
+
+  const flipVal = view.flip_status === "ok"
+    ? `$${flipStrike.toFixed(2)} (${view.flip_pct >= 0 ? "+" : ""}${view.flip_pct.toFixed(1)}%)`
+    : "none in ±9%";
+  const lvl = (lbl, val, cls) => `<div class="t3-lvl ${cls || ""}"><span class="l">${lbl}</span><span class="v">${val}</span></div>`;
+  const levels = `
+    ${lvl("Call wall", view.call_wall != null ? `$${view.call_wall.toFixed(2)}` : "—", "up")}
+    ${lvl("γ Flip", flipVal, "flip")}
+    ${lvl("Spot", `$${spot.toFixed(2)}`, "spot")}
+    ${lvl("Put wall", view.put_wall != null ? `$${view.put_wall.toFixed(2)}` : "—", "dn")}`;
+
+  let drift = "";
+  if (detail.drift_available) {
+    drift = `<div class="t3-drift">
+      <div class="t3-drift-h">DRIFT · ${view.dte}DTE</div>
+      ${driftGauge("Charm · time pull", view.charm)}
+      ${driftGauge("Vanna · vol pull", view.vanna)}
+    </div>`;
+  }
+
+  return `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 3: Structural Setup</span>
+      <button class="help-icon" data-help="tile3">?</button>
+    </h3>
+    <div class="t3-banner ${short ? "short" : "long"}">
+      <div class="t3-banner-h">${bannerHead}</div>
+      <div class="t3-banner-s">${sentence}</div>
+    </div>
+    <div class="t3-controls">
+      <div class="t3-grp"><span class="t3-grp-l">Weighting</span>${wBtn("oi", "Open interest")}${wBtn("vol", "Volume")}</div>
+      <div class="t3-grp t3-grp-exp"><span class="t3-grp-l">Expiry</span>${expTabs}</div>
+    </div>
+    <div class="t3-body">
+      <div class="t3-ladder">${richLadderSvg(view, w, spot)}</div>
+      <div class="t3-side">
+        <div class="t3-levels">${levels}</div>
+        ${drift}
+      </div>
+    </div>
+    <div class="t3-howto">
+      Bars: <strong style="color:var(--pos)">right = call γ</strong> (resistance / ceiling) · <strong style="color:var(--neg)">left = put γ</strong> (support / floor). Taller = dealers defend it harder. The <span style="color:var(--hot)">flip</span> is where the regime switches. Flip to <strong>Volume</strong> for today's build; switch <strong>expiry</strong> — the regime can differ week to week.
+      <div class="t3-prov">🔵 LIVE · spot-exposures/expiry-strike + greek-exposure/expiry · real-time structural snapshot, not a forecast.</div>
+    </div>`;
+}
+
+function driftGauge(label, d) {
+  const dir = (d && d.dir) || "flat";
+  const mag = Math.sqrt(Math.min(1, Math.abs((d && d.value) || 0) / 1e9));
+  const pct = Math.max(5, Math.round(mag * 100));
+  const up = dir.indexOf("up") === 0;
+  const cls = up ? "up" : dir === "down" ? "dn" : "";
+  const arrow = up ? "▲" : dir === "down" ? "▼" : "•";
+  const note = dir === "up_if_iv_rises" ? "up if IV rises"
+    : dir === "up_if_iv_falls" ? "up if IV falls"
+    : dir === "up" ? "upward as time passes"
+    : dir === "down" ? "downward as time passes" : "neutral";
+  return `<div class="t3-gauge"><span class="g-l">${label}</span><span class="g-bar"><span class="g-fill ${cls}" style="width:${pct}%"></span></span><span class="g-n ${cls}">${arrow} ${note}</span></div>`;
+}
+
+function richLadderSvg(view, w, spot) {
+  const rungs = (view[w] || []).slice().sort((a, b) => a.strike - b.strike);
+  if (rungs.length < 2) {
+    return `<div style="display:flex;align-items:center;justify-content:center;height:340px;color:var(--axis);font-size:12px;">No strike-level γ in this expiry/weighting.</div>`;
+  }
+  const W = 720, H = 340, padT = 18, padB = 26, padL = 78, padR = 120;
+  const innerH = H - padT - padB, innerW = W - padL - padR;
+  const minK = rungs[0].strike, maxK = rungs[rungs.length - 1].strike;
+  const span = (maxK - minK) || 1;
+  // Scale fix: y maps strikes over the ACTUAL rung range (tight — no dead space).
+  const yFor = k => padT + innerH * (1 - (k - minK) / span);
+  const centerX = padL + innerW / 2;
+  const half = innerW / 2 - 8;
+  let maxG = 0;
+  for (const r of rungs) maxG = Math.max(maxG, Math.abs(r.call_gamma || 0), Math.abs(r.put_gamma || 0));
+  maxG = (maxG || 1) / 0.92;
+  const barH = Math.max(3, Math.min(innerH / rungs.length - 2, 13));
+  const fmtG = v => { const a = Math.abs(v), s = v >= 0 ? "" : "−"; return a >= 1e9 ? s + (a / 1e9).toFixed(1) + "B" : a >= 1e6 ? s + Math.round(a / 1e6) + "M" : a >= 1e3 ? s + Math.round(a / 1e3) + "K" : s + Math.round(a); };
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:340px;display:block;">
+    <defs>
+      <linearGradient id="rlPos" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#7AA2F7" stop-opacity="0.55"/><stop offset="100%" stop-color="#7AA2F7" stop-opacity="1"/></linearGradient>
+      <linearGradient id="rlNeg" x1="1" y1="0" x2="0" y2="0"><stop offset="0%" stop-color="#F7768E" stop-opacity="0.55"/><stop offset="100%" stop-color="#F7768E" stop-opacity="1"/></linearGradient>
+    </defs>`;
+  // strike lane guides + bars
+  const labelEvery = Math.ceil(rungs.length / 12);
+  for (let i = 0; i < rungs.length; i++) {
+    const r = rungs[i], y = yFor(r.strike);
+    svg += `<rect x="${padL}" y="${(y - barH / 2).toFixed(1)}" width="${innerW}" height="${barH.toFixed(1)}" fill="rgba(255,255,255,0.015)" rx="2"/>`;
+    const cw = Math.max(0, Math.abs(r.call_gamma || 0) / maxG * half);
+    const pw = Math.max(0, Math.abs(r.put_gamma || 0) / maxG * half);
+    if (cw > 0.5) svg += `<rect x="${centerX.toFixed(1)}" y="${(y - barH / 2).toFixed(1)}" width="${cw.toFixed(1)}" height="${barH.toFixed(1)}" fill="url(#rlPos)" rx="2"/>`;
+    if (pw > 0.5) svg += `<rect x="${(centerX - pw).toFixed(1)}" y="${(y - barH / 2).toFixed(1)}" width="${pw.toFixed(1)}" height="${barH.toFixed(1)}" fill="url(#rlNeg)" rx="2"/>`;
+    if (i % labelEvery === 0)
+      svg += `<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">$${r.strike.toFixed(r.strike > 100 ? 0 : 2)}</text>`;
+  }
+  // center axis + side labels
+  svg += `<line x1="${centerX}" x2="${centerX}" y1="${padT}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>`;
+  svg += `<text x="${padL + 4}" y="${padT - 5}" fill="var(--neg)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="600">◀ put γ (floor)</text>`;
+  svg += `<text x="${padL + innerW - 4}" y="${padT - 5}" text-anchor="end" fill="var(--pos)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9" font-weight="600">call γ (ceiling) ▶</text>`;
+  svg += `<text x="${centerX}" y="${padT + innerH + 16}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">peak γ ≈ ${fmtG(maxG * 0.92)}</text>`;
+  // level lines (only when within the rung range)
+  const line = (k, color, dash, label) => {
+    if (k == null || k < minK || k > maxK) return "";
+    const y = yFor(k);
+    return `<line x1="${padL}" x2="${padL + innerW}" y1="${y}" y2="${y}" stroke="${color}" stroke-width="${dash ? 1.3 : 2}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>` +
+      `<text x="${padL + innerW + 6}" y="${(y + 4).toFixed(1)}" fill="${color}" font-family="ui-monospace,monospace" font-size="10" font-weight="700">${label} $${k.toFixed(k > 100 ? 0 : 2)}</text>`;
+  };
+  svg += line(spot, "var(--warn)", "", "SPOT");
+  if (view.flip_status === "ok") svg += line(spot * (1 + (view.flip_pct || 0) / 100), "var(--hot)", "4,3", "FLIP");
+  svg += line(view.call_wall, "var(--pos)", "2,3", "CALL WALL");
+  svg += line(view.put_wall, "var(--neg)", "2,3", "PUT WALL");
+  svg += `</svg>`;
   return svg;
 }
 
