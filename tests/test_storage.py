@@ -9,6 +9,20 @@ import pytest
 from server import storage
 
 
+def test_spot_exposures_passes_min_max_strike_to_uw(tmp_data_dir, monkeypatch):
+    """Near-spot strike window must reach UW — without min/max_strike the endpoint
+    returns the lowest strikes in the chain (far below spot). Regression for the
+    gamma flip/wall garbage on high-priced tickers."""
+    from server import uw
+    storage._cache._store.clear()
+    seen = {}
+    monkeypatch.setattr(uw, "fetch_spot_exposures_strike",
+                        lambda t, date=None, min_strike=None, max_strike=None:
+                        seen.update(min=min_strike, max=max_strike) or {"data": []})
+    storage.fetch_spot_exposures_strike("SPY", is_hot=True, min_strike=605, max_strike=905)
+    assert seen == {"min": 605, "max": 905}
+
+
 def test_budget_guard_sheds_noncritical_endpoint_without_calling_uw(tmp_data_dir, monkeypatch):
     """Over the soft budget, a non-whitelisted endpoint short-circuits to a
     UWFailure WITHOUT hitting UW — the proactive shedding that prevents a 429
@@ -148,7 +162,7 @@ def fresh_cache():
 def test_fetch_calls_uw_on_first_call_and_writes_parquet(tmp_data_dir, fresh_cache, monkeypatch):
     """First call for (endpoint, ticker) hits UW and writes to parquet."""
     calls = []
-    def fake_uw_fetch(ticker):
+    def fake_uw_fetch(ticker, min_strike=None, max_strike=None):
         calls.append(ticker)
         return {"data": [{"strike": 150}]}
     monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
@@ -163,7 +177,7 @@ def test_fetch_calls_uw_on_first_call_and_writes_parquet(tmp_data_dir, fresh_cac
 def test_fetch_returns_cache_on_second_call_within_ttl(tmp_data_dir, fresh_cache, monkeypatch):
     """Second call within TTL returns cached without re-hitting UW."""
     calls = []
-    def fake_uw_fetch(ticker):
+    def fake_uw_fetch(ticker, min_strike=None, max_strike=None):
         calls.append(ticker)
         return {"data": [{"strike": 150}]}
     monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
@@ -194,7 +208,7 @@ def test_earnings_endpoint_ttl_is_24h_regardless_of_hot(tmp_data_dir, fresh_cach
 def test_fetch_swallows_uw_error_returns_exception_marker(tmp_data_dir, fresh_cache, monkeypatch):
     """When UW raises, storage returns a marker so the caller can record _failures."""
     from server.uw import UWError
-    def fake_uw_fetch(ticker):
+    def fake_uw_fetch(ticker, min_strike=None, max_strike=None):
         raise UWError("503 on /api/stock/NVDA/spot-exposures/strike")
     monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)
 
@@ -283,7 +297,7 @@ def test_through_skips_uw_when_parquet_has_fresh_row(tmp_data_dir, fresh_cache, 
         fetched_at=datetime.now(tz=timezone.utc),
     )
     calls = []
-    def fake_uw_fetch(ticker):
+    def fake_uw_fetch(ticker, min_strike=None, max_strike=None):
         calls.append(ticker)
         return {"data": [{"strike": 100, "from_uw": True}]}
     monkeypatch.setattr("server.uw.fetch_spot_exposures_strike", fake_uw_fetch)

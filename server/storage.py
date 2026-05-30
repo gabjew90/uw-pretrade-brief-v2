@@ -334,9 +334,19 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
 # Mirror the names in server/uw.py so the snapshot pipeline can swap
 # `uw.fetch_*` for `storage.fetch_*` mechanically.
 
-def fetch_spot_exposures_strike(ticker: str, is_hot: bool = False):
-    return _through("spot_exposures_strike", ticker, None, is_hot,
-                    lambda: uw.fetch_spot_exposures_strike(ticker))
+def fetch_spot_exposures_strike(ticker: str, is_hot: bool = False,
+                                min_strike: float | None = None,
+                                max_strike: float | None = None):
+    """Per-strike spot GEX. min/max_strike bracket the near-spot window — without
+    them UW returns the lowest strikes in the chain, far below spot."""
+    params: dict = {}
+    if min_strike is not None:
+        params["min_strike"] = min_strike
+    if max_strike is not None:
+        params["max_strike"] = max_strike
+    return _through("spot_exposures_strike", ticker, params or None, is_hot,
+                    lambda: uw.fetch_spot_exposures_strike(
+                        ticker, min_strike=min_strike, max_strike=max_strike))
 
 
 def fetch_oi_strike(ticker: str, is_hot: bool = False, date: str | None = None):

@@ -110,7 +110,15 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     # repeat calls, fetching broadly only spikes UW load on cold-cache cycles;
     # warm steady-state is mostly cache hits.
     yesterday_iso = (datetime.now(tz=timezone.utc).date() - timedelta(days=1)).isoformat()
-    spot_data = await loop.run_in_executor(_POOL, partial(storage.fetch_spot_exposures_strike, ticker, is_hot))
+    # Spot-exposures must be requested as a near-spot strike window (±20% of the
+    # flow spot). Without min/max_strike UW returns the lowest strikes in the
+    # chain — far below spot for high-priced names — which made the gamma flip
+    # and walls garbage. Rounded so small spot jitter doesn't bust the cache key.
+    flow_spot = float(flow_info.get("spot") or 0)
+    gex_min = round(flow_spot * 0.80) if flow_spot > 0 else None
+    gex_max = round(flow_spot * 1.20) if flow_spot > 0 else None
+    spot_data = await loop.run_in_executor(_POOL, partial(
+        storage.fetch_spot_exposures_strike, ticker, is_hot, gex_min, gex_max))
     oi_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot))
     oi_prev_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, False, yesterday_iso))
     vol_data = await loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot))

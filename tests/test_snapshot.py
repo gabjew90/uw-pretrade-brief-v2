@@ -33,10 +33,11 @@ def stub_uw(monkeypatch):
                                       "AAPL", "GOOGL", "MSFT", "META", "NFLX",
                                       "AMZN", "F", "BAC", "WMT", "JPM"]]})
     monkeypatch.setattr(uw, "fetch_spot_exposures_strike",
-                        lambda t: {"data": [{"strike": 100.0,
-                                              "call_gamma_oi": 1.0,
-                                              "put_gamma_oi": -0.5,  # UW pre-signs puts negative
-                                              "spot_price": 100.0}]})
+                        lambda t, date=None, min_strike=None, max_strike=None:
+                        {"data": [{"strike": 100.0,
+                                   "call_gamma_oi": 1.0,
+                                   "put_gamma_oi": -0.5,  # UW pre-signs puts negative
+                                   "spot_price": 100.0}]})
     monkeypatch.setattr(uw, "fetch_oi_strike",
                         lambda t, date=None: {"data": [{"strike": 100,
                                                          "call_oi": 600,
@@ -207,6 +208,24 @@ def test_build_tile3_empty_on_failure_or_no_spot():
     fail = storage.UWFailure(endpoint="spot_exposures_strike", ticker="X", message="boom")
     assert snapshot._build_tile3(fail, 100.0).strikes == []
     assert snapshot._build_tile3(_gex_payload([(100.0, 1.0)]), 0.0).strikes == []
+
+
+async def test_refresh_fetches_spot_exposures_with_near_spot_band(stub_uw, fresh_storage_state,
+                                                                  tmp_data_dir, monkeypatch):
+    """The row build must request spot-exposures around the flow spot (stub spot
+    = 100), so the gamma strikes actually bracket spot."""
+    from server import uw
+    captured = []
+    orig = uw.fetch_spot_exposures_strike
+    def spy(t, date=None, min_strike=None, max_strike=None):
+        captured.append((min_strike, max_strike))
+        return orig(t, date=date, min_strike=min_strike, max_strike=max_strike)
+    monkeypatch.setattr(uw, "fetch_spot_exposures_strike", spy)
+    await snapshot.refresh_snapshot()
+    banded = [(lo, hi) for lo, hi in captured if lo is not None and hi is not None]
+    assert banded, "spot-exposures must be fetched with a min/max strike band"
+    lo, hi = banded[0]
+    assert lo < 100 < hi, f"band {lo}-{hi} should bracket the flow spot 100"
 
 
 async def test_refresh_snapshot_rows_carry_tile3(stub_uw, fresh_storage_state, tmp_data_dir):
