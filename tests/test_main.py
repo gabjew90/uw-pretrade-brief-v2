@@ -125,6 +125,33 @@ def test_tile3_detail_route_unavailable_when_ticker_not_in_snapshot(client, monk
     assert r.json()["status"] == "unavailable"
 
 
+def test_tile4_route_builds_ctx_from_snapshot_row(client, monkeypatch):
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from server.schema import Snapshot, Regime
+    from server import tile4
+    main._snapshot_cache["latest"] = Snapshot.model_construct(
+        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
+        rows=[SimpleNamespace(ticker="SPY", spot=756.0, direction="calls",
+              flow_alerts_detail=[SimpleNamespace(strike=760.0)], tile2=None,
+              wall_up_dist_pct=1.0, wall_dn_dist_pct=2.0)], stale_since=None)
+    seen = {}
+    monkeypatch.setattr(tile4, "build_tile4",
+                        lambda t, ctx: seen.update(t=t, ctx=ctx) or {"status": "ok", "ticker": t})
+    r = client.get("/api/tile4/spy")
+    assert r.status_code == 200 and r.json()["status"] == "ok"
+    assert seen["t"] == "SPY"
+    assert seen["ctx"]["spot"] == 756.0 and seen["ctx"]["direction"] == "calls"
+    assert seen["ctx"]["flow_strikes"] == {760.0}
+    assert round(seen["ctx"]["call_wall"]) == round(756.0 * 1.01)
+
+
+def test_tile4_route_unavailable_when_not_in_snapshot(client):
+    main._snapshot_cache["latest"] = None
+    r = client.get("/api/tile4/ZZZZ")
+    assert r.status_code == 200 and r.json()["status"] == "unavailable"
+
+
 def test_admin_backfill_reports_unsupported_without_starting(client, monkeypatch):
     monkeypatch.setenv("BACKFILL_TOKEN", "s3cret")
     _seed_rows("SPY")

@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from server import backfill, budget, market_hours, tile3_detail
+from server import backfill, budget, market_hours, tile3_detail, tile4
 from server import snapshot as snapshot_mod
 from server.schema import Snapshot
 
@@ -132,6 +132,38 @@ async def tile3_detail_route(ticker: str):
     flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
     direction = getattr(row, "direction", "calls") or "calls"
     detail = await asyncio.to_thread(tile3_detail.build_tile3_detail, t, flow_spot, direction)
+    return JSONResponse(detail)
+
+
+@app.get("/api/tile4/{ticker}")
+async def tile4_route(ticker: str):
+    """On-demand Contract Picker & Final Gate. Reuses the cached snapshot row's
+    Tiles 1-3 outputs (direction, flow strikes, OI campaign, walls) and fetches
+    only the new vol/greeks/event data. See server/tile4.py."""
+    t = ticker.upper()
+    snap = _snapshot_cache.get("latest")
+    row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
+    if row is None:
+        return JSONResponse({"status": "unavailable", "ticker": t, "reason": "not in snapshot"})
+    spot = float(getattr(row, "spot", 0) or 0)
+    flow_det = getattr(row, "flow_alerts_detail", None) or []
+    flow_strikes = {getattr(fa, "strike", None) for fa in flow_det
+                    if getattr(fa, "strike", None)} or None
+    t2 = getattr(row, "tile2", None)
+    oi_building = None
+    if t2 is not None and getattr(t2, "strikes", None):
+        oi_building = {s.strike for s in t2.strikes
+                       if getattr(s, "trend", None) == "building"} or None
+    wu, wd = getattr(row, "wall_up_dist_pct", None), getattr(row, "wall_dn_dist_pct", None)
+    ctx = {
+        "spot": spot,
+        "direction": getattr(row, "direction", "calls"),
+        "flow_strikes": flow_strikes,
+        "oi_building": oi_building,
+        "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
+        "put_wall": spot * (1 - wd / 100) if (spot and wd is not None) else None,
+    }
+    detail = await asyncio.to_thread(tile4.build_tile4, t, ctx)
     return JSONResponse(detail)
 
 
