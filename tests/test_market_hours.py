@@ -15,6 +15,22 @@ def test_open_during_rth_weekday():
     assert market_hours.market_is_open(_utc(2026, 5, 29, 14, 0)) is True
 
 
+def test_is_trading_day_weekday_not_holiday():
+    from datetime import date
+    assert market_hours.is_trading_day(date(2026, 5, 29)) is True   # Friday
+
+
+def test_is_trading_day_weekend_false():
+    from datetime import date
+    assert market_hours.is_trading_day(date(2026, 5, 30)) is False  # Saturday
+    assert market_hours.is_trading_day(date(2026, 5, 31)) is False  # Sunday
+
+
+def test_is_trading_day_holiday_false():
+    from datetime import date
+    assert market_hours.is_trading_day(date(2026, 5, 25)) is False  # Memorial Day
+
+
 def test_open_at_buffer_edges():
     # 13:00 UTC = 09:00 EDT (gate opens) → open
     assert market_hours.market_is_open(_utc(2026, 5, 29, 13, 0)) is True

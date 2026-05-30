@@ -9,6 +9,37 @@ import pytest
 from server import storage
 
 
+def test_budget_guard_sheds_noncritical_endpoint_without_calling_uw(tmp_data_dir, monkeypatch):
+    """Over the soft budget, a non-whitelisted endpoint short-circuits to a
+    UWFailure WITHOUT hitting UW — the proactive shedding that prevents a 429
+    cascade. Regression guard for the 2026-05-29 outage."""
+    from server import uw, budget
+    storage._cache._store.clear()
+    monkeypatch.setattr(budget, "over_soft_budget", lambda *a, **k: True)
+    called = []
+    monkeypatch.setattr(uw, "fetch_oi_strike", lambda *a, **k: called.append(1) or {"data": []})
+
+    result = storage.fetch_oi_strike("SPY", is_hot=True)
+    assert isinstance(result, storage.UWFailure)
+    assert "budget guard" in result.message.lower()
+    assert not called, "UW must NOT be called when shedding"
+
+
+def test_budget_guard_whitelists_flow_alerts(tmp_data_dir, monkeypatch):
+    """flow_alerts is the core read — it must still call through even when over
+    budget, so the hot list / health stay alive longest."""
+    from server import uw, budget
+    storage._cache._store.clear()
+    monkeypatch.setattr(budget, "over_soft_budget", lambda *a, **k: True)
+    called = []
+    monkeypatch.setattr(uw, "fetch_flow_alerts",
+                        lambda limit=100: called.append(1) or {"data": [{"ticker": "SPY"}]})
+
+    result = storage.fetch_flow_alerts(100)
+    assert called, "flow_alerts must call through despite the budget guard"
+    assert not isinstance(result, storage.UWFailure)
+
+
 def test_write_response_creates_partition_file(tmp_data_dir: Path):
     storage.write_response(
         endpoint="spot_exposures_strike",

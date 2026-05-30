@@ -28,7 +28,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from server import uw
+from server import budget, uw
 from server.cache import TTLCache
 
 log = logging.getLogger(__name__)
@@ -303,6 +303,14 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
     if parquet_hit is not None:
         _cache.set(key, parquet_hit, ttl_seconds=ttl)
         return parquet_hit
+
+    # 2b. Soft budget guard: once today's UW calls cross the soft cap, shed every
+    # NON-critical endpoint here — before hitting UW — so we glide to a stop on
+    # last-good data instead of slamming a 429 wall. flow_alerts is whitelisted:
+    # it's the core read (hot list / health), so it survives longest.
+    if endpoint != "flow_alerts" and budget.over_soft_budget():
+        return UWFailure(endpoint=endpoint, ticker=ticker,
+                         message="budget guard: daily soft cap reached")
 
     # 3. UW (only when nothing fresh exists)
     started_at = time.monotonic()

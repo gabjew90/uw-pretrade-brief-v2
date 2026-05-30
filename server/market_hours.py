@@ -13,7 +13,7 @@ ET conversion uses zoneinfo (tzdata is a pinned dependency so this resolves
 inside the slim container).
 """
 from __future__ import annotations
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 _ET = ZoneInfo("America/New_York")
@@ -30,6 +30,15 @@ _HOLIDAYS = {
     "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
     "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
 }
+
+
+def is_trading_day(d: date) -> bool:
+    """True when `d` is a weekday and not a full-closure holiday. Shared
+    trading-calendar source for the snapshot gate and the OI backfill (which
+    only attempts dates the market was actually open)."""
+    if d.weekday() >= 5:                  # Sat=5, Sun=6
+        return False
+    return d.isoformat() not in _HOLIDAYS
 
 
 def market_is_open(now_utc: datetime | None = None) -> bool:

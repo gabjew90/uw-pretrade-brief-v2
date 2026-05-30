@@ -11,6 +11,8 @@ import os
 from typing import Any
 import requests
 
+from server import budget
+
 BASE = "https://api.unusualwhales.com"
 TIMEOUT_S = 5
 
@@ -46,6 +48,7 @@ def _get(path: str, params: dict | None = None) -> Any:
         if delay:
             _time.sleep(delay)
         try:
+            budget.record_call()  # count every HTTP attempt — retries consume quota too
             r = requests.get(url, headers=headers, params=params, timeout=TIMEOUT_S)
         except requests.RequestException as e:
             raise UWError(f"network error calling {path}: {e}") from e

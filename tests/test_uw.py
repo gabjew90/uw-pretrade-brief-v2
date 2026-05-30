@@ -197,6 +197,41 @@ def test_next_earnings_synthetic_picks_nearest_future():
     assert result == future_near
 
 
+# ---------- Budget meter integration ----------
+
+class _FakeResp:
+    def __init__(self, status_code=200, payload=None, headers=None):
+        self.status_code = status_code
+        self.ok = status_code < 400
+        self._payload = payload if payload is not None else {"data": []}
+        self.text = "err"
+        self.headers = headers or {}
+
+    def json(self):
+        return self._payload
+
+
+def test_get_records_one_budget_call_on_success(monkeypatch):
+    from server import uw, budget
+    budget.reset()
+    monkeypatch.setenv("UW_API_KEY", "test-key")
+    monkeypatch.setattr(uw.requests, "get", lambda *a, **k: _FakeResp(200, {"data": [1]}))
+    uw.fetch_oi_strike("SPY")
+    assert budget.snapshot()["calls_today"] == 1
+
+
+def test_get_records_every_http_attempt_including_429_retries(monkeypatch):
+    """Each retry is a real HTTP hit that consumes quota, so all 3 attempts count."""
+    from server import uw, budget
+    budget.reset()
+    monkeypatch.setenv("UW_API_KEY", "test-key")
+    monkeypatch.setattr(uw, "_429_RETRY_DELAYS_S", (0, 0))  # no sleep in test
+    seq = [_FakeResp(429), _FakeResp(429), _FakeResp(200, {"data": [1]})]
+    monkeypatch.setattr(uw.requests, "get", lambda *a, **k: seq.pop(0))
+    uw.fetch_oi_strike("SPY")
+    assert budget.snapshot()["calls_today"] == 3
+
+
 # ---------- Smoke imports ----------
 
 def test_fetch_module_imports():

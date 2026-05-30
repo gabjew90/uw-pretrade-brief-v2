@@ -9,6 +9,14 @@ from fastapi.testclient import TestClient
 from server import main, snapshot as snapshot_mod
 
 
+@pytest.fixture(autouse=True)
+def _reset_snapshot_cache():
+    """The snapshot cache is module-global; reset it after each test so tests
+    that seed it (e.g. the admin-backfill cases) can't leak into others."""
+    yield
+    main._snapshot_cache["latest"] = None
+
+
 @pytest.fixture
 def client(tmp_data_dir, tmp_path, monkeypatch):
     # Replace lifespan refresh with no-op so tests don't fire real UW
@@ -36,6 +44,70 @@ def test_health_returns_ok(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_health_includes_uw_budget_block(client):
+    body = client.get("/health").json()
+    assert "uw" in body
+    for k in ("calls_1m", "calls_today", "budget_pct"):
+        assert k in body["uw"]
+
+
+# ── /admin/backfill: token-guarded, dormant by default ──
+
+def test_admin_backfill_disabled_when_token_unset(client, monkeypatch):
+    monkeypatch.delenv("BACKFILL_TOKEN", raising=False)
+    r = client.post("/admin/backfill?days=7&token=anything")
+    assert r.status_code == 403
+
+
+def test_admin_backfill_rejects_bad_token(client, monkeypatch):
+    monkeypatch.setenv("BACKFILL_TOKEN", "s3cret")
+    r = client.post("/admin/backfill?days=7&token=wrong")
+    assert r.status_code == 403
+
+
+def _seed_rows(*tickers):
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from server.schema import Snapshot, Regime
+    snap = Snapshot.model_construct(
+        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
+        rows=[SimpleNamespace(ticker=t) for t in tickers], stale_since=None)
+    main._snapshot_cache["latest"] = snap
+
+
+def test_admin_backfill_valid_token_returns_probe_and_starts(client, monkeypatch):
+    monkeypatch.setenv("BACKFILL_TOKEN", "s3cret")
+    _seed_rows("SPY", "QQQ")
+    from server import backfill
+    monkeypatch.setattr(backfill, "probe",
+                        lambda tickers, max_days, now=None: {"probe": "ok", "probe_ticker": tickers[0],
+                                                             "window_days": max_days})
+    started = []
+    monkeypatch.setattr(backfill, "backfill_oi_history",
+                        lambda tickers, max_days=30, now=None: started.append((tuple(tickers), max_days)) or {})
+    r = client.post("/admin/backfill?days=7&token=s3cret")
+    assert r.status_code == 202
+    body = r.json()
+    assert body["probe"] == "ok"
+    assert body["window_days"] == 7
+
+
+def test_admin_backfill_reports_unsupported_without_starting(client, monkeypatch):
+    monkeypatch.setenv("BACKFILL_TOKEN", "s3cret")
+    _seed_rows("SPY")
+    from server import backfill
+    monkeypatch.setattr(backfill, "probe",
+                        lambda tickers, max_days, now=None: {"probe": "unsupported", "probe_ticker": tickers[0],
+                                                             "window_days": max_days})
+    started = []
+    monkeypatch.setattr(backfill, "backfill_oi_history",
+                        lambda *a, **k: started.append(1) or {})
+    r = client.post("/admin/backfill?days=7&token=s3cret")
+    assert r.status_code == 200
+    assert r.json()["probe"] == "unsupported"
+    assert started == [], "must not start the full pass when unsupported"
 
 
 def test_snapshot_json_returns_cached_snapshot(client):

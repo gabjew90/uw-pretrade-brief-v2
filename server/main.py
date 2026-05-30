@@ -14,10 +14,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from server import market_hours
+from server import backfill, budget, market_hours
 from server import snapshot as snapshot_mod
 from server.schema import Snapshot
 
@@ -133,10 +133,38 @@ async def snapshot_json():
 async def health():
     snap = _snapshot_cache.get("latest")
     now = datetime.now(tz=timezone.utc)
+    _b = budget.snapshot()
+    uw_block = {k: _b[k] for k in ("calls_1m", "calls_today", "budget_pct")}
     if snap is None:
         return {"status": "ok", "snapshot_age_s": None, "snapshot_fetched_at": None,
-                "tickers": 0}
+                "tickers": 0, "uw": uw_block}
     age_s = int((now - snap.fetched_at.replace(tzinfo=timezone.utc)).total_seconds())
     return {"status": "ok", "snapshot_age_s": age_s,
             "snapshot_fetched_at": snap.fetched_at.isoformat(),
-            "tickers": len(snap.rows)}
+            "tickers": len(snap.rows), "uw": uw_block}
+
+
+@app.post("/admin/backfill")
+async def admin_backfill(days: int = 30, token: str | None = None):
+    """One-shot historical OI backfill. Dormant unless BACKFILL_TOKEN is set;
+    runs the probe synchronously (verdict in the response) and, if supported,
+    launches the full gap-fill in the background. See server/backfill.py."""
+    expected = os.environ.get("BACKFILL_TOKEN")
+    if not expected:
+        raise HTTPException(status_code=403, detail="backfill disabled (BACKFILL_TOKEN unset)")
+    if token != expected:
+        raise HTTPException(status_code=403, detail="invalid token")
+
+    snap = _snapshot_cache.get("latest")
+    tickers = [r.ticker for r in snap.rows] if snap and snap.rows else []
+    if not tickers:
+        raise HTTPException(status_code=409, detail="no live snapshot yet — retry once data is warm")
+
+    days = max(1, min(days, 30))
+    result = backfill.probe(tickers, days)
+    if result.get("probe") != "ok":
+        return JSONResponse(result, status_code=200)
+
+    asyncio.create_task(asyncio.to_thread(backfill.backfill_oi_history, tickers, days))
+    return JSONResponse({**result, "backfill": "started", "tickers": len(tickers)},
+                        status_code=202)
