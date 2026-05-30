@@ -655,10 +655,20 @@ def _extract_gex(spot_data: Any, spot: float) -> tuple[float, float, float, str,
             flip = r["strike"]
             break
         prev_sign = sign
+    # Walls from CALL vs PUT gamma separately, not net |γ|: net magnitude peaks
+    # at-the-money (both call & put gamma do), which collapsed both walls onto
+    # spot. The call wall is the largest call-γ strike above spot (resistance);
+    # the put wall the largest put-γ strike below spot (support).
+    def _cg(r):
+        try: return float((r.get("raw") or {}).get("call_gamma_oi") or 0)
+        except (TypeError, ValueError): return 0.0
+    def _pg(r):
+        try: return abs(float((r.get("raw") or {}).get("put_gamma_oi") or 0))
+        except (TypeError, ValueError): return 0.0
     above = [r for r in recs if r["strike"] > spot]
     below = [r for r in recs if r["strike"] < spot]
-    wall_up = max(above, key=lambda r: abs(r["gamma"]), default=None)
-    wall_dn = max(below, key=lambda r: abs(r["gamma"]), default=None)
+    wall_up = max(above, key=_cg, default=None)
+    wall_dn = max(below, key=_pg, default=None)
     wall_up_strike = wall_up["strike"] if wall_up else spot * 1.05
     wall_dn_strike = wall_dn["strike"] if wall_dn else spot * 0.95
     agg = sum(r["gamma"] for r in recs) / 1e9

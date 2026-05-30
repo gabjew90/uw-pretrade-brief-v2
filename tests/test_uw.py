@@ -80,6 +80,15 @@ def test_gex_records_sorted_by_strike(gex_strike_spy):
         assert isinstance(r["gamma"], float)
 
 
+def test_gex_records_net_gamma_is_call_plus_signed_put():
+    """UW pre-signs put_gamma_oi negative. Net dealer gamma = call + put (the
+    signed sum), NOT call - put. Regression: the subtraction double-negated puts,
+    making every strike positive and breaking the gamma-flip computation."""
+    payload = {"data": [{"strike": 100, "call_gamma_oi": "1.0e8", "put_gamma_oi": "-3.0e8"}]}
+    recs = gex_records(payload)
+    assert recs[0]["gamma"] == pytest.approx(-2.0e8)  # puts dominate → net negative
+
+
 def test_oi_records_sorted_by_strike(oi_strike_spy):
     recs = oi_records(oi_strike_spy)
     assert len(recs) > 0

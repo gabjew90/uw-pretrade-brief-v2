@@ -253,7 +253,10 @@ def gex_records(payload) -> list[dict]:
         put_oi = r.get("put_gamma_oi")
         gamma = None
         if call_oi is not None or put_oi is not None:
-            gamma = float(call_oi or 0) - float(put_oi or 0)
+            # UW pre-signs put_gamma_oi negative, so net dealer gamma is the
+            # signed SUM, not a difference. Subtracting double-negated puts and
+            # made every strike positive (broke the gamma-flip zero-crossing).
+            gamma = float(call_oi or 0) + float(put_oi or 0)
         else:
             ca = r.get("call_gamma_ask"); cb = r.get("call_gamma_bid")
             pa = r.get("put_gamma_ask");  pb = r.get("put_gamma_bid")
@@ -268,7 +271,8 @@ def gex_records(payload) -> list[dict]:
                     cg = r.get("call_gamma")
                     pg = r.get("put_gamma")
                     if cg is not None or pg is not None:
-                        gamma = float(cg or 0) - float(pg or 0)
+                        # Same signed-sum convention as call_gamma_oi/put_gamma_oi.
+                        gamma = float(cg or 0) + float(pg or 0)
         if gamma is None:
             continue
         out.append({"strike": strike, "gamma": gamma, "raw": r})

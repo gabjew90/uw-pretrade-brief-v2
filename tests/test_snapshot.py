@@ -35,7 +35,7 @@ def stub_uw(monkeypatch):
     monkeypatch.setattr(uw, "fetch_spot_exposures_strike",
                         lambda t: {"data": [{"strike": 100.0,
                                               "call_gamma_oi": 1.0,
-                                              "put_gamma_oi": 0.5,
+                                              "put_gamma_oi": -0.5,  # UW pre-signs puts negative
                                               "spot_price": 100.0}]})
     monkeypatch.setattr(uw, "fetch_oi_strike",
                         lambda t, date=None: {"data": [{"strike": 100,
@@ -149,6 +149,38 @@ def _gex_payload(strikes_gamma, spot=100.0):
     """spot-exposures/strike shape: net gamma per strike from call/put_gamma_oi."""
     return {"data": [{"strike": k, "call_gamma_oi": g, "put_gamma_oi": 0.0,
                       "spot_price": spot} for k, g in strikes_gamma]}
+
+
+def test_extract_gex_flip_at_sign_crossing_not_lowest_strike():
+    """Flip = strike where cumulative net γ crosses zero. With realistic signed
+    data (puts negative below spot, calls positive above) it lands near the
+    crossing — NOT defaulted to the lowest strike (the all-positive bug)."""
+    spot = 100.0
+    rows = []
+    for k in (90, 95, 100, 105, 110):
+        call, put = (1e6, -1e8) if k < 100 else (1e8, -1e6)  # puts dominate below, calls above
+        rows.append({"strike": k, "call_gamma_oi": call, "put_gamma_oi": put})
+    flip_pct, *_ = snapshot._extract_gex({"data": rows}, spot)
+    flip_strike = spot * (1 + flip_pct / 100)
+    assert 95 <= flip_strike <= 105, f"flip {flip_strike} should be near the crossing, not the low strike"
+
+
+def test_extract_gex_walls_from_call_and_put_gamma_not_atm():
+    """Call wall = strike with max call γ ABOVE spot; put wall = max |put γ|
+    BELOW spot. Using max|net γ| collapsed both to ATM (net magnitude peaks
+    at-the-money) — the +0.1%/-0.1% bug."""
+    spot = 100.0
+    rows = [
+        {"strike": 95,  "call_gamma_oi": 1e6, "put_gamma_oi": -9e8},  # put wall (below)
+        {"strike": 99,  "call_gamma_oi": 5e8, "put_gamma_oi": -5e8},  # ATM, big |net|
+        {"strike": 101, "call_gamma_oi": 5e8, "put_gamma_oi": -5e8},  # ATM, big |net|
+        {"strike": 108, "call_gamma_oi": 9e8, "put_gamma_oi": -1e6},  # call wall (above)
+    ]
+    _, wu, wd, *_ = snapshot._extract_gex({"data": rows}, spot)
+    call_wall = spot * (1 + wu / 100)
+    put_wall = spot * (1 - wd / 100)
+    assert round(call_wall) == 108, f"call wall {call_wall} should be the call-γ peak, not ATM"
+    assert round(put_wall) == 95, f"put wall {put_wall} should be the put-γ peak, not ATM"
 
 
 def test_build_tile3_extracts_net_gamma_per_strike():
