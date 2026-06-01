@@ -69,6 +69,51 @@ def test_seed_cache_from_disk_noop_when_no_file(tmp_data_dir):
     assert main_mod._snapshot_cache["latest"] is None   # nothing to seed, stays empty
 
 
+def test_replay_mode_routes_are_cached_only(monkeypatch):
+    """In REPLAY mode the tile3/tile4 routes must never call UW — they read the
+    captured archive only. We assert build_tile4 runs under cached_only()."""
+    from server import main as main_mod, tile4
+    monkeypatch.setenv("REPLAY", "1")
+    seen = {}
+
+    def fake_build(t, ctx):
+        from server import storage
+        seen["cached_only"] = storage._CACHED_ONLY.get()
+        return {"status": "ok", "ticker": t}
+    monkeypatch.setattr(tile4, "build_tile4", fake_build)
+    assert main_mod._replay_enabled() is True
+
+
+def test_replay_disabled_by_default(monkeypatch):
+    from server import main as main_mod
+    monkeypatch.delenv("REPLAY", raising=False)
+    assert main_mod._replay_enabled() is False
+
+
+def test_admin_export_forbidden_without_token(client, monkeypatch):
+    monkeypatch.delenv("BACKFILL_TOKEN", raising=False)
+    r = client.get("/admin/export?token=x")
+    assert r.status_code == 403
+
+
+def test_admin_export_streams_data_dir_tar(client, tmp_data_dir, monkeypatch):
+    """With a valid token, /admin/export returns a .tar.gz of the DATA_DIR so the
+    real prod archive can be pulled down for local replay."""
+    import io, tarfile
+    from server import storage
+    monkeypatch.setenv("BACKFILL_TOKEN", "s3cret")
+    storage.append_snapshot({"fetched_at": "2026-06-01T20:00:00Z", "rows": [{"ticker": "AAA"}]})
+    (tmp_data_dir / "raw").mkdir(exist_ok=True)
+    (tmp_data_dir / "raw" / "marker.txt").write_text("hi", encoding="utf-8")
+    r = client.get("/admin/export?token=s3cret")
+    assert r.status_code == 200
+    assert "gzip" in r.headers.get("content-type", "") or r.content[:2] == b"\x1f\x8b"
+    tf = tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz")
+    names = tf.getnames()
+    assert any("snapshots.jsonl" in n for n in names)
+    assert any("marker.txt" in n for n in names)
+
+
 def test_health_returns_ok(client):
     r = client.get("/health")
     assert r.status_code == 200

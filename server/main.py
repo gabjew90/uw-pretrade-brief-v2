@@ -51,6 +51,15 @@ def _seed_cache_from_disk() -> None:
         log.warning("could not seed cache from disk: %s", e)
 
 
+def _replay_enabled() -> bool:
+    """Local replay/dev mode: serve the whole dashboard from a captured DATA_DIR
+    archive with NO live UW calls and NO background loop. Run offline anytime:
+        DATA_DIR=./data REPLAY=1 uvicorn server.main:app
+    The boot-seed serves the archived snapshot; the on-demand tile routes read
+    the captured UW responses (cached_only) instead of calling UW."""
+    return os.environ.get("REPLAY", "").lower() in ("1", "true", "yes")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Restore today's UW call count from the volume so a cold-boot/redeploy
@@ -59,8 +68,12 @@ async def lifespan(app: FastAPI):
     # Seed the snapshot cache from the last persisted good snapshot, so a
     # cold-boot serves last-close data instead of blank (off-hours / mid-outage).
     _seed_cache_from_disk()
-    task = asyncio.create_task(_refresh_loop())
+    # REPLAY mode: no background loop (no live UW); the dashboard runs entirely
+    # off the captured archive.
+    task = None if _replay_enabled() else asyncio.create_task(_refresh_loop())
     yield
+    if task is None:
+        return
     task.cancel()
     try:
         await task
@@ -159,7 +172,13 @@ async def tile3_detail_route(ticker: str):
     row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
     flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
     direction = getattr(row, "direction", "calls") or "calls"
-    detail = await asyncio.to_thread(tile3_detail.build_tile3_detail, t, flow_spot, direction)
+
+    def _build():
+        if _replay_enabled():
+            with storage.cached_only():
+                return tile3_detail.build_tile3_detail(t, flow_spot, direction)
+        return tile3_detail.build_tile3_detail(t, flow_spot, direction)
+    detail = await asyncio.to_thread(_build)
     return JSONResponse(detail)
 
 
@@ -192,10 +211,13 @@ async def tile4_route(ticker: str):
         "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
         "put_wall": spot * (1 - wd / 100) if (spot and wd is not None) else None,
     }
-    detail = await asyncio.to_thread(tile4.build_tile4, t, ctx)
+    def _build():
+        if _replay_enabled():
+            with storage.cached_only():
+                return tile4.build_tile4(t, ctx)
+        return tile4.build_tile4(t, ctx)
+    detail = await asyncio.to_thread(_build)
     return JSONResponse(detail)
-
-
 
 
 @app.get("/snapshot.json")
@@ -247,5 +269,48 @@ async def admin_backfill(days: int = 30, token: str | None = None):
     asyncio.create_task(asyncio.to_thread(backfill.backfill_oi_history, tickers, days))
     return JSONResponse({**result, "backfill": "started", "tickers": len(tickers)},
                         status_code=202)
+
+
+@app.get("/admin/export")
+async def admin_export(token: str | None = None, days: int = 7):
+    """Stream a .tar.gz of the DATA_DIR (snapshots.jsonl + sticky + recent parquet
+    archive) so the REAL prod data can be pulled down for local replay/dev.
+    Token-guarded (reuses BACKFILL_TOKEN). `days` bounds the parquet archive to
+    the most recent N dt= partitions to keep the download manageable; the
+    snapshot/sticky files are always included."""
+    import io
+    import tarfile
+    from datetime import timedelta
+    from fastapi.responses import Response
+
+    expected = os.environ.get("BACKFILL_TOKEN")
+    if not expected or token != expected:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    data_dir = storage._data_dir()
+    cutoff = (datetime.now(tz=timezone.utc).date() - timedelta(days=max(0, days))).isoformat()
+
+    def _include(p: Path) -> bool:
+        # always include top-level files (snapshots.jsonl, sticky.json, etc.)
+        rel = p.relative_to(data_dir)
+        if rel.parts and rel.parts[0] == "raw":
+            # raw/endpoint=.../dt=YYYY-MM-DD/... — keep only recent dt= partitions
+            for part in rel.parts:
+                if part.startswith("dt="):
+                    return part[3:] >= cutoff
+        return True
+
+    def _build_tar() -> bytes:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            if data_dir.is_dir():
+                for p in sorted(data_dir.rglob("*")):
+                    if p.is_file() and _include(p):
+                        tar.add(p, arcname=str(p.relative_to(data_dir)))
+        return buf.getvalue()
+
+    blob = await asyncio.to_thread(_build_tar)
+    return Response(content=blob, media_type="application/gzip",
+                    headers={"Content-Disposition": "attachment; filename=uw_data.tar.gz"})
 
 
