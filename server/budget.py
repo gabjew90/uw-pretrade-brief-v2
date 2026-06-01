@@ -9,15 +9,57 @@ the hard cap. Thread-safe: UW calls run across ThreadPoolExecutor workers.
 omit it and get the current UTC time.
 """
 from __future__ import annotations
+import json
+import logging
 import os
 import threading
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _minute: deque[datetime] = deque()   # call timestamps within the rolling 60s window
 _day_key: str | None = None          # UTC date of the current daily bucket
 _day_count = 0
+_persist_dirty = 0                    # calls since last disk flush (throttle)
+_PERSIST_EVERY = 25                   # flush at most every N calls
+
+
+def _persist_path() -> Path:
+    # Read DATA_DIR directly (avoid importing storage → circular). Matches
+    # storage._data_dir() default of /data.
+    return Path(os.environ.get("DATA_DIR", "/data")) / "uw_budget.json"
+
+
+def _flush_locked() -> None:
+    """Persist {day_key, day_count} to the volume. Best-effort — never raises.
+    Caller holds _lock."""
+    try:
+        p = _persist_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"day": _day_key, "count": _day_count}), encoding="utf-8")
+        os.replace(tmp, p)
+    except Exception as e:
+        log.debug("budget persist failed (non-fatal): %s", e)
+
+
+def load_persisted(now: datetime | None = None) -> None:
+    """Restore today's count from disk on boot, so a cold-boot/redeploy doesn't
+    reset the daily meter to 0 (which let the cap sneak up on 2026-06-01). A
+    persisted count from a previous UTC day is ignored."""
+    now = _now(now)
+    with _lock:
+        global _day_key, _day_count
+        try:
+            data = json.loads(_persist_path().read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if data.get("day") == now.date().isoformat():
+            _day_key = data["day"]
+            _day_count = int(data.get("count") or 0)
 
 
 def _now(now: datetime | None) -> datetime:
@@ -57,8 +99,12 @@ def record_call(now: datetime | None = None) -> None:
     with _lock:
         _roll(now)
         _minute.append(now)
-        global _day_count
+        global _day_count, _persist_dirty
         _day_count += 1
+        _persist_dirty += 1
+        if _persist_dirty >= _PERSIST_EVERY:
+            _persist_dirty = 0
+            _flush_locked()
 
 
 def snapshot(now: datetime | None = None) -> dict:
@@ -85,9 +131,11 @@ def over_soft_budget(now: datetime | None = None) -> bool:
 
 
 def reset() -> None:
-    """Clear all counters. Test-support / cold-boot hygiene."""
-    global _day_key, _day_count
+    """Clear all IN-MEMORY counters (does not touch the persisted file).
+    Test-support / simulating a cold-boot before load_persisted()."""
+    global _day_key, _day_count, _persist_dirty
     with _lock:
         _minute.clear()
         _day_key = None
         _day_count = 0
+        _persist_dirty = 0

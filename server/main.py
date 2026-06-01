@@ -32,6 +32,9 @@ _CLOSED_RECHECK_SECONDS = 300
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Restore today's UW call count from the volume so a cold-boot/redeploy
+    # doesn't reset the budget meter to 0 (which masked the real cap 2026-06-01).
+    budget.load_persisted()
     task = asyncio.create_task(_refresh_loop())
     yield
     task.cancel()

@@ -17,6 +17,30 @@ def _t(h=12, m=0, s=0, day=15):
     return datetime(2026, 5, day, h, m, s, tzinfo=timezone.utc)
 
 
+def test_daily_count_survives_restart(tmp_path, monkeypatch):
+    """The daily count must persist across a cold-boot so the guard doesn't reset
+    to 0 on every redeploy (which masked the real cap on 2026-06-01)."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    now = _t()
+    for _ in range(2500):
+        budget.record_call(now=now)
+    assert budget.snapshot(now=now)["calls_today"] == 2500
+    # simulate a restart: clear in-memory state, reload from disk
+    budget.reset()
+    budget.load_persisted(now=now)
+    assert budget.snapshot(now=now)["calls_today"] == 2500
+
+
+def test_persisted_count_ignored_on_new_utc_day(tmp_path, monkeypatch):
+    """A persisted count from yesterday must NOT carry into today."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    for _ in range(100):
+        budget.record_call(now=_t(day=15))
+    budget.reset()
+    budget.load_persisted(now=_t(day=16))   # next UTC day
+    assert budget.snapshot(now=_t(day=16))["calls_today"] == 0
+
+
 def test_record_increments_daily_and_minute_counts():
     now = _t()
     budget.record_call(now=now)
