@@ -73,14 +73,11 @@ async def refresh_snapshot() -> Snapshot:
         row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
         rows.append(row)
 
-    # 4b. Pre-warm the on-demand detail tiles (Tile 3 rich + Tile 4 picker) for
-    # hot_15, in the background loop. The /api/tile3 and /api/tile4 routes read
-    # cache-only, so this is what populates them — honoring "live-ingest in loop,
-    # request path cached-only". Best-effort; failures just leave a tile warming.
-    await asyncio.gather(*[
-        _prewarm_detail_tiles(row.ticker, row.spot, row.direction, loop=loop)
-        for row in rows if row.spot > 0
-    ], return_exceptions=True)
+    # NOTE: an earlier rework pre-warmed the Tile 3-detail + Tile 4 picker for all
+    # hot_15 here, every cycle. That added ~120 UW calls/cycle and blew the daily
+    # budget (2026-06-01). Reverted to ON-DEMAND: /api/tile3 and /api/tile4 fetch
+    # live when a ticker is selected (a human views 2-3, not 15) — far cheaper.
+    # The cost of all-15 prewarm wasn't worth it for a single-operator app.
 
     # 5. Insights
     for row in rows:
@@ -108,21 +105,6 @@ async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
         loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot)),
     ]
     await asyncio.gather(*tasks, return_exceptions=True)
-
-
-async def _prewarm_detail_tiles(ticker: str, spot: float, direction: str, *, loop):
-    """Run the Tile 3-detail + Tile 4 builders in the loop so their UW fetches
-    populate the cache/parquet. The request-path routes then read cache-only.
-    Imported lazily to avoid a circular import (tile4 imports storage; snapshot
-    imports tile4 only here)."""
-    from server import tile3_detail, tile4
-    ctx = {"spot": spot, "direction": direction,
-           "flow_strikes": None, "oi_building": None, "call_wall": None, "put_wall": None}
-    await asyncio.gather(
-        loop.run_in_executor(_POOL, partial(tile3_detail.build_tile3_detail, ticker, spot, direction)),
-        loop.run_in_executor(_POOL, partial(tile4.build_tile4, ticker, ctx)),
-        return_exceptions=True,
-    )
 
 
 async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:

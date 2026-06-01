@@ -123,28 +123,25 @@ async def root():
 
 @app.get("/api/tile3/{ticker}")
 async def tile3_detail_route(ticker: str):
-    """Rich Tile 3 (Phase 2): per-expiry gamma map + OI/Vol + drift. CACHE-ONLY
-    read — the snapshot loop ingests this data live; this route never calls UW
-    (a cold miss returns unavailable). spot/direction from the cached snapshot."""
+    """Rich Tile 3 (Phase 2): per-expiry gamma map + OI/Vol + drift. ON-DEMAND —
+    fetches live UW when a ticker is selected (cached 5 min). A human views 2-3
+    tickers/session, so this is far cheaper than prewarming all 15 each cycle.
+    spot/direction from the cached snapshot."""
     t = ticker.upper()
     snap = _snapshot_cache.get("latest")
     row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
     flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
     direction = getattr(row, "direction", "calls") or "calls"
-
-    def _build():
-        with storage.cached_only():
-            return tile3_detail.build_tile3_detail(t, flow_spot, direction)
-    detail = await asyncio.to_thread(_build)
+    detail = await asyncio.to_thread(tile3_detail.build_tile3_detail, t, flow_spot, direction)
     return JSONResponse(detail)
 
 
 @app.get("/api/tile4/{ticker}")
 async def tile4_route(ticker: str):
-    """Contract Picker & Final Gate. CACHE-ONLY read — the snapshot loop ingests
-    the vol/greeks/event data live; this route never calls UW (cold miss →
-    unavailable). Reuses the cached snapshot row's Tiles 1-3 outputs (direction,
-    flow strikes, OI campaign, walls). See server/tile4.py."""
+    """Contract Picker & Final Gate. ON-DEMAND — fetches the vol/greeks/event data
+    live when a ticker is selected (cached 5 min). Reuses the cached snapshot
+    row's Tiles 1-3 outputs (direction, flow strikes, OI campaign, walls). See
+    server/tile4.py."""
     t = ticker.upper()
     snap = _snapshot_cache.get("latest")
     row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
@@ -168,10 +165,7 @@ async def tile4_route(ticker: str):
         "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
         "put_wall": spot * (1 - wd / 100) if (spot and wd is not None) else None,
     }
-    def _build():
-        with storage.cached_only():
-            return tile4.build_tile4(t, ctx)
-    detail = await asyncio.to_thread(_build)
+    detail = await asyncio.to_thread(tile4.build_tile4, t, ctx)
     return JSONResponse(detail)
 
 

@@ -123,25 +123,16 @@ async def test_refresh_snapshot_appends_to_jsonl(stub_uw, fresh_storage_state, t
     assert len(jsonl) == 1
 
 
-async def test_loop_prewarms_tile4_so_cached_only_route_succeeds(stub_uw, fresh_storage_state, tmp_data_dir):
-    """After a refresh cycle the loop has ingested the tile4 endpoints, so a
-    CACHED-ONLY build (request path) returns ok — not unavailable. This is the
-    'live-ingest in loop, request path cached-only' contract end-to-end."""
-    from server import tile4
+async def test_loop_does_not_prewarm_detail_tiles(stub_uw, fresh_storage_state, tmp_data_dir):
+    """Tile 3-detail + Tile 4 are ON-DEMAND, not loop-prewarmed (the prewarm-all-15
+    blew the UW budget on 2026-06-01). So after a refresh cycle the tile4 detail
+    endpoints are NOT pre-fetched — proven by their parquet partitions being
+    absent. The routes fetch live on ticker-select instead."""
     await snapshot.refresh_snapshot()
-    ctx = {"spot": 100.0, "direction": "calls", "flow_strikes": {100.0},
-           "oi_building": {100.0}, "call_wall": 108.0, "put_wall": 92.0}
-    with storage.cached_only():
-        out = tile4.build_tile4("NVDA", ctx)
-    assert out["status"] in ("ok", "stand_down"), out
-
-
-async def test_loop_prewarms_tile3_detail_for_cached_only(stub_uw, fresh_storage_state, tmp_data_dir):
-    from server import tile3_detail
-    await snapshot.refresh_snapshot()
-    with storage.cached_only():
-        out = tile3_detail.build_tile3_detail("NVDA", 100.0, "calls")
-    assert out["status"] == "ok", out
+    for endpoint in ("greeks", "atm_chains", "greek_exposure_expiry",
+                     "spot_exposures_expiry_strike"):
+        hits = list(tmp_data_dir.glob(f"raw/endpoint={endpoint}/**/*.parquet"))
+        assert not hits, f"{endpoint} was prewarmed but should be on-demand: {hits}"
 
 
 async def test_refresh_snapshot_per_endpoint_failure_partial_row(stub_uw, fresh_storage_state,
@@ -174,13 +165,14 @@ async def test_refresh_snapshot_skips_unconsumed_endpoints(stub_uw, fresh_storag
     429 cascade behind the 2026-05-29 outage. storage writes a parquet partition
     only on a real UW call, so absence of the partition proves no call was made.
 
-    NOTE: option_contracts is NO LONGER here — it's consumed by Tile 4 (the
-    contract picker), which the loop now prewarms. This list is only the truly
-    unconsumed cross-ticker/per-ticker endpoints."""
+    option_contracts is here again: Tile 4 consumes it, but Tile 4 is ON-DEMAND
+    (fetched on ticker-select), NOT prewarmed in the loop — so it must not be
+    fetched per cycle. (The brief prewarm-all-15 rework that fetched it every
+    cycle was reverted on 2026-06-01 after it blew the UW budget.)"""
     await snapshot.refresh_snapshot()
     unconsumed = [
         "group_flow", "lit_flow_recent", "seasonality_market", "seasonality_ticker",
-        "net_flow_expiry", "max_pain", "net_prem_ticks",
+        "net_flow_expiry", "option_contracts", "max_pain", "net_prem_ticks",
     ]
     for endpoint in unconsumed:
         hits = list(tmp_data_dir.glob(f"raw/endpoint={endpoint}/**/*.parquet"))
