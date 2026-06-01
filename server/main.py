@@ -211,7 +211,9 @@ async def health():
     snap = _snapshot_cache.get("latest")
     now = datetime.now(tz=timezone.utc)
     _b = budget.snapshot()
-    uw_block = {k: _b[k] for k in ("calls_1m", "calls_today", "budget_pct")}
+    uw_block = {k: _b[k] for k in
+                ("calls_1m", "calls_today", "daily_cap", "budget_pct",
+                 "minute_remaining", "source")}
     if snap is None:
         return {"status": "ok", "snapshot_age_s": None, "snapshot_fetched_at": None,
                 "tickers": 0, "uw": uw_block}

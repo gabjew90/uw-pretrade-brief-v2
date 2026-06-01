@@ -17,6 +17,41 @@ def _t(h=12, m=0, s=0, day=15):
     return datetime(2026, 5, day, h, m, s, tzinfo=timezone.utc)
 
 
+def test_uw_headers_become_authoritative_count_and_cap():
+    """UW returns the true usage in response headers. When recorded, snapshot()
+    reports UW's real daily count + limit (not the local guess)."""
+    now = _t()
+    budget.record_call(now=now)  # local fallback says 1
+    budget.record_usage_headers({
+        "x-uw-daily-req-count": "8200",
+        "x-uw-token-req-limit": "15000",
+        "x-uw-req-per-minute-remaining": "110",
+    }, now=now)
+    snap = budget.snapshot(now=now)
+    assert snap["calls_today"] == 8200          # UW's number, not the local 1
+    assert snap["daily_cap"] == 15000           # UW's real cap, not the 40k default
+    assert snap["budget_pct"] == round(8200 / 15000 * 100, 1)
+    assert snap["source"] == "uw_headers"
+
+
+def test_over_soft_budget_uses_uw_headers(monkeypatch):
+    monkeypatch.setenv("UW_BUDGET_SOFT_PCT", "0.9")
+    now = _t()
+    budget.record_usage_headers({"x-uw-daily-req-count": "13600", "x-uw-token-req-limit": "15000"}, now=now)
+    assert budget.over_soft_budget(now=now) is True    # 13600/15000 = 90.7% ≥ 90%
+    budget.record_usage_headers({"x-uw-daily-req-count": "10000", "x-uw-token-req-limit": "15000"}, now=now)
+    assert budget.over_soft_budget(now=now) is False   # 66%
+
+
+def test_falls_back_to_local_when_no_headers_seen():
+    now = _t()
+    for _ in range(5):
+        budget.record_call(now=now)
+    snap = budget.snapshot(now=now)
+    assert snap["calls_today"] == 5
+    assert snap["source"] == "local"
+
+
 def test_daily_count_survives_restart(tmp_path, monkeypatch):
     """The daily count must persist across a cold-boot so the guard doesn't reset
     to 0 on every redeploy (which masked the real cap on 2026-06-01)."""

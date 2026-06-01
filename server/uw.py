@@ -52,10 +52,12 @@ def _get(path: str, params: dict | None = None) -> Any:
             r = requests.get(url, headers=headers, params=params, timeout=TIMEOUT_S)
         except requests.RequestException as e:
             raise UWError(f"network error calling {path}: {e}") from e
+        # UW returns the AUTHORITATIVE usage in headers on every response
+        # (x-uw-daily-req-count / x-uw-token-req-limit / per-minute-remaining).
+        # Forward them so the budget meter uses UW's real numbers, not a guess.
+        budget.record_usage_headers(r.headers)
         if r.status_code == 429:
             last_status = 429
-            # Capture the budget headers so an outage tells us per-minute vs
-            # daily exhaustion (and how long to back off) instead of guessing.
             last_429_hint = _rate_limit_hint(r.headers)
             continue  # retry after next delay
         if not r.ok:

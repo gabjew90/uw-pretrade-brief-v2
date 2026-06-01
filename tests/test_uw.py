@@ -273,6 +273,23 @@ class _FakeResp:
         return self._payload
 
 
+def test_get_reports_uw_usage_headers_to_budget(monkeypatch):
+    """A successful UW response's usage headers are forwarded to the budget meter
+    so it can use UW's authoritative count + cap."""
+    from server import uw, budget
+    budget.reset()
+    monkeypatch.setenv("UW_API_KEY", "test-key")
+    headers = {"x-uw-daily-req-count": "8200", "x-uw-token-req-limit": "15000",
+               "x-uw-req-per-minute-remaining": "117"}
+    monkeypatch.setattr(uw.requests, "get",
+                        lambda *a, **k: _FakeResp(200, {"data": [1]}, headers=headers))
+    uw.fetch_oi_strike("SPY")
+    snap = budget.snapshot()
+    assert snap["calls_today"] == 8200
+    assert snap["daily_cap"] == 15000
+    assert snap["source"] == "uw_headers"
+
+
 def test_get_records_one_budget_call_on_success(monkeypatch):
     from server import uw, budget
     budget.reset()

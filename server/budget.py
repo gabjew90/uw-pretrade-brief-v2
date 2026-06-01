@@ -22,9 +22,18 @@ log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _minute: deque[datetime] = deque()   # call timestamps within the rolling 60s window
 _day_key: str | None = None          # UTC date of the current daily bucket
-_day_count = 0
-_persist_dirty = 0                    # calls since last disk flush (throttle)
-_PERSIST_EVERY = 25                   # flush at most every N calls
+_day_count = 0                       # LOCAL fallback counter (used until UW headers seen)
+_persist_dirty = 0                   # calls since last disk flush (throttle)
+_PERSIST_EVERY = 25                  # flush at most every N calls
+
+# UW returns the AUTHORITATIVE usage in response headers (x-uw-daily-req-count,
+# x-uw-token-req-limit, x-uw-req-per-minute-remaining). When we've seen them we
+# prefer them over the local guess — UW's count is the real one, the cap is the
+# real one (their docs example is 15000, NOT our assumed 40000), and the daily
+# reset is 8PM ET = 00:00 UTC. These reset to None on a new UTC day.
+_uw_daily_count: int | None = None
+_uw_daily_limit: int | None = None
+_uw_minute_remaining: int | None = None
 
 
 def _persist_path() -> Path:
@@ -67,10 +76,14 @@ def _now(now: datetime | None) -> datetime:
 
 
 def _daily_cap() -> int:
+    # FALLBACK only — used until UW's x-uw-token-req-limit header is seen, which
+    # is authoritative. Defaulted CONSERVATIVELY to 15000 (UW's docs example
+    # cap) rather than the old 40000 guess, so the guard errs toward shedding if
+    # we never see a header.
     try:
-        return int(os.environ.get("UW_DAILY_CAP", "40000"))
+        return int(os.environ.get("UW_DAILY_CAP", "15000"))
     except ValueError:
-        return 40000
+        return 15000
 
 
 def _soft_pct() -> float:
@@ -83,7 +96,7 @@ def _soft_pct() -> float:
 def _roll(now: datetime) -> None:
     """Prune the 60s window and reset the daily bucket on a UTC-date change.
     Caller must hold _lock."""
-    global _day_key, _day_count
+    global _day_key, _day_count, _uw_daily_count, _uw_daily_limit, _uw_minute_remaining
     cutoff = now.timestamp() - 60   # keep only calls strictly within the last 60s
     while _minute and _minute[0].timestamp() <= cutoff:
         _minute.popleft()
@@ -91,6 +104,35 @@ def _roll(now: datetime) -> None:
     if key != _day_key:
         _day_key = key
         _day_count = 0
+        _uw_daily_count = None        # next UW response re-seeds the new day
+        _uw_daily_limit = None
+        _uw_minute_remaining = None
+
+
+def _int(headers, name) -> int | None:
+    try:
+        v = headers.get(name)
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def record_usage_headers(headers, now: datetime | None = None) -> None:
+    """Capture UW's authoritative usage from a successful response's headers.
+    `headers` is any case-insensitive mapping (requests.Response.headers)."""
+    now = _now(now)
+    with _lock:
+        _roll(now)
+        global _uw_daily_count, _uw_daily_limit, _uw_minute_remaining
+        c = _int(headers, "x-uw-daily-req-count")
+        lim = _int(headers, "x-uw-token-req-limit")
+        rem = _int(headers, "x-uw-req-per-minute-remaining")
+        if c is not None:
+            _uw_daily_count = c
+        if lim is not None:
+            _uw_daily_limit = lim
+        if rem is not None:
+            _uw_minute_remaining = rem
 
 
 def record_call(now: datetime | None = None) -> None:
@@ -111,31 +153,52 @@ def snapshot(now: datetime | None = None) -> dict:
     now = _now(now)
     with _lock:
         _roll(now)
-        cap = _daily_cap()
+        # Prefer UW's authoritative headers; fall back to the local guess.
+        if _uw_daily_count is not None:
+            count = _uw_daily_count
+            cap = _uw_daily_limit or _daily_cap()
+            source = "uw_headers"
+        else:
+            count = _day_count
+            cap = _daily_cap()
+            source = "local"
         return {
             "calls_1m": len(_minute),
-            "calls_today": _day_count,
+            "calls_today": count,
             "daily_cap": cap,
-            "budget_pct": round(_day_count / cap * 100, 1) if cap else 0.0,
+            "budget_pct": round(count / cap * 100, 1) if cap else 0.0,
+            "minute_remaining": _uw_minute_remaining,
+            "source": source,
             "day": _day_key,
         }
 
 
 def over_soft_budget(now: datetime | None = None) -> bool:
     """True once today's calls reach daily_cap * soft_pct — the signal to shed
-    non-critical fetches before UW starts returning 429s."""
+    non-critical fetches before UW starts returning 429s. Uses UW's real count +
+    cap when we've seen the headers, else the local guess."""
     now = _now(now)
     with _lock:
         _roll(now)
-        return _day_count >= _daily_cap() * _soft_pct()
+        if _uw_daily_count is not None:
+            count = _uw_daily_count
+            cap = _uw_daily_limit or _daily_cap()
+        else:
+            count = _day_count
+            cap = _daily_cap()
+        return count >= cap * _soft_pct()
 
 
 def reset() -> None:
     """Clear all IN-MEMORY counters (does not touch the persisted file).
     Test-support / simulating a cold-boot before load_persisted()."""
     global _day_key, _day_count, _persist_dirty
+    global _uw_daily_count, _uw_daily_limit, _uw_minute_remaining
     with _lock:
         _minute.clear()
         _day_key = None
         _day_count = 0
         _persist_dirty = 0
+        _uw_daily_count = None
+        _uw_daily_limit = None
+        _uw_minute_remaining = None
