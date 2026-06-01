@@ -29,6 +29,25 @@ def test_read_last_snapshot_none_when_all_empty(tmp_data_dir):
     assert storage.read_last_snapshot() is None
 
 
+def test_cached_only_serves_stale_parquet_for_replay(tmp_data_dir, monkeypatch):
+    """In cached-only (replay) mode, a parquet row OLDER than its TTL still counts
+    as a hit — replay reads captured archives that are hours/days old. Without
+    this, every replay read misses on freshness and returns unavailable."""
+    from datetime import datetime, timedelta, timezone
+    from server import uw
+    storage._cache._store.clear()
+    # Write a greeks row stamped 6 hours ago (well beyond the 5-min medium TTL).
+    old = datetime.now(tz=timezone.utc) - timedelta(hours=6)
+    storage.write_response(endpoint="greeks", ticker="NVDA", params={"expiry": "2026-06-06"},
+                           response={"data": [{"strike": 100, "call_delta": "0.5"}]},
+                           status_code=200, latency_ms=1, fetched_at=old)
+    monkeypatch.setattr(uw, "fetch_greeks", lambda t, expiry: {"data": [{"LIVE": True}]})
+    storage._cache._store.clear()
+    with storage.cached_only():
+        result = storage.fetch_greeks("NVDA", "2026-06-06")
+    assert result == {"data": [{"strike": 100, "call_delta": "0.5"}]}   # the stale archived row, not LIVE
+
+
 def test_cached_only_mode_never_calls_uw(tmp_data_dir, monkeypatch):
     """In cached-only mode (request path) a cache/parquet miss returns UWFailure
     WITHOUT calling UW — enforces 'live-ingest in loop, request path cached-only'."""

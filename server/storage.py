@@ -199,7 +199,10 @@ def _read_latest_from_parquet(
     (covers the midnight rollover case for long-TTL endpoints like earnings).
     """
     now = datetime.now(tz=timezone.utc)
-    cutoff = now - timedelta(seconds=max_age_seconds)
+    # max_age_seconds=None → no freshness limit (replay/cached-only reads any
+    # archived row regardless of age).
+    cutoff = (datetime(1970, 1, 1, tzinfo=timezone.utc) if max_age_seconds is None
+              else now - timedelta(seconds=max_age_seconds))
     params_key = json.dumps(params or {}, sort_keys=True)
 
     def _candidate_dirs() -> list[Path]:
@@ -325,8 +328,11 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
     if cached is not None:
         return cached
 
-    # 2. Parquet cache (persistent, survives restarts)
-    parquet_hit = _read_latest_from_parquet(endpoint, ticker, params, max_age_seconds=ttl)
+    # 2. Parquet cache (persistent, survives restarts). In cached-only (replay)
+    # mode we ignore the TTL — replay reads captured archives that are hours/days
+    # old, and freshness is irrelevant when there's no live UW to fall back to.
+    max_age = None if _CACHED_ONLY.get() else ttl
+    parquet_hit = _read_latest_from_parquet(endpoint, ticker, params, max_age_seconds=max_age)
     if parquet_hit is not None:
         _cache.set(key, parquet_hit, ttl_seconds=ttl)
         return parquet_hit
