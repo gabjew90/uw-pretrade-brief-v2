@@ -1583,8 +1583,10 @@ function renderAllTiles(row) {
   const tile3 = (detail && detail.status === "ok")
     ? renderTile3Rich(row, detail)
     : renderTile3Structural(row);
-  // Tile 4 (picker slot): rich Contract Picker when loaded; old synthetic picker
-  // as the warming/error fallback so the slot is never blank.
+  // Tile 4 = Contract Picker & Final Gate (rich, on-demand). The old synthetic
+  // picker (renderTile6Picker) is the warming/error fallback so the slot is never
+  // blank. NOTE: the original "Tile 4: Cost & Timing" tile was removed — its IV-
+  // rank now lives in the picker's gate badge (per the Tile 4 build spec).
   const t4 = state.tile4Detail[row.ticker];
   const picker = (t4 && (t4.status === "ok" || t4.status === "stand_down"))
     ? renderTile4Picker(row, t4)
@@ -1593,9 +1595,8 @@ function renderAllTiles(row) {
     <div class="tile">${renderTile1Flow(row)}</div>
     <div class="tile">${renderTile2OI(row)}</div>
     <div class="tile tile--wide">${tile3}</div>
-    <div class="tile">${renderTile4Cost(row)}</div>
-    <div class="tile tile-confirmation">${renderTile5Confirmation(row)}</div>
     <div class="tile tile-picker">${picker}</div>
+    <div class="tile tile-confirmation">${renderTile5Confirmation(row)}</div>
   `;
 }
 
@@ -2843,7 +2844,7 @@ function renderTile6Picker(row) {
 
   return `
     <h3>
-      <span>Tile 6: Contract Picker</span>
+      <span>Tile 4: Contract Picker <span style="color:var(--axis);font-size:10px;font-weight:400;">(loading live data…)</span></span>
       <button class="help-icon" data-help="tile6">?</button>
     </h3>
     <div class="picker-scroll-hint">↔ swipe table to see Vol / OI / Spread / Structure</div>
