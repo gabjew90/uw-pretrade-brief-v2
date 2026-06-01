@@ -114,6 +114,43 @@ def test_admin_export_streams_data_dir_tar(client, tmp_data_dir, monkeypatch):
     assert any("marker.txt" in n for n in names)
 
 
+def test_archive_fallback_serves_last_good_when_live_fails(monkeypatch):
+    """When a tile build returns 'unavailable' from a live fetch (429/off-hours),
+    re-run it under cached_only so it serves the last-good tile from the parquet
+    archive — stale-marked. Kills the 'I don't see Tile 4' problem in prod."""
+    from server import main as main_mod, storage
+    calls = []
+
+    def build():
+        # 1st call (live): unavailable. 2nd call (cached_only): ok from archive.
+        if storage._CACHED_ONLY.get():
+            return {"status": "ok", "ticker": "NVDA", "contracts": [1]}
+        calls.append("live")
+        return {"status": "unavailable", "ticker": "NVDA", "reason": "429"}
+
+    out = main_mod._build_with_archive_fallback(build)
+    assert out["status"] == "ok"
+    assert out.get("stale") is True            # flagged as served-from-archive
+    assert calls == ["live"]                    # tried live first
+
+
+def test_archive_fallback_keeps_unavailable_when_archive_empty(monkeypatch):
+    from server import main as main_mod
+    out = main_mod._build_with_archive_fallback(
+        lambda: {"status": "unavailable", "ticker": "X", "reason": "429"})
+    assert out["status"] == "unavailable"       # archive had nothing either → honest
+
+
+def test_archive_fallback_skips_when_live_ok(monkeypatch):
+    from server import main as main_mod
+    n = []
+    out = main_mod._build_with_archive_fallback(
+        lambda: n.append(1) or {"status": "ok", "ticker": "X"})
+    assert out["status"] == "ok"
+    assert out.get("stale") is not True         # fresh live result, not stale
+    assert len(n) == 1                          # no second (fallback) call
+
+
 def test_health_returns_ok(client):
     r = client.get("/health")
     assert r.status_code == 200

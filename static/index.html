@@ -2951,9 +2951,12 @@ function renderTile4Picker(row, t4) {
       <th title="Flow · Campaign · Room · Target · Execution · Greeks">F C R T E G</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 
+  const staleTag = t4.stale
+    ? `<span style="font-size:9px;color:var(--warn);font-family:var(--ff-mono);border:1px solid var(--warn);border-radius:4px;padding:1px 5px;margin-left:8px;">STALE · last-good</span>`
+    : "";
   return `
     <h3>
-      <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker & Final Gate</span>
+      <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker & Final Gate${staleTag}</span>
       <button class="help-icon" data-help="tile4">?</button>
     </h3>
     ${badges}

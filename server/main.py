@@ -51,6 +51,22 @@ def _seed_cache_from_disk() -> None:
         log.warning("could not seed cache from disk: %s", e)
 
 
+def _build_with_archive_fallback(build_fn):
+    """Run a tile build (build_tile3_detail / build_tile4). If it comes back
+    'unavailable' (a live UW fetch failed — 429, off-hours, error), retry under
+    storage.cached_only() so it serves the LAST-GOOD tile from the captured
+    parquet archive, flagged stale. If the archive also has nothing, the honest
+    'unavailable' stands. This is what lets prod show real Tile 3/4 even while
+    rate-limited, instead of silently dropping to the old picker."""
+    out = build_fn()
+    if isinstance(out, dict) and out.get("status") == "unavailable":
+        with storage.cached_only():
+            fb = build_fn()
+        if isinstance(fb, dict) and fb.get("status") in ("ok", "stand_down"):
+            return {**fb, "stale": True}
+    return out
+
+
 def _replay_enabled() -> bool:
     """Local replay/dev mode: serve the whole dashboard from a captured DATA_DIR
     archive with NO live UW calls and NO background loop. Run offline anytime:
@@ -173,12 +189,14 @@ async def tile3_detail_route(ticker: str):
     flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
     direction = getattr(row, "direction", "calls") or "calls"
 
-    def _build():
+    def _run():
         if _replay_enabled():
             with storage.cached_only():
                 return tile3_detail.build_tile3_detail(t, flow_spot, direction)
-        return tile3_detail.build_tile3_detail(t, flow_spot, direction)
-    detail = await asyncio.to_thread(_build)
+        # Live-first, with archive fallback when the live fetch fails (429/off-hours).
+        return _build_with_archive_fallback(
+            lambda: tile3_detail.build_tile3_detail(t, flow_spot, direction))
+    detail = await asyncio.to_thread(_run)
     return JSONResponse(detail)
 
 
@@ -211,12 +229,12 @@ async def tile4_route(ticker: str):
         "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
         "put_wall": spot * (1 - wd / 100) if (spot and wd is not None) else None,
     }
-    def _build():
+    def _run():
         if _replay_enabled():
             with storage.cached_only():
                 return tile4.build_tile4(t, ctx)
-        return tile4.build_tile4(t, ctx)
-    detail = await asyncio.to_thread(_build)
+        return _build_with_archive_fallback(lambda: tile4.build_tile4(t, ctx))
+    detail = await asyncio.to_thread(_run)
     return JSONResponse(detail)
 
 
