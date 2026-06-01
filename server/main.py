@@ -175,46 +175,6 @@ async def tile4_route(ticker: str):
     return JSONResponse(detail)
 
 
-@app.get("/admin/uw-probe")
-async def admin_uw_probe(ticker: str, expiry: str | None = None, token: str | None = None):
-    """TEMPORARY diagnostic: dump RAW UW payloads (sample rows + keys) for the
-    Tile 4 endpoints so we can confirm real field names. Token-guarded (reuses
-    BACKFILL_TOKEN). Calls live UW directly (admin path, not the user request
-    path). Remove after fixing the parsing."""
-    expected = os.environ.get("BACKFILL_TOKEN")
-    if not expected or token != expected:
-        raise HTTPException(status_code=403, detail="forbidden")
-    from server import uw
-    t = ticker.upper()
-
-    def _probe():
-        out: dict = {"ticker": t}
-        # pick the nearest expiry from the chain if not given
-        chain = uw.fetch_option_contracts(t, 60)
-        crows = chain.get("data") if isinstance(chain, dict) else []
-        out["option_contracts_keys"] = sorted((crows[0] or {}).keys()) if crows else []
-        out["option_contracts_sample"] = crows[:2]
-        exp = expiry
-        if not exp and crows:
-            syms = [uw.parse_option_symbol(r.get("option_symbol")) for r in crows]
-            exps = sorted({s["expiry"] for s in syms if s})
-            exp = exps[0] if exps else None
-        out["expiry_used"] = exp
-        if exp:
-            gk = uw.fetch_greeks(t, exp)
-            grows = gk.get("data") if isinstance(gk, dict) else []
-            out["greeks_keys"] = sorted((grows[0] or {}).keys()) if grows else []
-            out["greeks_sample"] = grows[:2]
-            atm = uw.fetch_atm_chains(t, [exp])
-            arows = atm.get("data") if isinstance(atm, dict) else []
-            out["atm_chains_keys"] = sorted((arows[0] or {}).keys()) if arows else []
-            out["atm_chains_sample"] = arows[:2]
-        return out
-
-    try:
-        return JSONResponse(await asyncio.to_thread(_probe))
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=200)
 
 
 @app.get("/snapshot.json")

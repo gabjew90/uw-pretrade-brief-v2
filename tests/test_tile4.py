@@ -134,10 +134,18 @@ def stub4(monkeypatch):
     monkeypatch.setattr(storage, "fetch_option_contracts", lambda t, n=500: _chain())
     monkeypatch.setattr(storage, "fetch_interpolated_iv", lambda t, h=False: {"data": [{"percentile": 0.4, "days": 7}]})
     monkeypatch.setattr(storage, "fetch_volatility", lambda t, h=False: {"data": [{"dte": 5, "volatility": 0.30}, {"dte": 30, "volatility": 0.33}]})
-    monkeypatch.setattr(storage, "fetch_atm_chains", lambda t, exps: {"data": [{"straddle": 6.0}]})
+    # atm-chains: real shape = per-ATM-contract rows (call + put) w/ bid/ask +
+    # stock_price; NO 'straddle' field. Expected move derived = ATM call mid + put
+    # mid. Spot 100: C@100 mid 3.0 + P@100 mid 3.0 → straddle 6.0 → 6%.
+    monkeypatch.setattr(storage, "fetch_atm_chains", lambda t, exps: {"data": [
+        {"option_symbol": "SPY260605C00100000", "bid": "2.9", "ask": "3.1", "stock_price": "100"},
+        {"option_symbol": "SPY260605P00100000", "bid": "2.9", "ask": "3.1", "stock_price": "100"}]})
+    # greeks: real shape = one row per strike w/ separate call_/put_ columns.
     monkeypatch.setattr(storage, "fetch_greeks", lambda t, e: {"data": [
-        {"strike": "103", "delta": "0.45", "theta": "-0.10"},
-        {"strike": "108", "delta": "0.25", "theta": "-0.06"}]})
+        {"strike": "103", "call_delta": "0.45", "call_theta": "-0.10",
+         "put_delta": "-0.55", "put_theta": "-0.09"},
+        {"strike": "108", "call_delta": "0.25", "call_theta": "-0.06",
+         "put_delta": "-0.75", "put_theta": "-0.05"}]})
     monkeypatch.setattr(storage, "fetch_earnings", lambda t, h=False: {"data": []})
     monkeypatch.setattr(storage, "fetch_fda_calendar", lambda t: {"data": []})
 
@@ -171,3 +179,8 @@ def test_build_tile4_ok_scores_contracts_and_picks(stub4):
     assert out["expected_move_pct"] == pytest.approx(6.0)   # 6.0 straddle / 100 spot * 100
     assert out["recommendation"] is not None
     assert out["recommendation"]["strike"] == 103.0
+    # delta parsed from call_delta (not flat 'delta') → Greeks check evaluated
+    pick = out["recommendation"]
+    assert pick["delta"] == pytest.approx(0.45)
+    assert pick["checks"]["greeks"] == "pass"
+    assert pick["checks"]["target"] == "pass"

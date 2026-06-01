@@ -179,14 +179,29 @@ def _event_before(expiry: str, *payloads) -> bool | None:
 
 
 def _expected_move_pct(atm_payload, spot: float) -> float | None:
-    """Expected move % from the ATM straddle price (atm-chains). FIELD SHAPE
-    validated only against stubs — confirm the straddle key against live data."""
+    """Expected move % ≈ the ATM straddle. UW's atm-chains returns per-ATM-
+    contract rows (call + put) with bid/ask + option_symbol — NO straddle field —
+    so we derive it: ATM call mid + ATM put mid, picking the strikes nearest spot
+    on each side. (Verified against live TSLA payload 2026-06-01.)"""
     if not isinstance(atm_payload, dict) or spot <= 0:
         return None
+    best_call = best_put = None  # (|strike-spot|, mid)
     for r in (atm_payload.get("data") or []):
-        straddle = _f(r.get("straddle") or r.get("atm_straddle") or r.get("expected_move"))
-        if straddle and straddle > 0:
-            return straddle / spot * 100
+        parsed = uw.parse_option_symbol(r.get("option_symbol"))
+        if not parsed:
+            continue
+        bid, ask = _f(r.get("bid")), _f(r.get("ask"))
+        mid = ((bid + ask) / 2) if (bid is not None and ask is not None) else (ask or bid)
+        if not mid:
+            continue
+        dist = abs(parsed["strike"] - spot)
+        if parsed["type"] == "call" and (best_call is None or dist < best_call[0]):
+            best_call = (dist, mid)
+        elif parsed["type"] == "put" and (best_put is None or dist < best_put[0]):
+            best_put = (dist, mid)
+    if best_call and best_put:
+        straddle = best_call[1] + best_put[1]
+        return straddle / spot * 100 if straddle > 0 else None
     return None
 
 
@@ -264,11 +279,17 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
         mid = (bid + ask) / 2 or ask or bid
         spread_pct = ((ask - bid) / mid * 100) if mid else None
         gk = greeks_by_strike.get(r["strike"], {})
+        # UW greeks rows carry SEPARATE call_/put_ columns (not flat delta/theta);
+        # select the leg matching the trade direction. (Verified vs live payload.)
+        dpx = "call" if calls else "put"
+        delta = _f(gk.get(f"{dpx}_delta", gk.get("delta")))
+        theta = _f(gk.get(f"{dpx}_theta", gk.get("theta")))
+        gk_iv = _f(gk.get(f"{dpx}_volatility", gk.get("iv")))
         scored.append(score_contract({
             "strike": r["strike"], "type": r["type"], "premium": ask or mid or None,
-            "delta": _f(gk.get("delta")), "theta": _f(gk.get("theta")),
+            "delta": delta, "theta": theta,
             "spread_pct": round(spread_pct, 1) if spread_pct is not None else None,
-            "iv": (r.get("iv") or None) or _f(gk.get("iv")), "oi": r.get("oi"),
+            "iv": (r.get("iv") or None) or gk_iv, "oi": r.get("oi"),
         }, sctx))
 
     best = pick_best(scored)
