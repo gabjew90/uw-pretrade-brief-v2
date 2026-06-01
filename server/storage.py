@@ -595,6 +595,35 @@ def append_snapshot(snapshot: dict) -> bool:
         return False
 
 
+def read_last_snapshot() -> dict | None:
+    """Return the most recent persisted snapshot that HAS rows, as a dict (the
+    same shape append_snapshot stored, i.e. Snapshot.model_dump). Used to seed
+    the in-memory cache on cold-boot so a fresh container (off-hours, or while UW
+    is rate-limited) serves last-good data instead of a blank dashboard. Returns
+    None if the file is missing or every line is empty. Best-effort — never
+    raises."""
+    path = _snapshots_path()
+    if not path.exists():
+        return None
+    try:
+        last_good = None
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    snap = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(snap, dict) and snap.get("rows"):
+                    last_good = snap   # keep the latest non-empty
+        return last_good
+    except Exception as e:
+        log.warning("read_last_snapshot failed: %s", e)
+        return None
+
+
 def load_sticky() -> dict[str, str]:
     """Read sticky.json (ticker → ISO timestamp of last hot_15 appearance).
 

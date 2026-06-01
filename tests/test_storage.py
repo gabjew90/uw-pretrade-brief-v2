@@ -9,6 +9,26 @@ import pytest
 from server import storage
 
 
+def test_read_last_snapshot_returns_last_good_line(tmp_data_dir):
+    """Boot-seed: read the most recent snapshot WITH rows from snapshots.jsonl,
+    so a cold-boot can serve last-good data instead of blank."""
+    storage.append_snapshot({"fetched_at": "2026-06-01T14:00:00Z", "rows": [{"ticker": "AAA"}]})
+    storage.append_snapshot({"fetched_at": "2026-06-01T14:02:00Z", "rows": [{"ticker": "BBB"}]})
+    storage.append_snapshot({"fetched_at": "2026-06-01T14:04:00Z", "rows": []})  # later empty
+    snap = storage.read_last_snapshot()
+    assert snap is not None
+    assert snap["rows"][0]["ticker"] == "BBB"   # last NON-EMPTY, not the trailing empty one
+
+
+def test_read_last_snapshot_none_when_no_file(tmp_data_dir):
+    assert storage.read_last_snapshot() is None
+
+
+def test_read_last_snapshot_none_when_all_empty(tmp_data_dir):
+    storage.append_snapshot({"fetched_at": "x", "rows": []})
+    assert storage.read_last_snapshot() is None
+
+
 def test_cached_only_mode_never_calls_uw(tmp_data_dir, monkeypatch):
     """In cached-only mode (request path) a cache/parquet miss returns UWFailure
     WITHOUT calling UW — enforces 'live-ingest in loop, request path cached-only'."""

@@ -40,6 +40,35 @@ def client(tmp_data_dir, tmp_path, monkeypatch):
         yield c
 
 
+def test_seed_cache_from_disk_loads_last_good_snapshot(tmp_data_dir, monkeypatch):
+    """Cold-boot resilience: seed the in-memory cache from the last persisted
+    snapshot so a fresh container (off-hours / mid-outage) serves last-good data
+    instead of blank. The seeded snapshot is marked stale_since."""
+    from server import storage, main as main_mod
+    main_mod._snapshot_cache["latest"] = None
+    storage.append_snapshot({
+        "fetched_at": "2026-06-01T20:00:00+00:00",
+        "regime": {"label": "normal", "detail": "", "vix": 0.0},
+        "rows": [{"ticker": "AAA", "spot": 1.0, "direction": "calls",
+                  "gates": {"flow": "green", "oi": "green", "structural": "green", "cost": "green"},
+                  "gate_method": {"flow": "absolute", "oi": "absolute",
+                                  "structural": "absolute", "cost": "absolute"}}],
+        "stale_since": None,
+    })
+    main_mod._seed_cache_from_disk()
+    seeded = main_mod._snapshot_cache["latest"]
+    assert seeded is not None
+    assert seeded.rows[0].ticker == "AAA"
+    assert seeded.stale_since is not None        # marked stale (it's last-close data)
+
+
+def test_seed_cache_from_disk_noop_when_no_file(tmp_data_dir):
+    from server import main as main_mod
+    main_mod._snapshot_cache["latest"] = None
+    main_mod._seed_cache_from_disk()
+    assert main_mod._snapshot_cache["latest"] is None   # nothing to seed, stays empty
+
+
 def test_health_returns_ok(client):
     r = client.get("/health")
     assert r.status_code == 200

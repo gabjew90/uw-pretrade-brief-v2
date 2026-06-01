@@ -30,11 +30,35 @@ _REFRESH_INTERVAL_SECONDS = 120  # 15 tickers × 9 endpoints = 135 calls/cycle; 
 _CLOSED_RECHECK_SECONDS = 300
 
 
+def _seed_cache_from_disk() -> None:
+    """Seed the in-memory snapshot cache from the last persisted snapshot on
+    boot, so a cold-boot/redeploy (off-hours, or while UW is rate-limited) serves
+    last-good data instead of a blank dashboard. Marked stale_since since it's by
+    definition not a fresh live read. No-op if nothing is persisted yet."""
+    if _snapshot_cache.get("latest") is not None:
+        return
+    raw = storage.read_last_snapshot()
+    if not raw:
+        return
+    try:
+        snap = Snapshot.model_validate(raw)
+        if snap.stale_since is None:
+            snap.stale_since = datetime.now(tz=timezone.utc)
+        _snapshot_cache["latest"] = snap
+        log.info("seeded snapshot cache from disk: rows=%d fetched_at=%s",
+                 len(snap.rows), snap.fetched_at)
+    except Exception as e:
+        log.warning("could not seed cache from disk: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Restore today's UW call count from the volume so a cold-boot/redeploy
     # doesn't reset the budget meter to 0 (which masked the real cap 2026-06-01).
     budget.load_persisted()
+    # Seed the snapshot cache from the last persisted good snapshot, so a
+    # cold-boot serves last-close data instead of blank (off-hours / mid-outage).
+    _seed_cache_from_disk()
     task = asyncio.create_task(_refresh_loop())
     yield
     task.cancel()
