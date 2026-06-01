@@ -15,6 +15,8 @@ dashboard continues to render — losing archive coverage is preferable to
 crashing the snapshot pipeline.
 """
 from __future__ import annotations
+import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -32,6 +34,23 @@ from server import budget, uw
 from server.cache import TTLCache
 
 log = logging.getLogger(__name__)
+
+# Load-bearing rule: live UW ingestion happens ONLY in the background snapshot
+# loop; the production REQUEST PATH serves cached/parquet data only. Request
+# handlers wrap their work in `with storage.cached_only():` so a cache miss
+# returns a UWFailure instead of firing a synchronous UW call mid-request.
+_CACHED_ONLY: contextvars.ContextVar[bool] = contextvars.ContextVar("uw_cached_only", default=False)
+
+
+@contextlib.contextmanager
+def cached_only():
+    """Within this block, `_through` never calls UW — a cache/parquet miss yields
+    a UWFailure('cached-only'). Use on the request path; the loop omits it."""
+    token = _CACHED_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _CACHED_ONLY.reset(token)
 
 
 def _data_dir() -> Path:
@@ -119,6 +138,10 @@ _MEDIUM_ENDPOINTS = {
     "net_flow_expiry", "option_contract_history",
     # Tile 4
     "greeks", "atm_chains", "risk_reversal_skew", "realized_vol",
+    # Tile 3-detail (loop-prewarmed) — 5-min TTL so the per-cycle loop reuses the
+    # cache instead of re-fetching these heavy endpoints every 120s. The cost
+    # lever for the added budget is TTL, not ticker count.
+    "greek_exposure_expiry", "spot_exposures_expiry_strike",
 }
 _NEWS_ENDPOINTS = {"news_headlines"}
 # group_flow + lit_flow_recent fall through to the hot/sleeper default (is_hot
@@ -307,6 +330,12 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
     if parquet_hit is not None:
         _cache.set(key, parquet_hit, ttl_seconds=ttl)
         return parquet_hit
+
+    # 2a. Cached-only mode (request path): never call UW mid-request. A miss here
+    # means the loop hasn't warmed this yet → caller renders warming/unavailable.
+    if _CACHED_ONLY.get():
+        return UWFailure(endpoint=endpoint, ticker=ticker,
+                         message="cached-only: not yet warmed by the snapshot loop")
 
     # 2b. Soft budget guard: once today's UW calls cross the soft cap, shed every
     # NON-critical endpoint here — before hitting UW — so we glide to a stop on

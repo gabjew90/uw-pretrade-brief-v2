@@ -9,6 +9,41 @@ import pytest
 from server import storage
 
 
+def test_cached_only_mode_never_calls_uw(tmp_data_dir, monkeypatch):
+    """In cached-only mode (request path) a cache/parquet miss returns UWFailure
+    WITHOUT calling UW — enforces 'live-ingest in loop, request path cached-only'."""
+    from server import uw
+    storage._cache._store.clear()
+    called = []
+    monkeypatch.setattr(uw, "fetch_volatility", lambda t, date=None: called.append(t) or {"data": []})
+    with storage.cached_only():
+        result = storage.fetch_volatility("SPY", is_hot=True)
+    assert isinstance(result, storage.UWFailure)
+    assert "cached-only" in result.message.lower()
+    assert called == [], "request path must not hit UW"
+
+
+def test_cached_only_still_serves_warm_cache(tmp_data_dir, monkeypatch):
+    """Cached-only still returns a warm RAM/parquet hit — it only blocks the live
+    UW call, not cache reads."""
+    from server import uw
+    storage._cache._store.clear()
+    monkeypatch.setattr(uw, "fetch_volatility", lambda t, date=None: {"data": [{"warm": True}]})
+    storage.fetch_volatility("SPY", is_hot=True)            # loop path warms cache
+    with storage.cached_only():
+        result = storage.fetch_volatility("SPY", is_hot=True)
+    assert result == {"data": [{"warm": True}]}
+
+
+def test_loop_path_still_calls_uw_by_default(tmp_data_dir, monkeypatch):
+    from server import uw
+    storage._cache._store.clear()
+    called = []
+    monkeypatch.setattr(uw, "fetch_volatility", lambda t, date=None: called.append(t) or {"data": []})
+    storage.fetch_volatility("SPY", is_hot=True)            # no cached_only → live fetch
+    assert called == ["SPY"]
+
+
 def test_expiry_strike_passes_expirations_and_window_to_uw(tmp_data_dir, monkeypatch):
     from server import uw
     storage._cache._store.clear()

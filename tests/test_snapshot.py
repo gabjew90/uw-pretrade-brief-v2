@@ -62,7 +62,10 @@ def stub_uw(monkeypatch):
     monkeypatch.setattr(uw, "fetch_sector_tide",
                         lambda sector, date=None: {"data": [{"tide": 0.25}]})
     monkeypatch.setattr(uw, "fetch_option_contracts",
-                        lambda t, limit=500: {"data": [{"option_symbol": "X", "bid": 1, "ask": 2}]})
+                        lambda t, limit=500: {"data": [
+                            {"option_symbol": "NVDA300101C00100000",  # far-future expiry, parseable OCC
+                             "nbbo_bid": "1.51", "nbbo_ask": "1.55",
+                             "implied_volatility": "0.41", "volume": "100", "open_interest": "900"}]})
     monkeypatch.setattr(uw, "fetch_max_pain",
                         lambda t, date=None: {"data": [{"max_pain": 100}]})
     monkeypatch.setattr(uw, "fetch_net_prem_ticks",
@@ -84,6 +87,28 @@ def stub_uw(monkeypatch):
                             {"start_time": "2026-05-28T14:30:00Z",
                              "open": 100.0, "high": 101.0, "low": 99.5, "close": 100.5,
                              "volume": 12345}]})
+    # Tile 3-detail + Tile 4 endpoints (loop-prewarmed)
+    monkeypatch.setattr(uw, "fetch_greek_exposure_expiry",
+                        lambda t: {"data": [{"expiry": "2026-06-06", "dte": 5,
+                                             "call_charm": "1e8", "put_charm": "-5e7",
+                                             "call_vanna": "2e9", "put_vanna": "1e9"}]})
+    monkeypatch.setattr(uw, "fetch_spot_exposures_expiry_strike",
+                        lambda t, expirations, min_strike=None, max_strike=None:
+                        {"data": [{"expiry": "2026-06-06", "strike": "100",
+                                   "call_gamma_oi": "3e8", "put_gamma_oi": "-3e8",
+                                   "call_gamma_vol": "1e8", "put_gamma_vol": "-1e8"}]})
+    monkeypatch.setattr(uw, "fetch_greeks",
+                        lambda t, expiry: {"data": [{"strike": "100", "delta": "0.45", "theta": "-0.1"}]})
+    monkeypatch.setattr(uw, "fetch_atm_chains",
+                        lambda t, expirations: {"data": [{"straddle": 6.0}]})
+    monkeypatch.setattr(uw, "fetch_risk_reversal_skew",
+                        lambda t, expiry, delta=25: {"data": [{"risk_reversal": 0.1}]})
+    monkeypatch.setattr(uw, "fetch_realized_vol",
+                        lambda t: {"data": [{"realized": 0.28}]})
+    monkeypatch.setattr(uw, "fetch_stock_state",
+                        lambda t: {"data": [{"close": 100.0}]})
+    monkeypatch.setattr(uw, "fetch_fda_calendar",
+                        lambda t: {"data": []})
 
 
 async def test_refresh_snapshot_happy_path_assembles_15_rows(stub_uw, fresh_storage_state, tmp_data_dir):
@@ -96,6 +121,27 @@ async def test_refresh_snapshot_appends_to_jsonl(stub_uw, fresh_storage_state, t
     await snapshot.refresh_snapshot()
     jsonl = (tmp_data_dir / "snapshots.jsonl").read_text().strip().splitlines()
     assert len(jsonl) == 1
+
+
+async def test_loop_prewarms_tile4_so_cached_only_route_succeeds(stub_uw, fresh_storage_state, tmp_data_dir):
+    """After a refresh cycle the loop has ingested the tile4 endpoints, so a
+    CACHED-ONLY build (request path) returns ok — not unavailable. This is the
+    'live-ingest in loop, request path cached-only' contract end-to-end."""
+    from server import tile4
+    await snapshot.refresh_snapshot()
+    ctx = {"spot": 100.0, "direction": "calls", "flow_strikes": {100.0},
+           "oi_building": {100.0}, "call_wall": 108.0, "put_wall": 92.0}
+    with storage.cached_only():
+        out = tile4.build_tile4("NVDA", ctx)
+    assert out["status"] in ("ok", "stand_down"), out
+
+
+async def test_loop_prewarms_tile3_detail_for_cached_only(stub_uw, fresh_storage_state, tmp_data_dir):
+    from server import tile3_detail
+    await snapshot.refresh_snapshot()
+    with storage.cached_only():
+        out = tile3_detail.build_tile3_detail("NVDA", 100.0, "calls")
+    assert out["status"] == "ok", out
 
 
 async def test_refresh_snapshot_per_endpoint_failure_partial_row(stub_uw, fresh_storage_state,
@@ -126,11 +172,15 @@ async def test_refresh_snapshot_skips_unconsumed_endpoints(stub_uw, fresh_storag
     Each cycle previously fired ~5 ingest-only calls per ticker (×15) plus 4
     cross-ticker ones, helping blow UW Basic's 120/min · 40k/day budget → the
     429 cascade behind the 2026-05-29 outage. storage writes a parquet partition
-    only on a real UW call, so absence of the partition proves no call was made."""
+    only on a real UW call, so absence of the partition proves no call was made.
+
+    NOTE: option_contracts is NO LONGER here — it's consumed by Tile 4 (the
+    contract picker), which the loop now prewarms. This list is only the truly
+    unconsumed cross-ticker/per-ticker endpoints."""
     await snapshot.refresh_snapshot()
     unconsumed = [
         "group_flow", "lit_flow_recent", "seasonality_market", "seasonality_ticker",
-        "net_flow_expiry", "option_contracts", "max_pain", "net_prem_ticks",
+        "net_flow_expiry", "max_pain", "net_prem_ticks",
     ]
     for endpoint in unconsumed:
         hits = list(tmp_data_dir.glob(f"raw/endpoint={endpoint}/**/*.parquet"))

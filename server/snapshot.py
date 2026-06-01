@@ -73,6 +73,15 @@ async def refresh_snapshot() -> Snapshot:
         row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
         rows.append(row)
 
+    # 4b. Pre-warm the on-demand detail tiles (Tile 3 rich + Tile 4 picker) for
+    # hot_15, in the background loop. The /api/tile3 and /api/tile4 routes read
+    # cache-only, so this is what populates them — honoring "live-ingest in loop,
+    # request path cached-only". Best-effort; failures just leave a tile warming.
+    await asyncio.gather(*[
+        _prewarm_detail_tiles(row.ticker, row.spot, row.direction, loop=loop)
+        for row in rows if row.spot > 0
+    ], return_exceptions=True)
+
     # 5. Insights
     for row in rows:
         row.insights = Insights(**insights.generate_insights(row.model_dump()))
@@ -99,6 +108,21 @@ async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
         loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot)),
     ]
     await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _prewarm_detail_tiles(ticker: str, spot: float, direction: str, *, loop):
+    """Run the Tile 3-detail + Tile 4 builders in the loop so their UW fetches
+    populate the cache/parquet. The request-path routes then read cache-only.
+    Imported lazily to avoid a circular import (tile4 imports storage; snapshot
+    imports tile4 only here)."""
+    from server import tile3_detail, tile4
+    ctx = {"spot": spot, "direction": direction,
+           "flow_strikes": None, "oi_building": None, "call_wall": None, "put_wall": None}
+    await asyncio.gather(
+        loop.run_in_executor(_POOL, partial(tile3_detail.build_tile3_detail, ticker, spot, direction)),
+        loop.run_in_executor(_POOL, partial(tile4.build_tile4, ticker, ctx)),
+        return_exceptions=True,
+    )
 
 
 async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:

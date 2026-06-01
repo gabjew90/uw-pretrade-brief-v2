@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from server import backfill, budget, market_hours, tile3_detail, tile4
+from server import backfill, budget, market_hours, storage, tile3_detail, tile4
 from server import snapshot as snapshot_mod
 from server.schema import Snapshot
 
@@ -123,23 +123,28 @@ async def root():
 
 @app.get("/api/tile3/{ticker}")
 async def tile3_detail_route(ticker: str):
-    """On-demand rich Tile 3 (Phase 2): per-expiry gamma map + OI/Vol + drift,
-    fetched when a ticker is selected. Heavy UW calls fire here, not per-cycle.
-    spot/direction come from the cached snapshot row."""
+    """Rich Tile 3 (Phase 2): per-expiry gamma map + OI/Vol + drift. CACHE-ONLY
+    read — the snapshot loop ingests this data live; this route never calls UW
+    (a cold miss returns unavailable). spot/direction from the cached snapshot."""
     t = ticker.upper()
     snap = _snapshot_cache.get("latest")
     row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
     flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
     direction = getattr(row, "direction", "calls") or "calls"
-    detail = await asyncio.to_thread(tile3_detail.build_tile3_detail, t, flow_spot, direction)
+
+    def _build():
+        with storage.cached_only():
+            return tile3_detail.build_tile3_detail(t, flow_spot, direction)
+    detail = await asyncio.to_thread(_build)
     return JSONResponse(detail)
 
 
 @app.get("/api/tile4/{ticker}")
 async def tile4_route(ticker: str):
-    """On-demand Contract Picker & Final Gate. Reuses the cached snapshot row's
-    Tiles 1-3 outputs (direction, flow strikes, OI campaign, walls) and fetches
-    only the new vol/greeks/event data. See server/tile4.py."""
+    """Contract Picker & Final Gate. CACHE-ONLY read — the snapshot loop ingests
+    the vol/greeks/event data live; this route never calls UW (cold miss →
+    unavailable). Reuses the cached snapshot row's Tiles 1-3 outputs (direction,
+    flow strikes, OI campaign, walls). See server/tile4.py."""
     t = ticker.upper()
     snap = _snapshot_cache.get("latest")
     row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
@@ -163,7 +168,10 @@ async def tile4_route(ticker: str):
         "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
         "put_wall": spot * (1 - wd / 100) if (spot and wd is not None) else None,
     }
-    detail = await asyncio.to_thread(tile4.build_tile4, t, ctx)
+    def _build():
+        with storage.cached_only():
+            return tile4.build_tile4(t, ctx)
+    detail = await asyncio.to_thread(_build)
     return JSONResponse(detail)
 
 
