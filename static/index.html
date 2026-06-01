@@ -665,6 +665,57 @@
   .t3-prov { margin-top: 7px; font-size: 9.5px; color: var(--axis); }
   @media (max-width: 720px) { .t3-body { grid-template-columns: 1fr; } }
 
+  /* Tile 4 — Contract Picker & Final Gate (rich) */
+  .t4-badges { display: flex; gap: 8px; margin: 4px 0 10px; }
+  .t4-badge { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 7px 10px;
+    border-radius: 7px; border: 1px solid var(--grid); background: var(--bg); border-left-width: 3px; }
+  .t4-badge .b-l { font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.07em; }
+  .t4-badge .b-v { font-family: var(--ff-mono); font-weight: 700; font-size: 13px; color: var(--title); }
+  .t4-badge.green { border-left-color: var(--ok); }
+  .t4-badge.amber { border-left-color: var(--warn); }
+  .t4-badge.red   { border-left-color: var(--neg); }
+  .t4-badge.gray  { border-left-color: var(--axis); }
+  .t4-badge.red .b-v { color: var(--neg); }
+  .t4-term { border: 1px solid var(--grid); border-left-width: 3px; border-radius: 8px;
+    background: var(--bg); padding: 8px 10px; margin-bottom: 10px; }
+  .t4-term.amber { border-left-color: var(--warn); }
+  .t4-term.green { border-left-color: var(--ok); }
+  .t4-term.gray  { border-left-color: var(--axis); }
+  .t4-term-v { font-size: 11px; color: var(--text); margin-top: 5px; line-height: 1.45; }
+  .t4-term-na { font-size: 11px; color: var(--axis); padding: 12px; text-align: center; }
+  .t4-card { border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid var(--grid); }
+  .t4-card.pick { background: linear-gradient(135deg, rgba(122,162,247,0.14), rgba(122,162,247,0.04));
+    border-color: var(--pos); }
+  .t4-card.standdown { background: linear-gradient(135deg, rgba(247,118,142,0.14), transparent 70%);
+    border-color: var(--neg); }
+  .t4-card.none { background: var(--bg); }
+  .t4-card-h { font-family: var(--ff-mono); font-weight: 700; font-size: 15px; color: var(--title); letter-spacing: -0.01em; }
+  .t4-card.standdown .t4-card-h { color: var(--neg); }
+  .t4-card-ask { font-size: 13px; color: var(--text); margin-top: 4px; }
+  .t4-card-ask strong { color: var(--pos); font-family: var(--ff-mono); }
+  .t4-card-s { font-size: 11.5px; color: var(--text); margin-top: 4px; line-height: 1.5; }
+  .t4-card-stats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-family: var(--ff-mono);
+    font-size: 11px; color: var(--axis); }
+  .t4-card-stats span { white-space: nowrap; }
+  .t4-table-wrap { overflow-x: auto; }
+  .t4-table { width: 100%; border-collapse: collapse; font-family: var(--ff-mono); font-size: 11px; }
+  .t4-table th { color: var(--axis); font-weight: 500; text-align: right; padding: 4px 6px;
+    border-bottom: 1px solid var(--grid); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .t4-table th:first-child, .t4-table td:first-child { text-align: left; }
+  .t4-table td { padding: 5px 6px; text-align: right; color: var(--text); border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-variant-numeric: tabular-nums; }
+  .t4-table td.k { color: var(--title); font-weight: 600; }
+  .t4-table tr.ispick td { background: rgba(122,162,247,0.10); }
+  .t4-table tr.ispick td.k { color: var(--pos); }
+  .t4-table tr.demoted td { opacity: 0.5; }
+  .t4-table td.dots { letter-spacing: 1px; white-space: nowrap; }
+  .t4-table td.rj { text-align: left; color: var(--axis); font-size: 9.5px; max-width: 150px; white-space: normal; }
+  .t4-dot.pass { color: var(--ok); }
+  .t4-dot.fail { color: var(--neg); }
+  .t4-dot.unk  { color: var(--axis); }
+  .t4-legend { margin-top: 10px; font-size: 10px; color: var(--axis); line-height: 1.5; }
+  .t4-prov { margin-top: 7px; font-size: 9.5px; color: var(--axis); }
+
   /* Task 12: Tile 4 Cost & Timing — IVR gauge + curve indicator */
   .ivr-gauge {
     position: relative; height: 28px;
@@ -1261,7 +1312,8 @@ const ROWS = LIVE_ROWS;
  * ============================================================ */
 
 const state = { regime: "normal", selected: null, nothingToday: false, contractPickerShowThisWeek: false, searchQuery: "",
-  tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null };
+  tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
+  tile4Detail: {} };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
 (function setupDeepLink() {
   const urlT = new URLSearchParams(location.search).get('t');
@@ -1431,8 +1483,21 @@ function selectTicker(ticker) {
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
   fetchTile3Detail(ticker);          // async; re-renders Tile 3 when it lands
+  fetchTile4Detail(ticker);          // async; re-renders Tile 4 picker when it lands
   renderWatchlist();
   renderDeepDive();
+}
+
+/* On-demand Tile 4 (Contract Picker & Final Gate). Cache-only on the backend —
+ * the snapshot loop pre-warms it; this just reads. Re-renders when it lands. */
+function fetchTile4Detail(ticker) {
+  const cached = state.tile4Detail[ticker];
+  if (cached && cached !== "loading" && cached !== "error") return;
+  state.tile4Detail[ticker] = "loading";
+  fetch(`/api/tile4/${encodeURIComponent(ticker)}`)
+    .then(r => r.json())
+    .then(d => { state.tile4Detail[ticker] = d; if (state.selected === ticker) renderDeepDive(); })
+    .catch(() => { state.tile4Detail[ticker] = "error"; });
 }
 
 /* On-demand Tile 3 detail (Phase 2): per-expiry gamma map + OI/Vol + drift.
@@ -1518,13 +1583,19 @@ function renderAllTiles(row) {
   const tile3 = (detail && detail.status === "ok")
     ? renderTile3Rich(row, detail)
     : renderTile3Structural(row);
+  // Tile 4 (picker slot): rich Contract Picker when loaded; old synthetic picker
+  // as the warming/error fallback so the slot is never blank.
+  const t4 = state.tile4Detail[row.ticker];
+  const picker = (t4 && (t4.status === "ok" || t4.status === "stand_down"))
+    ? renderTile4Picker(row, t4)
+    : renderTile6Picker(row);
   return `
     <div class="tile">${renderTile1Flow(row)}</div>
     <div class="tile">${renderTile2OI(row)}</div>
     <div class="tile tile--wide">${tile3}</div>
     <div class="tile">${renderTile4Cost(row)}</div>
     <div class="tile tile-confirmation">${renderTile5Confirmation(row)}</div>
-    <div class="tile tile-picker">${renderTile6Picker(row)}</div>
+    <div class="tile tile-picker">${picker}</div>
   `;
 }
 
@@ -2795,6 +2866,137 @@ function renderTile6Picker(row) {
       ${footer} App does not execute — take ticker + strike + exp to your broker.
     </div>
   `;
+}
+
+/* ============================================================
+ * Tile 4 — Contract Picker & Final Gate (rich, on-demand /api/tile4)
+ * Gate badges · term-structure curve · recommendation/stand-down · scored chain.
+ * ============================================================ */
+
+function renderTile4Picker(row, t4) {
+  const g = row.gates.cost;   // keep the slot's gate dot consistent with the tile family
+  const gate = (state, label, val) => {
+    const cls = state === "block" ? "red" : state === "amber" ? "amber"
+      : state === "ok" || state === "green" ? "green" : "gray";
+    const txt = state === "unknown" ? "not checked" : (val != null ? val : state);
+    return `<div class="t4-badge ${cls}"><span class="b-l">${label}</span><span class="b-v">${txt}</span></div>`;
+  };
+  const gs = t4.gates || {};
+  const ivrVal = gs.iv_rank && gs.iv_rank.value != null ? `IVR ${Math.round(gs.iv_rank.value)}` : null;
+  const badges = `
+    <div class="t4-badges">
+      ${gate(gs.event && gs.event.state, "Event window", gs.event && gs.event.state === "ok" ? "clear" : null)}
+      ${gate(gs.iv_rank && gs.iv_rank.state, "IV rank", ivrVal)}
+    </div>`;
+
+  // Term-structure verdict panel + SVG
+  const term = gs.term_structure || {};
+  const termCls = term.state === "amber" ? "amber" : term.state === "green" ? "green" : "gray";
+  const termVerdict = term.state === "amber"
+    ? "Front-month vol is RICH vs back — you're paying a near-term premium. Caution."
+    : term.state === "green"
+    ? "Front-month vol is CHEAP vs back — a good time to buy premium."
+    : "Term structure not available.";
+  const termPanel = `
+    <div class="t4-term ${termCls}">
+      ${termCurveSvg(t4.term_curve || [], t4.expiry)}
+      <div class="t4-term-v">${termVerdict}</div>
+    </div>`;
+
+  // Recommendation card OR stand-down
+  let card;
+  if (t4.status === "stand_down") {
+    card = `<div class="t4-card standdown">
+      <div class="t4-card-h">⛔ STAND DOWN — no trade</div>
+      <div class="t4-card-s">${t4.reason || "A hard gate tripped."}</div>
+    </div>`;
+  } else if (t4.recommendation) {
+    const r = t4.recommendation;
+    const controls = (r.delta != null && r.premium) ? Math.abs(r.delta) * 100 * (row.spot || 0) : null;
+    card = `<div class="t4-card pick">
+      <div class="t4-card-h">★ ${row.ticker} ${t4.expiry} ${(r.strike).toFixed(0)}${t4.direction === "calls" ? "C" : "P"}</div>
+      <div class="t4-card-ask">ask <strong>$${(r.premium || 0).toFixed(2)}</strong>${controls ? ` · controls ~$${(controls/1000).toFixed(1)}k` : ""}</div>
+      <div class="t4-card-stats">
+        <span>Δ ${r.delta != null ? r.delta.toFixed(2) : "—"}</span>
+        <span>spread ${r.spread_pct != null ? r.spread_pct.toFixed(0) + "%" : "—"}</span>
+        <span>need ${r.be_move_pct != null ? r.be_move_pct.toFixed(1) + "%" : "—"} vs exp ${t4.expected_move_pct != null ? t4.expected_move_pct.toFixed(1) + "%" : "—"}</span>
+      </div>
+    </div>`;
+  } else {
+    card = `<div class="t4-card none">
+      <div class="t4-card-h">No qualifying contract</div>
+      <div class="t4-card-s">Every strike in range fails Target or Execution — needed move exceeds the week's expected move, or spreads/IV are too rich. Standing down beats forcing it.</div>
+    </div>`;
+  }
+
+  // Scored chain table
+  const dot = s => s === "pass" ? '<span class="t4-dot pass">●</span>'
+    : s === "fail" ? '<span class="t4-dot fail">○</span>'
+    : '<span class="t4-dot unk">·</span>';
+  const rows = (t4.contracts || []).map(c => {
+    const ch = c.checks || {};
+    const dots = ["flow", "campaign", "room", "target", "execution", "greeks"].map(k => dot(ch[k])).join("");
+    return `<tr class="${c.pick ? "ispick" : ""} ${c.eligible ? "" : "demoted"}">
+      <td class="k">${c.pick ? "★ " : ""}${(c.strike).toFixed(0)}</td>
+      <td>$${(c.premium != null ? c.premium : 0).toFixed(2)}</td>
+      <td>${c.delta != null ? c.delta.toFixed(2) : "—"}</td>
+      <td>${c.spread_pct != null ? c.spread_pct.toFixed(0) + "%" : "—"}</td>
+      <td>${c.be_move_pct != null ? c.be_move_pct.toFixed(1) + "%" : "—"}</td>
+      <td class="dots">${dots}</td>
+      <td class="rj">${c.eligible ? "" : (c.reason || "")}</td>
+    </tr>`;
+  }).join("");
+  const table = `<div class="t4-table-wrap"><table class="t4-table">
+    <thead><tr><th>strike</th><th>ask</th><th>Δ</th><th>spr</th><th>need</th>
+      <th title="Flow · Campaign · Room · Target · Execution · Greeks">F C R T E G</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+
+  return `
+    <h3>
+      <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker & Final Gate</span>
+      <button class="help-icon" data-help="tile4">?</button>
+    </h3>
+    ${badges}
+    ${termPanel}
+    ${card}
+    ${table}
+    <div class="t4-legend">● pass · ○ fail · · not checked &nbsp;|&nbsp; <strong>F</strong>low <strong>C</strong>ampaign <strong>R</strong>oom <strong>T</strong>arget <strong>E</strong>xecution <strong>G</strong>reeks. Target &amp; Execution are hard gates — fail either and a contract can't be the ★.</div>
+    <div class="t4-prov">🔵 LIVE · option-contracts + greeks + atm-chains + interpolated-iv + earnings/FDA. Recommends a contract; does not predict the outcome.</div>
+  `;
+}
+
+function termCurveSvg(curve, tradedExpiry) {
+  if (!curve || curve.length < 2) return `<div class="t4-term-na">term curve unavailable</div>`;
+  const W = 560, H = 90, padL = 30, padR = 10, padT = 10, padB = 16;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const dtes = curve.map(p => p.dte), ivs = curve.map(p => p.iv);
+  const minD = Math.min(...dtes), maxD = Math.max(...dtes) || 1;
+  const minV = Math.min(...ivs), maxV = Math.max(...ivs);
+  const vSpan = (maxV - minV) || 1, dSpan = (maxD - minD) || 1;
+  const x = d => padL + innerW * (Math.log(d + 1) - Math.log(minD + 1)) / (Math.log(maxD + 1) - Math.log(minD + 1));
+  const y = v => padT + innerH * (1 - (v - minV) / vSpan);
+  const pts = curve.map(p => `${x(p.dte).toFixed(1)},${y(p.iv).toFixed(1)}`).join(" ");
+  // back-month reference = average IV of the longer-dated half
+  const back = ivs.slice(Math.floor(ivs.length / 2));
+  const backAvg = back.reduce((a, b) => a + b, 0) / back.length;
+  const yBack = y(backAvg);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:90px;display:block;">`;
+  svg += `<line x1="${padL}" x2="${W - padR}" y1="${yBack.toFixed(1)}" y2="${yBack.toFixed(1)}" stroke="var(--axis)" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>`;
+  svg += `<text x="${W - padR}" y="${(yBack - 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-size="8" font-family="JetBrains Mono,monospace">back avg ${backAvg.toFixed(0)}</text>`;
+  svg += `<polyline points="${pts}" fill="none" stroke="var(--hot)" stroke-width="2"/>`;
+  for (const p of curve) svg += `<circle cx="${x(p.dte).toFixed(1)}" cy="${y(p.iv).toFixed(1)}" r="2" fill="var(--hot)"/>`;
+  // mark the traded expiry
+  const traded = curve.find(p => true);
+  if (curve[0]) {
+    const tx = x(curve[0].dte), ty = y(curve[0].iv);
+    svg += `<circle cx="${tx.toFixed(1)}" cy="${ty.toFixed(1)}" r="3.5" fill="none" stroke="var(--warn)" stroke-width="1.5"/>`;
+    svg += `<text x="${tx.toFixed(1)}" y="${(ty - 6).toFixed(1)}" text-anchor="middle" fill="var(--warn)" font-size="8" font-family="JetBrains Mono,monospace">this wk</text>`;
+  }
+  // y labels
+  svg += `<text x="2" y="${(padT + 6)}" fill="var(--axis)" font-size="8" font-family="JetBrains Mono,monospace">${maxV.toFixed(0)}</text>`;
+  svg += `<text x="2" y="${(padT + innerH)}" fill="var(--axis)" font-size="8" font-family="JetBrains Mono,monospace">${minV.toFixed(0)}</text>`;
+  svg += `</svg>`;
+  return svg;
 }
 
 /* ============================================================

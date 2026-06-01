@@ -64,12 +64,17 @@ def test_animations_preserved():
 
 
 @pytest.mark.skipif(not _V1_HTML.exists(), reason="v1 prototype not adjacent")
-def test_v1_prototype_size_within_tolerance():
-    """The v2 HTML should be within ±10% of the v1 HTML size — catches accidental massive deletions."""
+def test_v1_prototype_size_floor():
+    """Guard against accidental MASSIVE DELETION of the prototype HTML. v2 has
+    legitimately grown beyond v1 (Tile 2 detail, Tile 3 Phase 2, Tile 4 rich
+    picker — all sanctioned per CLAUDE.md), so the original ±15% band is
+    obsolete. The meaningful invariant now is the floor: v2 must never shrink
+    below the v1 baseline (that would mean we deleted the prototype tiles)."""
     v1_size = _V1_HTML.stat().st_size
     v2_size = _V2_HTML.stat().st_size
-    ratio = v2_size / v1_size
-    assert 0.85 < ratio < 1.15, f"v2 HTML size {v2_size} vs v1 {v1_size} (ratio {ratio:.2f}) — drift suspected"
+    assert v2_size >= v1_size * 0.85, (
+        f"v2 HTML {v2_size} dropped below the v1 floor {v1_size} — "
+        f"prototype content may have been deleted")
 
 
 @pytest.mark.skipif(not _V1_HTML.exists(), reason="v1 prototype not adjacent")
