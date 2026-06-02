@@ -19,9 +19,11 @@ caching for budget — this is about HONESTY, not eliminating the caching.
   handle exposes `summary()`.
 - `record(endpoint, observed_at, provenance)`: appends to the active collector
   (no-op if none active — so non-build calls are unaffected).
-- `summary()` → `{as_of: min(observed_at) or None, provenance: worst-severity,
-  n_live, n_cache, n_archive, oldest_endpoint}`. Severity order: archive > cache
-  > live (worst wins).
+- `summary()` → `{as_of: min(observed_at) or None, data_provenance: worst-severity,
+  n_live, n_cache, n_archive}`. Severity order: archive > cache > live (worst
+  wins). (`oldest_endpoint` was considered but DEFERRED with the per-field
+  breakdown — `record()` takes `endpoint` for that future use, but the summary
+  does not expose it yet.)
 
 ## storage._through reports freshness
 
