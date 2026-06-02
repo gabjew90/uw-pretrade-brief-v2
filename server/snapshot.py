@@ -94,6 +94,26 @@ async def refresh_snapshot() -> Snapshot:
     return snap
 
 
+async def build_single_row(ticker: str) -> Row | None:
+    """Build a full dashboard row for ANY ticker on demand (search-any-ticker).
+    Reuses _build_dashboard_row — the same row the hot-15 get. Fetches the
+    ticker's own flow first (a non-hot ticker may have none → flow_info zeros,
+    Tile 1 quiet). Returns None only if the row build itself fails."""
+    ticker = ticker.upper()
+    loop = asyncio.get_running_loop()
+    flow_alerts = await loop.run_in_executor(
+        _POOL, partial(storage.fetch_flow_alerts, 100, ticker))
+    if isinstance(flow_alerts, storage.UWFailure):
+        flow_by_ticker = {}
+    else:
+        flow_by_ticker = _aggregate_flow_per_ticker(flow_alerts, [ticker])
+    flow_info = flow_by_ticker.get(ticker, {"alerts": 0, "premium_usd": 0.0,
+                                            "rank_cross": 50, "spot": 0.0})
+    row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
+    row.insights = Insights(**insights.generate_insights(row.model_dump()))
+    return row
+
+
 async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
     """Fetch all per-ticker endpoints; storage.fetch_* writes parquet on cache miss."""
     tasks = [

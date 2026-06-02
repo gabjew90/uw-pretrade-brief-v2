@@ -114,6 +114,31 @@ def test_admin_export_streams_data_dir_tar(client, tmp_data_dir, monkeypatch):
     assert any("marker.txt" in n for n in names)
 
 
+def test_lookup_route_builds_row_for_arbitrary_ticker(client, monkeypatch):
+    from types import SimpleNamespace
+    from server import snapshot as snap_mod, main as main_mod
+
+    async def fake_build(ticker):
+        return SimpleNamespace(ticker=ticker.upper(),
+                               model_dump=lambda mode=None: {"ticker": ticker.upper(), "spot": 42.0})
+    monkeypatch.setattr(snap_mod, "build_single_row", fake_build)
+    r = client.get("/api/lookup/roku")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ticker"] == "ROKU" and body["spot"] == 42.0
+
+
+def test_lookup_route_unavailable_when_build_fails(client, monkeypatch):
+    from server import snapshot as snap_mod
+
+    async def fake_build(ticker):
+        return None
+    monkeypatch.setattr(snap_mod, "build_single_row", fake_build)
+    r = client.get("/api/lookup/ZZZZ")
+    assert r.status_code == 200
+    assert r.json()["status"] == "unavailable"
+
+
 def test_archive_fallback_serves_last_good_when_live_fails(monkeypatch):
     """When a tile build returns 'unavailable' from a live fetch (429/off-hours),
     re-run it under cached_only so it serves the last-good tile from the parquet

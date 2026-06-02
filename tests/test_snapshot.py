@@ -18,20 +18,22 @@ def stub_uw(monkeypatch):
     """Patch UW client layer (not storage layer), so storage._through runs and
     writes parquet naturally."""
     from server import uw
-    monkeypatch.setattr(uw, "fetch_flow_alerts",
-                        lambda limit=100: {"data": [
-                            {"ticker": t, "underlying_price": "100.0",
-                             "type": "call", "strike": "100", "total_premium": "1000",
-                             "total_ask_side_prem": "800", "total_bid_side_prem": "200",
-                             "has_sweep": False, "has_singleleg": True,
-                             "has_multileg": False, "total_size": 10,
-                             "expiry": "2026-06-06", "option_chain": f"{t}260606C00100000",
-                             "created_at": "2026-05-28T14:30:00Z",
-                             "all_opening_trades": True, "volume_oi_ratio": "0.3",
-                             "volume": 2442, "open_interest": 7913}
-                            for t in ["NVDA", "TSLA", "AMD", "PLTR", "AMC",
-                                      "AAPL", "GOOGL", "MSFT", "META", "NFLX",
-                                      "AMZN", "F", "BAC", "WMT", "JPM"]]})
+    def _flow(ticker=None, limit=100):
+        names = [ticker] if ticker else ["NVDA", "TSLA", "AMD", "PLTR", "AMC",
+                                         "AAPL", "GOOGL", "MSFT", "META", "NFLX",
+                                         "AMZN", "F", "BAC", "WMT", "JPM"]
+        return {"data": [
+            {"ticker": t, "underlying_price": "100.0",
+             "type": "call", "strike": "100", "total_premium": "1000",
+             "total_ask_side_prem": "800", "total_bid_side_prem": "200",
+             "has_sweep": False, "has_singleleg": True,
+             "has_multileg": False, "total_size": 10,
+             "expiry": "2026-06-06", "option_chain": f"{t}260606C00100000",
+             "created_at": "2026-05-28T14:30:00Z",
+             "all_opening_trades": True, "volume_oi_ratio": "0.3",
+             "volume": 2442, "open_interest": 7913}
+            for t in names]}
+    monkeypatch.setattr(uw, "fetch_flow_alerts", _flow)
     monkeypatch.setattr(uw, "fetch_spot_exposures_strike",
                         lambda t, date=None, min_strike=None, max_strike=None:
                         {"data": [{"strike": 100.0,
@@ -115,6 +117,25 @@ async def test_refresh_snapshot_happy_path_assembles_15_rows(stub_uw, fresh_stor
     snap = await snapshot.refresh_snapshot()
     assert len(snap.rows) == 15
     assert snap.rows[0].ticker == "NVDA"
+
+
+async def test_build_single_row_for_arbitrary_ticker(stub_uw, fresh_storage_state, tmp_data_dir):
+    """On-demand full dashboard row for any ticker (search-any-ticker). Reuses the
+    snapshot row builder; works even for a ticker not in the hot list."""
+    row = await snapshot.build_single_row("ROKU")
+    assert row is not None
+    assert row.ticker == "ROKU"
+    assert row.gates is not None and row.tile2 is not None   # full row, all tiles
+    assert hasattr(row, "spot")
+
+
+async def test_build_single_row_no_flow_still_builds(stub_uw, fresh_storage_state, tmp_data_dir, monkeypatch):
+    """A searched ticker may have NO flow — the row still builds (Tile 1 quiet)."""
+    from server import uw
+    monkeypatch.setattr(uw, "fetch_flow_alerts", lambda ticker=None, limit=50: {"data": []})
+    row = await snapshot.build_single_row("ZZZZ")
+    assert row is not None and row.ticker == "ZZZZ"
+    assert row.flow.alerts == 0   # no flow → quiet, not a crash
 
 
 async def test_refresh_snapshot_appends_to_jsonl(stub_uw, fresh_storage_state, tmp_data_dir):

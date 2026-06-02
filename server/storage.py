@@ -474,11 +474,15 @@ def fetch_earnings(ticker: str, is_hot: bool = False):
                     lambda: uw.fetch_earnings(ticker))
 
 
-def fetch_flow_alerts(limit: int = 100):
+def fetch_flow_alerts(limit: int = 100, ticker: str | None = None):
     # Cross-ticker endpoint; treated as "hot" (60s TTL) since hot-list computation
-    # is on the critical path every snapshot.
-    return _through("flow_alerts", None, {"limit": limit}, True,
-                    lambda: uw.fetch_flow_alerts(limit=limit))
+    # is on the critical path every snapshot. With `ticker`, filtered to that
+    # symbol — used by the on-demand search-any-ticker lookup.
+    params = {"limit": limit}
+    if ticker:
+        params["ticker"] = ticker
+    return _through("flow_alerts", ticker, params, True,
+                    lambda: uw.fetch_flow_alerts(ticker=ticker, limit=limit))
 
 
 def fetch_market_tide():

@@ -132,7 +132,7 @@ def test_budget_guard_whitelists_flow_alerts(tmp_data_dir, monkeypatch):
     monkeypatch.setattr(budget, "over_soft_budget", lambda *a, **k: True)
     called = []
     monkeypatch.setattr(uw, "fetch_flow_alerts",
-                        lambda limit=100: called.append(1) or {"data": [{"ticker": "SPY"}]})
+                        lambda ticker=None, limit=100: called.append(1) or {"data": [{"ticker": "SPY"}]})
 
     result = storage.fetch_flow_alerts(100)
     assert called, "flow_alerts must call through despite the budget guard"

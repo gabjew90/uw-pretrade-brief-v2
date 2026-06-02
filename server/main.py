@@ -254,6 +254,28 @@ async def tile4_route(ticker: str):
     return JSONResponse(detail)
 
 
+@app.get("/api/lookup/{ticker}")
+async def lookup_route(ticker: str):
+    """Search-any-ticker: build a FULL dashboard row for an arbitrary ticker on
+    demand (~15 UW calls) and return it in the same shape as a snapshot row. The
+    frontend injects it into ROWS and selects it, so it behaves like a hot
+    ticker. In REPLAY mode the build reads the captured archive (cached_only)."""
+    t = ticker.upper()
+    try:
+        if _replay_enabled():
+            with storage.cached_only():
+                row = await snapshot_mod.build_single_row(t)
+        else:
+            row = await snapshot_mod.build_single_row(t)
+    except Exception as e:
+        log.warning("lookup %s failed: %s", t, e)
+        return JSONResponse({"status": "unavailable", "ticker": t, "reason": str(e)})
+    if row is None:
+        return JSONResponse({"status": "unavailable", "ticker": t,
+                             "reason": "no data for this ticker"})
+    return JSONResponse(row.model_dump(mode="json"))
+
+
 @app.get("/snapshot.json")
 async def snapshot_json():
     snap = _snapshot_cache.get("latest")

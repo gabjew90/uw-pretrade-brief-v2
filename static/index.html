@@ -1331,7 +1331,7 @@ const ROWS = LIVE_ROWS;
 
 const state = { regime: "normal", selected: null, nothingToday: false, contractPickerShowThisWeek: false, searchQuery: "",
   tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
-  tile4Detail: {} };
+  tile4Detail: {}, lookups: {} };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
 (function setupDeepLink() {
   const urlT = new URLSearchParams(location.search).get('t');
@@ -1443,12 +1443,14 @@ function renderWatchlist() {
     renderNothingTodayCard();
     return;
   }
-  // Empty state when search yields no matches
+  // Empty state when search yields no matches — offer an on-demand lookup.
   if (visibleRows.length === 0 && state.searchQuery) {
+    const q = state.searchQuery.trim().toUpperCase();
+    const valid = /^[A-Z.]{1,6}$/.test(q);
     wl.innerHTML = `
       <div class="watchlist-empty">
-        <strong>No ticker matching "${state.searchQuery}"</strong> in today's hot list.<br>
-        In production, search would fetch on-demand from /api/option-trades/flow-alerts?ticker_symbol=${state.searchQuery}.
+        <strong>"${q}" isn't in today's hot list.</strong><br>
+        ${valid ? `Press <kbd>Enter</kbd> to look up <strong>${q}</strong> — builds its full dashboard on demand.` : "Type a ticker symbol to search."}
       </div>`;
     return;
   }
@@ -1565,6 +1567,37 @@ document.getElementById("watchlist-search-input").addEventListener("input", (e) 
   renderWatchlist();
   renderDeepDive();
 });
+// Enter on a symbol NOT in the hot-15 → look it up on demand (build full row).
+document.getElementById("watchlist-search-input").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const q = (e.target.value || "").trim().toUpperCase();
+  if (!q || !/^[A-Z.]{1,6}$/.test(q)) return;
+  if (ROWS.find(r => r.ticker === q)) { selectTicker(q); return; }  // already tracked
+  lookupTicker(q);
+});
+
+/* Search-any-ticker: build a full dashboard row on demand for a symbol not in
+ * today's hot list, inject it into ROWS, and select it so it behaves like a hot
+ * ticker. Deliberate (Enter only) — ~15 UW calls per lookup. */
+function lookupTicker(ticker) {
+  if (state.lookups[ticker] === "loading") return;
+  state.lookups[ticker] = "loading";
+  state.selected = ticker;          // show the looking-up state in the deep-dive
+  renderWatchlist();
+  renderDeepDive();
+  fetch(`/api/lookup/${encodeURIComponent(ticker)}`)
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.status === "unavailable") { state.lookups[ticker] = "error"; }
+      else if (d && d.ticker) {
+        d.__lookedup = true;                       // mark: not flow-surfaced
+        if (!ROWS.find(r => r.ticker === d.ticker)) ROWS.push(d);
+        state.lookups[ticker] = "ok";
+      } else { state.lookups[ticker] = "error"; }
+      if (state.selected === ticker) { selectTicker(ticker); }
+    })
+    .catch(() => { state.lookups[ticker] = "error"; if (state.selected === ticker) renderDeepDive(); });
+}
 document.getElementById("watchlist-search-clear").addEventListener("click", () => {
   state.searchQuery = "";
   document.getElementById("watchlist-search-input").value = "";
@@ -1590,8 +1623,17 @@ function renderDeepDive() {
     return;
   }
   const row = ROWS.find(r => r.ticker === state.selected);
-  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span> <span style="color:var(--axis);font-size:11px;margin-left:6px;">${row.direction.toUpperCase()}</span>`;
-  // Tile rendering inserted in later tasks
+  if (!row) {
+    // Searched ticker not in ROWS yet — on-demand lookup in flight or failed.
+    const st = state.lookups[state.selected];
+    titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;color:var(--title);text-transform:none;">${state.selected}</span>`;
+    c.innerHTML = st === "error"
+      ? `<div class="deepdive-empty"><strong>Couldn't look up ${state.selected}.</strong><br>It may be rate-limited or have no options data right now. Try again during market hours.</div>`
+      : `<div class="deepdive-empty"><strong>Looking up ${state.selected}…</strong><br>Building the full dashboard on demand — gamma map, OI, contract picker. One moment.</div>`;
+    return;
+  }
+  const lu = row.__lookedup ? ` <span style="color:var(--warn);font-size:9px;border:1px solid var(--warn);border-radius:4px;padding:1px 5px;">LOOKED UP · not in today's hot list</span>` : "";
+  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span> <span style="color:var(--axis);font-size:11px;margin-left:6px;">${row.direction.toUpperCase()}</span>${lu}`;
   c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
 }
 
