@@ -370,10 +370,11 @@ def test_parquet_read_returns_fresh_row(tmp_data_dir, fresh_cache):
         status_code=200, latency_ms=100,
         fetched_at=datetime.now(tz=timezone.utc),
     )
-    hit = storage._read_latest_from_parquet(
+    hit, fetched_at = storage._read_latest_from_parquet(
         "spot_exposures_strike", "NVDA", None, max_age_seconds=300
     )
     assert hit == {"data": [{"strike": 100}]}
+    assert fetched_at is not None
 
 
 def test_parquet_read_skips_stale_rows(tmp_data_dir, fresh_cache):
@@ -386,10 +387,11 @@ def test_parquet_read_skips_stale_rows(tmp_data_dir, fresh_cache):
         fetched_at=datetime.now(tz=timezone.utc) - timedelta(minutes=30),
     )
     # Asking for max-age 5min should reject the 30-min-old row
-    hit = storage._read_latest_from_parquet(
+    hit, fetched_at = storage._read_latest_from_parquet(
         "oi_per_strike", "TSLA", None, max_age_seconds=300
     )
     assert hit is None
+    assert fetched_at is None
 
 
 def test_through_skips_uw_when_parquet_has_fresh_row(tmp_data_dir, fresh_cache, monkeypatch):
@@ -449,3 +451,64 @@ def test_read_oi_history_caps_at_n_sessions(tmp_data_dir):
 
 def test_read_oi_history_empty_when_no_archive(tmp_data_dir):
     assert storage.read_oi_history("NOPE", n_sessions=5) == []
+
+
+# ── Freshness provenance tests ────────────────────────────────────────────────
+
+
+def test_through_records_live_provenance(tmp_data_dir):
+    from server import freshness
+    storage._cache._store.clear()
+    with freshness.collect() as fc:
+        out = storage._through("realized_vol", "SPY", None, False,
+                               lambda: {"data": [{"x": 1}]})
+        s = fc.summary()
+    assert out == {"data": [{"x": 1}]}
+    assert s["n_live"] == 1 and s["data_provenance"] == "live"
+    assert s["as_of"] is not None   # stamped ~now
+
+
+def test_through_ram_hit_records_cache_with_original_observed_at(tmp_data_dir):
+    from server import freshness
+    storage._cache._store.clear()
+    obs = datetime(2026, 6, 2, 13, 0, tzinfo=timezone.utc)
+    key = storage._make_key("realized_vol", "SPY", None)
+    storage._cache.set(key, {"data": [1]}, ttl_seconds=60, observed_at=obs)
+    with freshness.collect() as fc:
+        out = storage._through("realized_vol", "SPY", None, False, lambda: None)
+        s = fc.summary()
+    assert out == {"data": [1]}
+    assert s["data_provenance"] == "cache"
+    assert s["as_of"] == obs.isoformat()   # ORIGINAL pull time, not cache-set time
+
+
+def test_through_archive_provenance_in_cached_only(tmp_data_dir):
+    from datetime import timedelta
+    from server import freshness
+    storage._cache._store.clear()
+    old = datetime.now(tz=timezone.utc).replace(microsecond=0) - timedelta(hours=2)
+    storage.write_response("realized_vol", "SPY", None, {"data": [9]},
+                           status_code=200, latency_ms=1, fetched_at=old)
+    storage._cache._store.clear()
+    with freshness.collect() as fc, storage.cached_only():
+        out = storage._through("realized_vol", "SPY", None, False, lambda: None)
+        s = fc.summary()
+    assert out == {"data": [9]}
+    assert s["data_provenance"] == "archive"
+    # as_of reflects the aged parquet row, not now
+    assert s["as_of"].startswith(old.isoformat()[:16])
+
+
+def test_through_within_ttl_parquet_hit_records_cache(tmp_data_dir):
+    from server import freshness
+    storage._cache._store.clear()
+    fresh_ts = datetime.now(tz=timezone.utc)
+    storage.write_response("realized_vol", "SPY", None, {"data": [7]},
+                           status_code=200, latency_ms=1, fetched_at=fresh_ts)
+    storage._cache._store.clear()
+    with freshness.collect() as fc:
+        out = storage._through("realized_vol", "SPY", None, False, lambda: None)
+        s = fc.summary()
+    assert out == {"data": [7]}
+    # a within-TTL parquet hit (NOT cached_only) is "cache", not "archive"
+    assert s["data_provenance"] == "cache"
