@@ -30,7 +30,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from server import budget, uw
+from server import budget, freshness, uw
 from server.cache import TTLCache
 
 log = logging.getLogger(__name__)
@@ -189,10 +189,10 @@ def _make_key(endpoint: str, ticker: str | None, params: dict | None) -> tuple:
 
 def _read_latest_from_parquet(
     endpoint: str, ticker: str | None, params: dict | None, max_age_seconds: float
-) -> Any | None:
+) -> tuple[Any, Any]:
     """Look for the most recent matching row in the parquet archive whose
-    fetched_at is within `max_age_seconds` of now. Returns the deserialized
-    response if a fresh row exists, else None.
+    fetched_at is within `max_age_seconds` of now. Returns a
+    (response, fetched_at) tuple if a fresh row exists, else (None, None).
 
     Scans today's hour-partition files newest-first; also peeks at the most
     recent file from yesterday's partition if today's holds nothing fresh
@@ -241,12 +241,14 @@ def _read_latest_from_parquet(
                     sort_keys=[("fetched_at", "descending")],
                 )[0].as_py()
                 response_str = filtered["response"][latest_idx].as_py()
-                return json.loads(response_str)
+                fetched_at = filtered["fetched_at"][latest_idx].as_py()
+                # pyarrow returns a tz-aware datetime for timestamp("us", tz="UTC")
+                return json.loads(response_str), fetched_at
             except Exception as e:
                 log.warning("parquet read failed: %s/%s @ %s: %s",
                             endpoint, ticker, path.name, e)
                 continue
-    return None
+    return None, None
 
 
 def read_oi_history(ticker: str, n_sessions: int = 5) -> list[dict]:
@@ -324,17 +326,23 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
     ttl = _ttl_seconds(endpoint, is_hot)
 
     # 1. RAM cache (fastest path)
-    cached = _cache.get(key)
+    cached, cached_observed_at = _cache.get(key)
     if cached is not None:
+        freshness.record(endpoint, cached_observed_at, "cache")
         return cached
 
     # 2. Parquet cache (persistent, survives restarts). In cached-only (replay)
     # mode we ignore the TTL — replay reads captured archives that are hours/days
     # old, and freshness is irrelevant when there's no live UW to fall back to.
-    max_age = None if _CACHED_ONLY.get() else ttl
-    parquet_hit = _read_latest_from_parquet(endpoint, ticker, params, max_age_seconds=max_age)
+    replay = _CACHED_ONLY.get()
+    max_age = None if replay else ttl
+    parquet_hit, parquet_fetched_at = _read_latest_from_parquet(
+        endpoint, ticker, params, max_age_seconds=max_age)
     if parquet_hit is not None:
-        _cache.set(key, parquet_hit, ttl_seconds=ttl)
+        _cache.set(key, parquet_hit, ttl_seconds=ttl, observed_at=parquet_fetched_at)
+        # A within-TTL hit is "cache"; an aged hit served only because we're in
+        # replay/cached-only is "archive" (honestly old).
+        freshness.record(endpoint, parquet_fetched_at, "archive" if replay else "cache")
         return parquet_hit
 
     # 2a. Cached-only mode (request path): never call UW mid-request. A miss here
@@ -359,12 +367,13 @@ def _through(endpoint: str, ticker: str | None, params: dict | None, is_hot: boo
     except uw.UWError as e:
         return UWFailure(endpoint=endpoint, ticker=ticker, message=str(e))
     latency_ms = int((time.monotonic() - started_at) * 1000)
+    now = datetime.now(tz=timezone.utc)
     write_response(
         endpoint=endpoint, ticker=ticker, params=params, response=response,
-        status_code=200, latency_ms=latency_ms,
-        fetched_at=datetime.now(tz=timezone.utc),
+        status_code=200, latency_ms=latency_ms, fetched_at=now,
     )
-    _cache.set(key, response, ttl_seconds=ttl)
+    _cache.set(key, response, ttl_seconds=ttl, observed_at=now)
+    freshness.record(endpoint, now, "live")
     return response
 
 

@@ -10,6 +10,7 @@ See spec §7 for the full sequence. Key responsibilities:
 """
 from __future__ import annotations
 import asyncio
+import contextvars
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -27,13 +28,26 @@ log = logging.getLogger(__name__)
 _POOL = ThreadPoolExecutor(max_workers=8)
 
 
+def _in_ctx(loop, fn):
+    """Submit `fn` to the shared pool, carrying the CALLER's contextvars into the
+    worker thread. asyncio's run_in_executor does NOT propagate context, so the
+    request path's `storage.cached_only()` guard and the freshness collector
+    (both contextvars) would be invisible inside pool threads without this — the
+    bug that made replay search-any-ticker fetch live (degraded) and dropped
+    lookup's freshness stamp. copy_context() snapshots the vars here (in the
+    event-loop thread, where they're set); ctx.run executes fn with them in the
+    pool. Returns the same awaitable as run_in_executor."""
+    ctx = contextvars.copy_context()
+    return loop.run_in_executor(_POOL, lambda: ctx.run(fn))
+
+
 async def refresh_snapshot() -> Snapshot:
     """One full cycle. Returns the freshly-built Snapshot."""
     loop = asyncio.get_running_loop()
     now = datetime.now(tz=timezone.utc)
 
     # 1. hot_15 from flow-alerts
-    flow_alerts = await loop.run_in_executor(_POOL, partial(storage.fetch_flow_alerts, 100))
+    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 100))
     if isinstance(flow_alerts, storage.UWFailure):
         log.error("flow-alerts fetch failed: %s", flow_alerts.message)
         return _empty_snapshot(now)
@@ -101,8 +115,7 @@ async def build_single_row(ticker: str) -> Row | None:
     Tile 1 quiet). Returns None only if the row build itself fails."""
     ticker = ticker.upper()
     loop = asyncio.get_running_loop()
-    flow_alerts = await loop.run_in_executor(
-        _POOL, partial(storage.fetch_flow_alerts, 100, ticker))
+    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 100, ticker))
     if isinstance(flow_alerts, storage.UWFailure):
         flow_by_ticker = {}
     else:
@@ -118,7 +131,7 @@ async def build_single_row(ticker: str) -> Row | None:
     if not storage._CACHED_ONLY.get():
         try:
             from server import backfill
-            await loop.run_in_executor(_POOL, partial(backfill.backfill_oi_history, [ticker], 7))
+            await _in_ctx(loop, partial(backfill.backfill_oi_history, [ticker], 7))
         except Exception as e:
             log.warning("OI backfill for lookup %s failed (non-fatal): %s", ticker, e)
     row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
@@ -129,12 +142,12 @@ async def build_single_row(ticker: str) -> Row | None:
 async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
     """Fetch all per-ticker endpoints; storage.fetch_* writes parquet on cache miss."""
     tasks = [
-        loop.run_in_executor(_POOL, partial(storage.fetch_spot_exposures_strike, ticker, is_hot)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot)),
-        loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot)),
+        _in_ctx(loop, partial(storage.fetch_spot_exposures_strike, ticker, is_hot)),
+        _in_ctx(loop, partial(storage.fetch_oi_strike, ticker, is_hot)),
+        _in_ctx(loop, partial(storage.fetch_volatility, ticker, is_hot)),
+        _in_ctx(loop, partial(storage.fetch_interpolated_iv, ticker, is_hot)),
+        _in_ctx(loop, partial(storage.fetch_darkpool, ticker, is_hot)),
+        _in_ctx(loop, partial(storage.fetch_earnings, ticker, is_hot)),
     ]
     await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -155,23 +168,23 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     flow_spot = float(flow_info.get("spot") or 0)
     gex_min = round(flow_spot * 0.80) if flow_spot > 0 else None
     gex_max = round(flow_spot * 1.20) if flow_spot > 0 else None
-    spot_data = await loop.run_in_executor(_POOL, partial(
+    spot_data = await _in_ctx(loop, partial(
         storage.fetch_spot_exposures_strike, ticker, is_hot, gex_min, gex_max))
-    oi_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, is_hot))
-    oi_prev_data = await loop.run_in_executor(_POOL, partial(storage.fetch_oi_strike, ticker, False, yesterday_iso))
-    vol_data = await loop.run_in_executor(_POOL, partial(storage.fetch_volatility, ticker, is_hot))
-    ivr_data = await loop.run_in_executor(_POOL, partial(storage.fetch_interpolated_iv, ticker, is_hot))
-    dp_data = await loop.run_in_executor(_POOL, partial(storage.fetch_darkpool, ticker, is_hot))
-    earn_data = await loop.run_in_executor(_POOL, partial(storage.fetch_earnings, ticker, is_hot))
-    info_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ticker_info, ticker))
-    news_data = await loop.run_in_executor(_POOL, partial(storage.fetch_news_headlines, ticker, 10))
+    oi_data = await _in_ctx(loop, partial(storage.fetch_oi_strike, ticker, is_hot))
+    oi_prev_data = await _in_ctx(loop, partial(storage.fetch_oi_strike, ticker, False, yesterday_iso))
+    vol_data = await _in_ctx(loop, partial(storage.fetch_volatility, ticker, is_hot))
+    ivr_data = await _in_ctx(loop, partial(storage.fetch_interpolated_iv, ticker, is_hot))
+    dp_data = await _in_ctx(loop, partial(storage.fetch_darkpool, ticker, is_hot))
+    earn_data = await _in_ctx(loop, partial(storage.fetch_earnings, ticker, is_hot))
+    info_data = await _in_ctx(loop, partial(storage.fetch_ticker_info, ticker))
+    news_data = await _in_ctx(loop, partial(storage.fetch_news_headlines, ticker, 10))
     # Ingest-only per-ticker fetches (option_contracts, max_pain, net_prem_ticks,
     # net_flow_expiry, seasonality_ticker) were dropped: ~5 calls × 15 tickers =
     # ~75 UW calls/cycle that no tile reads — a major contributor to the
     # 2026-05-29 429 budget blowout. Re-add when the consuming UI ships (Tile 6
     # contract picker, etc.); the wrappers in storage.py/uw.py remain available.
     # OHLC for Tile 1's price line. 5m candles match the 4hr session view.
-    ohlc_data = await loop.run_in_executor(_POOL, partial(storage.fetch_ohlc, ticker, "5m", is_hot))
+    ohlc_data = await _in_ctx(loop, partial(storage.fetch_ohlc, ticker, "5m", is_hot))
 
     failures = [r.endpoint for r in (spot_data, oi_data, vol_data, ivr_data, dp_data, earn_data)
                 if isinstance(r, storage.UWFailure)]
@@ -193,7 +206,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     ask_side_pct = float(flow_info.get("ask_side_pct", 0.0))
     # Tile 2: positioning reality check. 5-session OI from our own parquet
     # archive (tier-independent); per-strike delta from spot_exposures.
-    oi_history = await loop.run_in_executor(_POOL, partial(storage.read_oi_history, ticker, 5))
+    oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 5))
     tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot)
     # Tile 3: real per-strike net dealer gamma for the structural ladder, from
     # the spot-exposures payload already fetched above (no extra UW call).
@@ -201,7 +214,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
     # Chained sector-tide fetch once we know the sector slug. Skip if unknown.
     sector_tide_value = 0.0
     if sector:
-        tide_data = await loop.run_in_executor(_POOL, partial(storage.fetch_sector_tide, sector))
+        tide_data = await _in_ctx(loop, partial(storage.fetch_sector_tide, sector))
         sector_tide_value = _extract_sector_tide_value(tide_data)
 
     # Direction inference: positive net dealer γ (gex_sign=POS) means dealers

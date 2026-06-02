@@ -34,7 +34,7 @@ def generate_insights(row: dict) -> dict[str, str | None]:
 
 def _generate_or_cache(row: dict, kind: str) -> str:
     key = _cache_key(row, kind)
-    cached = _insight_cache.get(key)
+    cached, _ = _insight_cache.get(key)
     if cached is not None:
         return cached
     text = _generate(row, kind)

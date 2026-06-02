@@ -12,22 +12,23 @@ class TTLCache:
     """Dict with per-entry TTL. Reads after expiry return None as a cache miss."""
 
     def __init__(self) -> None:
-        self._store: dict[Any, tuple[Any, float]] = {}
+        # value, expires_at (monotonic), observed_at (wall-clock of original pull)
+        self._store: dict[Any, tuple[Any, float, Any]] = {}
 
-    def set(self, key: Any, value: Any, ttl_seconds: float) -> None:
+    def set(self, key: Any, value: Any, ttl_seconds: float, observed_at: Any = None) -> None:
         expires_at = time.monotonic() + ttl_seconds
-        self._store[key] = (value, expires_at)
+        self._store[key] = (value, expires_at, observed_at)
 
-    def get(self, key: Any) -> Any | None:
+    def get(self, key: Any) -> tuple[Any, Any]:
+        """Return (value, observed_at). A miss/expiry returns (None, None)."""
         entry = self._store.get(key)
         if entry is None:
-            return None
-        value, expires_at = entry
+            return (None, None)
+        value, expires_at, observed_at = entry
         if time.monotonic() >= expires_at:
-            # Lazy eviction
-            self._store.pop(key, None)
-            return None
-        return value
+            self._store.pop(key, None)   # lazy eviction
+            return (None, None)
+        return (value, observed_at)
 
     def __len__(self) -> int:
         return len(self._store)
