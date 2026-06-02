@@ -1,0 +1,130 @@
+{
+  "data": [
+    {
+      "date": "2026-05-28",
+      "days": 1,
+      "percentile": "0.833",
+      "volatility": "1.248",
+      "implied_move_perc": "0.048"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 5,
+      "percentile": "0.766",
+      "volatility": "0.931",
+      "implied_move_perc": "0.061"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 7,
+      "percentile": "0.687",
+      "volatility": "0.773",
+      "implied_move_perc": "0.067"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 14,
+      "percentile": "0.479",
+      "volatility": "0.685",
+      "implied_move_perc": "0.091"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 30,
+      "percentile": "0.415",
+      "volatility": "0.69",
+      "implied_move_perc": "0.132"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 60,
+      "percentile": "0.368",
+      "volatility": "0.718",
+      "implied_move_perc": "0.194"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 90,
+      "percentile": "0.374",
+      "volatility": "0.709",
+      "implied_move_perc": "0.233"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 180,
+      "percentile": "0.204",
+      "volatility": "0.672",
+      "implied_move_perc": "0.316"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 365,
+      "percentile": "0.74",
+      "volatility": "0.705",
+      "implied_move_perc": "0.459"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 1,
+      "percentile": "0.268",
+      "volatility": "0.259",
+      "implied_move_perc": "0.004"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 5,
+      "percentile": "0.099",
+      "volatility": "0.177",
+      "implied_move_perc": "0.012"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 7,
+      "percentile": "0.149",
+      "volatility": "0.192",
+      "implied_move_perc": "0.016"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 14,
+      "percentile": "0.21",
+      "volatility": "0.208",
+      "implied_move_perc": "0.026"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 30,
+      "percentile": "0.315",
+      "volatility": "0.222",
+      "implied_move_perc": "0.041"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 60,
+      "percentile": "0.532",
+      "volatility": "0.226",
+      "implied_move_perc": "0.061"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 90,
+      "percentile": "0.561",
+      "volatility": "0.228",
+      "implied_move_perc": "0.076"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 180,
+      "percentile": "0.859",
+      "volatility": "0.301",
+      "implied_move_perc": "0.154"
+    },
+    {
+      "date": "2026-05-28",
+      "days": 365,
+      "percentile": "0.859",
+      "volatility": "0.486",
+      "implied_move_perc": "0.339"
+    }
+  ]
+}
