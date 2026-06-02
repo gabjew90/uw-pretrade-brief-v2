@@ -420,3 +420,29 @@ async def test_in_ctx_without_context_is_neutral():
     loop = asyncio.get_running_loop()
     got = await snap_mod._in_ctx(loop, lambda: storage._CACHED_ONLY.get())
     assert got is False
+
+
+async def test_in_ctx_concurrent_gather_shares_one_collector():
+    """The real shape of the request path: many fetches run concurrently in the
+    pool (asyncio.gather) while ONE freshness.collect() scope is open. Every
+    worker must append into the SAME collector list so the view's as_of reflects
+    all of them. Guards the shared-list propagation under concurrency."""
+    import asyncio
+    from datetime import datetime, timezone
+    from functools import partial
+    from server import snapshot as snap_mod, freshness
+    loop = asyncio.get_running_loop()
+    base = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc)
+
+    def worker(i):
+        # oldest record (i=0) must win as_of; all are "archive"
+        freshness.record(f"ep{i}", base.replace(minute=i), "archive")
+        return i
+
+    with freshness.collect() as fc:
+        results = await asyncio.gather(*[snap_mod._in_ctx(loop, partial(worker, i))
+                                         for i in range(12)])
+        s = fc.summary()
+    assert sorted(results) == list(range(12))
+    assert s["n_archive"] == 12          # every concurrent append landed
+    assert s["as_of"] == base.replace(minute=0).isoformat()   # oldest field wins
