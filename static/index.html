@@ -298,6 +298,8 @@
   }
   .row .timestamp { color: var(--axis); font-size: 10px; text-align: right; letter-spacing: 0.04em; }
   .row .timestamp.stale { color: var(--warn); }
+  .t-asof { font-size: 9px; color: var(--axis); font-family: var(--ff-mono); margin-left: 8px; }
+  .t-asof.stale { color: var(--warn); }
 
   /* Task 6: Nothing today card */
   .nothing-card {
@@ -2286,6 +2288,21 @@ function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
  * structural levels + charm/vanna drift. Fed by /api/tile3/{ticker}.
  * ============================================================ */
 
+// Per-view freshness line: "as of 10:42 ET · cache" tinted stale when the view's
+// oldest contributing field exceeds `staleSec`. `asOf` is an ISO string from the
+// view payload; `prov` ∈ live|cache|archive. Self-contained — does NOT use the
+// chart-local fmtET (which takes epoch seconds, not an ISO string).
+function freshnessLine(asOf, prov, staleSec) {
+  if (!asOf) return "";
+  const d = new Date(asOf);
+  if (isNaN(d.getTime())) return "";
+  const ageSec = (Date.now() - d.getTime()) / 1000;
+  const stale = ageSec > (staleSec || 300);
+  const hhmm = d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
+  const provTag = prov && prov !== "live" ? ` · ${prov}` : "";
+  return `<span class="t-asof ${stale ? "stale" : ""}" title="oldest contributing field${provTag}">as of ${hhmm} ET${provTag}</span>`;
+}
+
 function renderTile3Rich(row, detail) {
   const g = row.gates.structural;
   const spot = detail.spot || row.spot;
@@ -2329,7 +2346,7 @@ function renderTile3Rich(row, detail) {
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 3: Structural Setup</span>
-      <button class="help-icon" data-help="tile3">?</button>
+      <button class="help-icon" data-help="tile3">?</button>${freshnessLine(detail.as_of, detail.data_provenance, 300)}
     </h3>
     <div class="t3-banner ${short ? "short" : "long"}">
       <div class="t3-banner-h">${bannerHead}</div>
@@ -3031,10 +3048,11 @@ function renderTile4Picker(row, t4) {
   const staleTag = t4.stale
     ? `<span style="font-size:9px;color:var(--warn);font-family:var(--ff-mono);border:1px solid var(--warn);border-radius:4px;padding:1px 5px;margin-left:8px;">STALE · last-good</span>`
     : "";
+  const asOfTag = freshnessLine(t4.as_of, t4.data_provenance, 300);
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker</span>
-      <button class="help-icon" data-help="tile4">?</button>${staleTag}
+      <button class="help-icon" data-help="tile4">?</button>${staleTag}${asOfTag}
     </h3>
     ${badges}
     ${termPanel}
