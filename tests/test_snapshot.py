@@ -129,6 +129,19 @@ async def test_build_single_row_for_arbitrary_ticker(stub_uw, fresh_storage_stat
     assert hasattr(row, "spot")
 
 
+async def test_build_single_row_backfills_oi_history(stub_uw, fresh_storage_state, tmp_data_dir, monkeypatch):
+    """A looked-up ticker should get its ~5-day OI archived so Tile 2 has a real
+    campaign. build_single_row triggers backfill_oi_history for that ticker
+    (Tile 2's history is read from OUR archive, not a live UW call)."""
+    from server import backfill
+    seen = {}
+    monkeypatch.setattr(backfill, "backfill_oi_history",
+                        lambda tickers, max_days=30: seen.update(tickers=tickers, days=max_days) or {"probe": "ok"})
+    await snapshot.build_single_row("ROKU")
+    assert seen.get("tickers") == ["ROKU"]
+    assert seen.get("days") <= 10        # ~a trading week, not the full 30
+
+
 async def test_build_single_row_no_flow_still_builds(stub_uw, fresh_storage_state, tmp_data_dir, monkeypatch):
     """A searched ticker may have NO flow — the row still builds (Tile 1 quiet)."""
     from server import uw

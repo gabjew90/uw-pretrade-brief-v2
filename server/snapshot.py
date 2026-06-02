@@ -109,6 +109,18 @@ async def build_single_row(ticker: str) -> Row | None:
         flow_by_ticker = _aggregate_flow_per_ticker(flow_alerts, [ticker])
     flow_info = flow_by_ticker.get(ticker, {"alerts": 0, "premium_usd": 0.0,
                                             "rank_cross": 50, "spot": 0.0})
+    # Tile 2's 5-session OI is read from OUR archive (not a live UW call), so a
+    # ticker we've never tracked has no history. Backfill its recent OI from UW
+    # (idempotent — skips days already archived) so Tile 2 shows a real campaign.
+    # Best-effort; runs before _build_dashboard_row reads the history. SKIPPED in
+    # cached-only/replay mode — backfill calls UW directly (bypasses cached_only)
+    # so it must not fire when we're meant to read the archive only.
+    if not storage._CACHED_ONLY.get():
+        try:
+            from server import backfill
+            await loop.run_in_executor(_POOL, partial(backfill.backfill_oi_history, [ticker], 7))
+        except Exception as e:
+            log.warning("OI backfill for lookup %s failed (non-fatal): %s", ticker, e)
     row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
     row.insights = Insights(**insights.generate_insights(row.model_dump()))
     return row
