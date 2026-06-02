@@ -51,19 +51,24 @@ def _seed_cache_from_disk() -> None:
         log.warning("could not seed cache from disk: %s", e)
 
 
-def _build_with_archive_fallback(build_fn):
-    """Run a tile build (build_tile3_detail / build_tile4). If it comes back
-    'unavailable' (a live UW fetch failed — 429, off-hours, error), retry under
-    storage.cached_only() so it serves the LAST-GOOD tile from the captured
-    parquet archive, flagged stale. If the archive also has nothing, the honest
-    'unavailable' stands. This is what lets prod show real Tile 3/4 even while
-    rate-limited, instead of silently dropping to the old picker."""
+def _atomic_view(build_fn, view: str, ticker: str):
+    """Build an on-demand view (tile3/tile4/lookup) with ATOMIC freshness — no
+    mixing of live + last-good within one view.
+
+    - Live build SUCCEEDS (ok/stand_down) → persist the COMPLETE payload as one
+      unit (storage.save_view) and return it fresh.
+    - Live build FAILS (unavailable — 429/off-hours/error) → serve the WHOLE last
+      persisted view from ONE coherent moment (storage.read_view), stale-marked.
+      This replaces the old per-endpoint cached_only reassembly, which stitched
+      each endpoint's most-recent archive row from DIFFERENT moments.
+    - Nothing persisted yet → the honest 'unavailable' stands."""
     out = build_fn()
-    if isinstance(out, dict) and out.get("status") == "unavailable":
-        with storage.cached_only():
-            fb = build_fn()
-        if isinstance(fb, dict) and fb.get("status") in ("ok", "stand_down"):
-            return {**fb, "stale": True}
+    if isinstance(out, dict) and out.get("status") in ("ok", "stand_down"):
+        storage.save_view(view, ticker, out)
+        return out
+    last_good = storage.read_view(view, ticker)
+    if isinstance(last_good, dict) and last_good.get("status") in ("ok", "stand_down"):
+        return {**last_good, "stale": True}
     return out
 
 
@@ -193,9 +198,9 @@ async def tile3_detail_route(ticker: str):
         if _replay_enabled():
             with storage.cached_only():
                 return tile3_detail.build_tile3_detail(t, flow_spot, direction)
-        # Live-first, with archive fallback when the live fetch fails (429/off-hours).
-        return _build_with_archive_fallback(
-            lambda: tile3_detail.build_tile3_detail(t, flow_spot, direction))
+        # Live-first; on failure replay the whole last-good view (one moment).
+        return _atomic_view(
+            lambda: tile3_detail.build_tile3_detail(t, flow_spot, direction), "tile3", t)
     detail = await asyncio.to_thread(_run)
     return JSONResponse(detail)
 
@@ -249,7 +254,7 @@ async def tile4_route(ticker: str):
         if _replay_enabled():
             with storage.cached_only():
                 return tile4.build_tile4(t, ctx)
-        return _build_with_archive_fallback(lambda: tile4.build_tile4(t, ctx))
+        return _atomic_view(lambda: tile4.build_tile4(t, ctx), "tile4", t)
     detail = await asyncio.to_thread(_run)
     return JSONResponse(detail)
 

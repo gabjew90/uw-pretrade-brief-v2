@@ -9,6 +9,26 @@ import pytest
 from server import storage
 
 
+def test_view_store_persists_and_reads_complete_view(tmp_data_dir):
+    """A complete on-demand view (tile3/tile4/lookup) is persisted as ONE unit so
+    the atomic fallback replays a coherent moment, not per-endpoint reassembly."""
+    payload = {"status": "ok", "ticker": "NVDA", "ranked": [{"strike": 100}]}
+    storage.save_view("tile4", "NVDA", payload)
+    got = storage.read_view("tile4", "NVDA")
+    assert got == payload
+
+
+def test_read_view_none_when_absent(tmp_data_dir):
+    assert storage.read_view("tile4", "ZZZZ") is None
+
+
+def test_view_store_keys_isolate_view_and_ticker(tmp_data_dir):
+    storage.save_view("tile3", "NVDA", {"v": 3})
+    storage.save_view("tile4", "NVDA", {"v": 4})
+    assert storage.read_view("tile3", "NVDA") == {"v": 3}
+    assert storage.read_view("tile4", "NVDA") == {"v": 4}
+
+
 def test_read_last_snapshot_returns_last_good_line(tmp_data_dir):
     """Boot-seed: read the most recent snapshot WITH rows from snapshots.jsonl,
     so a cold-boot can serve last-good data instead of blank."""

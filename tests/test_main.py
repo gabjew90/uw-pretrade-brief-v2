@@ -139,41 +139,41 @@ def test_lookup_route_unavailable_when_build_fails(client, monkeypatch):
     assert r.json()["status"] == "unavailable"
 
 
-def test_archive_fallback_serves_last_good_when_live_fails(monkeypatch):
-    """When a tile build returns 'unavailable' from a live fetch (429/off-hours),
-    re-run it under cached_only so it serves the last-good tile from the parquet
-    archive — stale-marked. Kills the 'I don't see Tile 4' problem in prod."""
+def test_atomic_view_persists_on_live_success(tmp_data_dir, monkeypatch):
+    """A successful live build is persisted as ONE complete unit (for coherent
+    replay later) and returned fresh (not stale)."""
     from server import main as main_mod, storage
-    calls = []
+    out = main_mod._atomic_view(lambda: {"status": "ok", "ticker": "NVDA", "ranked": [1]},
+                                "tile4", "NVDA")
+    assert out["status"] == "ok" and out.get("stale") is not True
+    # persisted as a complete view for the atomic fallback
+    assert storage.read_view("tile4", "NVDA") == {"status": "ok", "ticker": "NVDA", "ranked": [1]}
+
+
+def test_atomic_view_replays_whole_last_good_on_failure(tmp_data_dir, monkeypatch):
+    """On a live failure, serve the WHOLE last-good persisted view from ONE moment
+    — NOT a per-endpoint cached_only reassembly (which mixes moments)."""
+    from server import main as main_mod, storage
+    storage.save_view("tile4", "NVDA", {"status": "ok", "ticker": "NVDA", "ranked": [{"strike": 100}]})
+    used_cached_only = []
 
     def build():
-        # 1st call (live): unavailable. 2nd call (cached_only): ok from archive.
         if storage._CACHED_ONLY.get():
-            return {"status": "ok", "ticker": "NVDA", "contracts": [1]}
-        calls.append("live")
+            used_cached_only.append(1)   # the OLD blend path — must NOT be used
         return {"status": "unavailable", "ticker": "NVDA", "reason": "429"}
 
-    out = main_mod._build_with_archive_fallback(build)
+    out = main_mod._atomic_view(build, "tile4", "NVDA")
     assert out["status"] == "ok"
-    assert out.get("stale") is True            # flagged as served-from-archive
-    assert calls == ["live"]                    # tried live first
+    assert out["ranked"] == [{"strike": 100}]   # the whole persisted view, one moment
+    assert out.get("stale") is True
+    assert used_cached_only == []               # no per-endpoint reassembly
 
 
-def test_archive_fallback_keeps_unavailable_when_archive_empty(monkeypatch):
+def test_atomic_view_unavailable_when_no_persisted_view(tmp_data_dir):
     from server import main as main_mod
-    out = main_mod._build_with_archive_fallback(
-        lambda: {"status": "unavailable", "ticker": "X", "reason": "429"})
-    assert out["status"] == "unavailable"       # archive had nothing either → honest
-
-
-def test_archive_fallback_skips_when_live_ok(monkeypatch):
-    from server import main as main_mod
-    n = []
-    out = main_mod._build_with_archive_fallback(
-        lambda: n.append(1) or {"status": "ok", "ticker": "X"})
-    assert out["status"] == "ok"
-    assert out.get("stale") is not True         # fresh live result, not stale
-    assert len(n) == 1                          # no second (fallback) call
+    out = main_mod._atomic_view(lambda: {"status": "unavailable", "ticker": "X", "reason": "429"},
+                                "tile4", "X")
+    assert out["status"] == "unavailable"       # nothing persisted → honest
 
 
 def test_health_returns_ok(client):

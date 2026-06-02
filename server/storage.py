@@ -605,6 +605,39 @@ def append_snapshot(snapshot: dict) -> bool:
         return False
 
 
+def _view_path(view: str, ticker: str) -> Path:
+    safe = "".join(c for c in ticker.upper() if c.isalnum() or c in "._-")
+    return _data_dir() / "views" / view / f"{safe}.json"
+
+
+def save_view(view: str, ticker: str, payload: dict) -> bool:
+    """Persist a COMPLETE on-demand view (tile3/tile4/lookup) as one unit, so the
+    atomic fallback can replay a single coherent moment instead of reassembling
+    each endpoint's most-recent archive row (which mixes moments). Best-effort."""
+    try:
+        p = _view_path(view, ticker)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, default=str), encoding="utf-8")
+        os.replace(tmp, p)
+        return True
+    except Exception as e:
+        log.warning("save_view %s/%s failed: %s", view, ticker, e)
+        return False
+
+
+def read_view(view: str, ticker: str) -> dict | None:
+    """Read the last complete persisted view, or None. Best-effort."""
+    p = _view_path(view, ticker)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning("read_view %s/%s failed: %s", view, ticker, e)
+        return None
+
+
 def read_last_snapshot() -> dict | None:
     """Return the most recent persisted snapshot that HAS rows, as a dict (the
     same shape append_snapshot stored, i.e. Snapshot.model_dump). Used to seed
