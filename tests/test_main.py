@@ -141,13 +141,19 @@ def test_lookup_route_unavailable_when_build_fails(client, monkeypatch):
 
 def test_atomic_view_persists_on_live_success(tmp_data_dir, monkeypatch):
     """A successful live build is persisted as ONE complete unit (for coherent
-    replay later) and returned fresh (not stale)."""
+    replay later) and returned fresh (not stale). The persisted view now includes
+    as_of + data_provenance stamps from the freshness collector."""
     from server import main as main_mod, storage
     out = main_mod._atomic_view(lambda: {"status": "ok", "ticker": "NVDA", "ranked": [1]},
                                 "tile4", "NVDA")
     assert out["status"] == "ok" and out.get("stale") is not True
-    # persisted as a complete view for the atomic fallback
-    assert storage.read_view("tile4", "NVDA") == {"status": "ok", "ticker": "NVDA", "ranked": [1]}
+    # persisted as a complete view for the atomic fallback (includes freshness stamp)
+    persisted = storage.read_view("tile4", "NVDA")
+    assert persisted["status"] == "ok"
+    assert persisted["ticker"] == "NVDA"
+    assert persisted["ranked"] == [1]
+    assert "as_of" in persisted            # freshness stamp always present
+    assert "data_provenance" in persisted
 
 
 def test_atomic_view_replays_whole_last_good_on_failure(tmp_data_dir, monkeypatch):
@@ -375,3 +381,94 @@ def test_cold_boot_empty_refresh_surfaces_warming_snapshot():
     now = datetime.now(timezone.utc)
     empty = _snap(has_rows=False)
     assert main._next_cached_snapshot(None, empty, now) is empty
+
+
+def test_atomic_view_stamps_as_of_and_provenance_on_success(tmp_data_dir):
+    """A successful live build is stamped with as_of (oldest contributing field)
+    and data_provenance (worst-case source) from the freshness collector."""
+    from datetime import datetime, timezone
+    from server import main as main_mod, freshness
+    obs = datetime(2026, 6, 2, 13, 30, tzinfo=timezone.utc)
+
+    def build():
+        freshness.record("greeks", obs, "cache")
+        return {"status": "ok", "ticker": "NVDA", "ranked": [1]}
+
+    out = main_mod._atomic_view(build, "tile4", "NVDA")
+    assert out["status"] == "ok"
+    assert out["as_of"] == obs.isoformat()
+    assert out["data_provenance"] == "cache"
+
+
+def test_atomic_view_failure_path_not_restamped(tmp_data_dir):
+    """On live failure we serve the WHOLE last-good view, which already carries its
+    OWN as_of from when it was built — we do not overwrite it with a fresh stamp."""
+    from server import main as main_mod, storage
+    storage.save_view("tile4", "NVDA",
+                      {"status": "ok", "ticker": "NVDA", "ranked": [{"strike": 100}],
+                       "as_of": "2026-06-01T20:00:00+00:00", "data_provenance": "live"})
+    out = main_mod._atomic_view(lambda: {"status": "unavailable", "ticker": "NVDA"}, "tile4", "NVDA")
+    assert out.get("stale") is True
+    assert out["as_of"] == "2026-06-01T20:00:00+00:00"   # the persisted moment, not now
+
+
+def test_lookup_route_stamps_as_of(client, monkeypatch):
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from server import snapshot as snap_mod, freshness
+    obs = datetime(2026, 6, 2, 12, 0, tzinfo=timezone.utc)
+
+    async def fake_build(ticker):
+        freshness.record("oi_per_strike", obs, "archive")
+        return SimpleNamespace(
+            ticker=ticker.upper(),
+            model_dump=lambda mode=None: {"ticker": ticker.upper(), "spot": 1.0})
+    monkeypatch.setattr(snap_mod, "build_single_row", fake_build)
+    body = client.get("/api/lookup/spy").json()
+    assert body["as_of"] == obs.isoformat()
+    assert body["data_provenance"] == "archive"
+
+
+def _seed_one_row(main_mod, ticker="SPY"):
+    from datetime import datetime, timezone
+    from server.schema import Snapshot, Regime, Row, Gates, GateMethod
+    row = Row(ticker=ticker, spot=100.0, direction="calls",
+              gates=Gates(flow="green", oi="green", structural="green", cost="green"),
+              gate_method=GateMethod(flow="absolute", oi="absolute",
+                                     structural="absolute", cost="absolute"))
+    main_mod._snapshot_cache["latest"] = Snapshot(
+        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"), rows=[row])
+
+
+def test_tile4_replay_route_stamps_as_of(client, monkeypatch):
+    from datetime import datetime, timezone
+    from server import main as main_mod, tile4, freshness
+    monkeypatch.setenv("REPLAY", "1")
+    obs = datetime(2026, 6, 2, 11, 0, tzinfo=timezone.utc)
+
+    def fake_build(t, ctx):
+        freshness.record("greeks", obs, "archive")
+        return {"status": "ok", "ticker": t}
+    monkeypatch.setattr(tile4, "build_tile4", fake_build)
+    _seed_one_row(main_mod, "SPY")
+    body = client.get("/api/tile4/SPY").json()
+    assert body["status"] == "ok"
+    assert body["as_of"] == obs.isoformat()
+    assert body["data_provenance"] == "archive"
+
+
+def test_tile3_replay_route_stamps_as_of(client, monkeypatch):
+    from datetime import datetime, timezone
+    from server import main as main_mod, tile3_detail, freshness
+    monkeypatch.setenv("REPLAY", "1")
+    obs = datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc)
+
+    def fake_build(t, spot, direction):
+        freshness.record("spot_exposures_expiry_strike", obs, "archive")
+        return {"status": "ok", "ticker": t}
+    monkeypatch.setattr(tile3_detail, "build_tile3_detail", fake_build)
+    _seed_one_row(main_mod, "SPY")
+    body = client.get("/api/tile3/SPY").json()
+    assert body["status"] == "ok"
+    assert body["as_of"] == obs.isoformat()
+    assert body["data_provenance"] == "archive"

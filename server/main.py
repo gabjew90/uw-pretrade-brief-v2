@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from server import backfill, budget, market_hours, storage, tile3_detail, tile4
+from server import backfill, budget, freshness, market_hours, storage, tile3_detail, tile4
 from server import snapshot as snapshot_mod
 from server.schema import Snapshot
 
@@ -62,10 +62,12 @@ def _atomic_view(build_fn, view: str, ticker: str):
       This replaces the old per-endpoint cached_only reassembly, which stitched
       each endpoint's most-recent archive row from DIFFERENT moments.
     - Nothing persisted yet → the honest 'unavailable' stands."""
-    out = build_fn()
-    if isinstance(out, dict) and out.get("status") in ("ok", "stand_down"):
-        storage.save_view(view, ticker, out)
-        return out
+    with freshness.collect():
+        out = build_fn()
+        if isinstance(out, dict) and out.get("status") in ("ok", "stand_down"):
+            freshness.stamp(out)          # as_of = oldest field, provenance = worst
+            storage.save_view(view, ticker, out)
+            return out
     last_good = storage.read_view(view, ticker)
     if isinstance(last_good, dict) and last_good.get("status") in ("ok", "stand_down"):
         return {**last_good, "stale": True}
@@ -196,8 +198,11 @@ async def tile3_detail_route(ticker: str):
 
     def _run():
         if _replay_enabled():
-            with storage.cached_only():
-                return tile3_detail.build_tile3_detail(t, flow_spot, direction)
+            with freshness.collect(), storage.cached_only():
+                d = tile3_detail.build_tile3_detail(t, flow_spot, direction)
+                if isinstance(d, dict) and d.get("status") in ("ok", "stand_down"):
+                    freshness.stamp(d)
+                return d
         # Live-first; on failure replay the whole last-good view (one moment).
         return _atomic_view(
             lambda: tile3_detail.build_tile3_detail(t, flow_spot, direction), "tile3", t)
@@ -252,8 +257,11 @@ async def tile4_route(ticker: str):
     }
     def _run():
         if _replay_enabled():
-            with storage.cached_only():
-                return tile4.build_tile4(t, ctx)
+            with freshness.collect(), storage.cached_only():
+                d = tile4.build_tile4(t, ctx)
+                if isinstance(d, dict) and d.get("status") in ("ok", "stand_down"):
+                    freshness.stamp(d)
+                return d
         return _atomic_view(lambda: tile4.build_tile4(t, ctx), "tile4", t)
     detail = await asyncio.to_thread(_run)
     return JSONResponse(detail)
@@ -267,18 +275,23 @@ async def lookup_route(ticker: str):
     ticker. In REPLAY mode the build reads the captured archive (cached_only)."""
     t = ticker.upper()
     try:
-        if _replay_enabled():
-            with storage.cached_only():
+        with freshness.collect() as fc:
+            if _replay_enabled():
+                with storage.cached_only():
+                    row = await snapshot_mod.build_single_row(t)
+            else:
                 row = await snapshot_mod.build_single_row(t)
-        else:
-            row = await snapshot_mod.build_single_row(t)
+            fsum = fc.summary()
     except Exception as e:
         log.warning("lookup %s failed: %s", t, e)
         return JSONResponse({"status": "unavailable", "ticker": t, "reason": str(e)})
     if row is None:
         return JSONResponse({"status": "unavailable", "ticker": t,
                              "reason": "no data for this ticker"})
-    return JSONResponse(row.model_dump(mode="json"))
+    payload = row.model_dump(mode="json")
+    payload["as_of"] = fsum["as_of"]
+    payload["data_provenance"] = fsum["data_provenance"]
+    return JSONResponse(payload)
 
 
 @app.get("/snapshot.json")
