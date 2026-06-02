@@ -244,8 +244,8 @@ def test_tile4_route_builds_ctx_from_snapshot_row(client, monkeypatch):
     main._snapshot_cache["latest"] = Snapshot.model_construct(
         fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
         rows=[SimpleNamespace(ticker="SPY", spot=756.0, direction="calls",
-              flow_alerts_detail=[SimpleNamespace(strike=760.0)], tile2=None,
-              wall_up_dist_pct=1.0, wall_dn_dist_pct=2.0)], stale_since=None)
+              flow_alerts_detail=[SimpleNamespace(strike=760.0, total_premium=1_250_000.0)],
+              tile2=None, wall_up_dist_pct=1.0, wall_dn_dist_pct=2.0)], stale_since=None)
     seen = {}
     monkeypatch.setattr(tile4, "build_tile4",
                         lambda t, ctx: seen.update(t=t, ctx=ctx) or {"status": "ok", "ticker": t})
@@ -253,7 +253,8 @@ def test_tile4_route_builds_ctx_from_snapshot_row(client, monkeypatch):
     assert r.status_code == 200 and r.json()["status"] == "ok"
     assert seen["t"] == "SPY"
     assert seen["ctx"]["spot"] == 756.0 and seen["ctx"]["direction"] == "calls"
-    assert seen["ctx"]["flow_strikes"] == {760.0}
+    # flow value now carried as a per-strike premium map (real $, not a set)
+    assert seen["ctx"]["flow_premium_by_strike"] == {760.0: 1_250_000.0}
     assert round(seen["ctx"]["call_wall"]) == round(756.0 * 1.01)
 
 

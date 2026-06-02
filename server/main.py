@@ -212,20 +212,36 @@ async def tile4_route(ticker: str):
     if row is None:
         return JSONResponse({"status": "unavailable", "ticker": t, "reason": "not in snapshot"})
     spot = float(getattr(row, "spot", 0) or 0)
+    # Flow value per strike: sum smart-money premium at each strike (real $, not
+    # just a yes/no membership) so the picker can show it.
     flow_det = getattr(row, "flow_alerts_detail", None) or []
-    flow_strikes = {getattr(fa, "strike", None) for fa in flow_det
-                    if getattr(fa, "strike", None)} or None
+    flow_premium_by_strike: dict | None = None
+    if flow_det:
+        flow_premium_by_strike = {}
+        for fa in flow_det:
+            k = getattr(fa, "strike", None)
+            if k:
+                flow_premium_by_strike[k] = (flow_premium_by_strike.get(k, 0.0)
+                                             + float(getattr(fa, "total_premium", 0) or 0))
+    # Campaign value per strike: OI Δ% + trend from Tile 2's per-strike history.
     t2 = getattr(row, "tile2", None)
-    oi_building = None
+    oi_by_strike: dict | None = None
     if t2 is not None and getattr(t2, "strikes", None):
-        oi_building = {s.strike for s in t2.strikes
-                       if getattr(s, "trend", None) == "building"} or None
+        oi_by_strike = {}
+        for s in t2.strikes:
+            prev = (getattr(s, "delta_oi", 0) or 0)
+            sessions = getattr(s, "sessions", None) or []
+            base = 0
+            if len(sessions) >= 2 and getattr(sessions[-2], "oi", 0):
+                base = sessions[-2].oi
+            delta_pct = (prev / base * 100) if base else None
+            oi_by_strike[s.strike] = {"delta_pct": delta_pct, "trend": getattr(s, "trend", "flat")}
     wu, wd = getattr(row, "wall_up_dist_pct", None), getattr(row, "wall_dn_dist_pct", None)
     ctx = {
         "spot": spot,
         "direction": getattr(row, "direction", "calls"),
-        "flow_strikes": flow_strikes,
-        "oi_building": oi_building,
+        "flow_premium_by_strike": flow_premium_by_strike,
+        "oi_by_strike": oi_by_strike,
         "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
         "put_wall": spot * (1 - wd / 100) if (spot and wd is not None) else None,
     }

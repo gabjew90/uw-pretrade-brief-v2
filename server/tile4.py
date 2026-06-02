@@ -73,76 +73,106 @@ def score_contract(c: dict, ctx: dict) -> dict:
     spot = ctx["spot"]
     calls = ctx.get("direction", "calls") == "calls"
 
-    def _fac(ok, note):
-        return {"ok": ok, "note": note}
+    def _fac(ok, value, note):
+        return {"ok": ok, "value": value, "note": note}
+
+    def _money(v):
+        a = abs(v)
+        return (f"${a/1e9:.1f}B" if a >= 1e9 else f"${a/1e6:.1f}M" if a >= 1e6
+                else f"${a/1e3:.0f}K" if a >= 1e3 else f"${a:.0f}")
 
     factors: dict[str, dict] = {}
+    k = c["strike"]
 
     # ── Tier 1: Thesis (Flow · Campaign · Room) ──────────────────────────────
+    # Flow: prefer the per-strike premium MAP (real $); fall back to the yes/no set.
+    fpm = ctx.get("flow_premium_by_strike")
     fs = ctx.get("flow_strikes")
-    if fs is None:
-        factors["flow"] = _fac(None, "flow data unavailable")
-    elif c["strike"] in fs:
-        factors["flow"] = _fac(True, "smart-money flow hit this strike")
+    if fpm is not None:
+        prem = fpm.get(k, 0.0)
+        if prem > 0:
+            factors["flow"] = _fac(True, _money(prem), f"smart-money {_money(prem)} at this strike")
+        else:
+            factors["flow"] = _fac(False, "—", "no flow at this strike")
+    elif fs is None:
+        factors["flow"] = _fac(None, "—", "flow data unavailable")
     else:
-        factors["flow"] = _fac(False, "no flow at this strike")
+        hit = k in fs
+        factors["flow"] = _fac(hit, "✓" if hit else "—",
+                               "smart-money flow hit this strike" if hit else "no flow at this strike")
 
+    # Campaign: prefer the per-strike OI MAP (Δ% + trend); fall back to the set.
+    obm = ctx.get("oi_by_strike")
     ob = ctx.get("oi_building")
-    if ob is None:
-        factors["campaign"] = _fac(None, "OI trend unavailable")
-    elif c["strike"] in ob:
-        factors["campaign"] = _fac(True, "OI building here")
+    if obm is not None:
+        info = obm.get(k)
+        if info and info.get("trend") == "building":
+            d = info.get("delta_pct")
+            factors["campaign"] = _fac(True, f"+{d:.0f}%" if d is not None else "▲",
+                                       f"OI building (+{d:.0f}% 5d)" if d is not None else "OI building here")
+        elif info and info.get("trend") == "unwinding":
+            d = info.get("delta_pct")
+            factors["campaign"] = _fac(False, f"{d:.0f}%" if d is not None else "▼",
+                                       f"OI unwinding ({d:.0f}% 5d)" if d is not None else "OI unwinding")
+        else:
+            factors["campaign"] = _fac(False, "flat", "OI flat / not building here")
+    elif ob is None:
+        factors["campaign"] = _fac(None, "—", "OI trend unavailable")
     else:
-        factors["campaign"] = _fac(False, "OI flat / not building here")
+        bld = k in ob
+        factors["campaign"] = _fac(bld, "✓" if bld else "—",
+                                   "OI building here" if bld else "OI flat / not building here")
 
     wall = ctx.get("call_wall") if calls else ctx.get("put_wall")
     if wall is None:
-        factors["room"] = _fac(None, "wall data unavailable")
+        factors["room"] = _fac(None, "—", "wall data unavailable")
     else:
-        room_pct = ((wall - c["strike"]) if calls else (c["strike"] - wall)) / spot * 100
+        room_pct = ((wall - k) if calls else (k - wall)) / spot * 100
         if room_pct >= _ROOM_MIN_PCT:
-            factors["room"] = _fac(True, f"{room_pct:.1f}% to the {'call' if calls else 'put'} wall")
+            factors["room"] = _fac(True, f"{room_pct:.1f}%", f"{room_pct:.1f}% to the {'call' if calls else 'put'} wall")
         else:
-            factors["room"] = _fac(False, f"{room_pct:.1f}% — at/over the wall")
+            factors["room"] = _fac(False, f"{room_pct:.1f}%", f"{room_pct:.1f}% — at/over the wall")
 
     # ── Tier 2: Realism (Target) ─────────────────────────────────────────────
     em = ctx.get("expected_move_pct")
     be_move = None
     if em is None or c.get("premium") is None:
-        factors["target"] = _fac(None, "expected move unavailable")
+        factors["target"] = _fac(None, "—", "expected move unavailable")
     else:
         be_move = _breakeven_move_pct(c, spot, calls)
-        if be_move <= em:
-            factors["target"] = _fac(True, f"needs {be_move:.1f}% vs {em:.1f}% expected")
-        else:
-            factors["target"] = _fac(False, f"needs {be_move:.1f}% — bigger than {em:.1f}% expected")
+        ok = be_move <= em
+        factors["target"] = _fac(ok, f"{be_move:.1f}/{em:.1f}",
+                                 (f"needs {be_move:.1f}% vs {em:.1f}% expected" if ok
+                                  else f"needs {be_move:.1f}% — bigger than {em:.1f}% expected"))
 
     # ── Tier 3: Cost / risk (Execution · Greeks) ─────────────────────────────
     spread, iv, atm_iv = c.get("spread_pct"), c.get("iv"), ctx.get("atm_iv")
     if spread is None or atm_iv is None or iv is None:
-        factors["execution"] = _fac(None, "quote/IV unavailable")
+        factors["execution"] = _fac(None, "—", "quote/IV unavailable")
     else:
         skew_ok = iv <= atm_iv * _SKEW_PUMP
+        sval = f"{spread:.0f}%"
         if spread <= _SPREAD_MAX_PCT and skew_ok:
-            factors["execution"] = _fac(True, f"spread {spread:.0f}%, IV fair vs ATM")
+            factors["execution"] = _fac(True, sval, f"spread {spread:.0f}%, IV fair vs ATM")
         elif spread > _SPREAD_MAX_PCT:
-            factors["execution"] = _fac(False, f"spread {spread:.0f}% — bleeds edge")
+            factors["execution"] = _fac(False, sval, f"spread {spread:.0f}% — bleeds edge")
         else:
-            factors["execution"] = _fac(False, "IV skew-pumped vs ATM")
+            factors["execution"] = _fac(False, sval + "·skew", "IV skew-pumped vs ATM")
 
     delta = c.get("delta")
     if delta is None:
-        factors["greeks"] = _fac(None, "Δ unavailable")
+        factors["greeks"] = _fac(None, "—", "Δ unavailable")
     else:
         ok_delta = _DELTA_LO <= abs(delta) <= _DELTA_HI
         theta = c.get("theta")
         ok_theta = theta is None or (c.get("premium") and abs(theta) / c["premium"] <= _THETA_MAX_FRAC)
+        dval = f"Δ{abs(delta):.2f}"
         if ok_delta and ok_theta:
-            factors["greeks"] = _fac(True, f"Δ{abs(delta):.2f}, θ tolerable")
+            factors["greeks"] = _fac(True, dval, f"Δ{abs(delta):.2f}, θ tolerable")
         elif not ok_delta:
-            factors["greeks"] = _fac(False, f"Δ{abs(delta):.2f} — outside {_DELTA_LO:g}-{_DELTA_HI:g}")
+            factors["greeks"] = _fac(False, dval, f"Δ{abs(delta):.2f} — outside {_DELTA_LO:g}-{_DELTA_HI:g}")
         else:
-            factors["greeks"] = _fac(False, f"Δ{abs(delta):.2f}, θ decay too heavy")
+            factors["greeks"] = _fac(False, dval, f"Δ{abs(delta):.2f}, θ decay too heavy")
 
     def _pts(*names):
         return sum(1 for n in names if factors[n]["ok"] is True)

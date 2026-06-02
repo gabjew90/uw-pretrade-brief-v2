@@ -54,16 +54,31 @@ def _c(**kw):
 
 
 def test_factors_are_transparent_with_value_and_note():
-    """Each factor is self-explaining: {ok, value, note} — not a bare pass/fail."""
+    """Each factor is self-explaining: {ok, value, note} — not a bare pass/fail.
+    `value` is a short displayable string of what the check found (for the table)."""
     s = tile4.score_contract(_c(), _ctx())
     f = s["factors"]
     assert set(f) == {"flow", "campaign", "room", "target", "execution", "greeks"}
     for name, fac in f.items():
-        assert set(fac) >= {"ok", "note"}, name
+        assert set(fac) >= {"ok", "value", "note"}, name
         assert isinstance(fac["note"], str) and fac["note"], f"{name} needs a note"
-    # the note carries the actual value / why
-    assert "%" in f["room"]["note"] or "wall" in f["room"]["note"].lower()
-    assert f["target"]["note"]  # e.g. "needs 4.5% vs 6% expected"
+        assert "value" in fac, f"{name} needs a displayable value"
+    # the value carries the actual measured number per check
+    assert "%" in f["room"]["value"]                 # e.g. "2.2%"
+    assert "/" in f["target"]["value"]               # e.g. "4.5/6.0"
+    assert "Δ" in f["greeks"]["value"] or f["greeks"]["value"] == "—"
+
+
+def test_flow_and_campaign_show_real_values_from_per_strike_maps():
+    """Flow value = smart-money $ at this strike; Campaign value = OI Δ% — pulled
+    from per-strike maps, not just a yes/no membership test."""
+    ctx = _ctx(flow_premium_by_strike={103.0: 1_250_000.0},
+               oi_by_strike={103.0: {"delta_pct": 18.0, "trend": "building"}})
+    s = tile4.score_contract(_c(strike=103.0), ctx)
+    assert s["factors"]["flow"]["ok"] is True
+    assert "1.2" in s["factors"]["flow"]["value"] and "M" in s["factors"]["flow"]["value"]
+    assert s["factors"]["campaign"]["ok"] is True
+    assert "18" in s["factors"]["campaign"]["value"]   # +18%
 
 
 def test_perfect_contract_all_factors_ok_and_tiers_full():
