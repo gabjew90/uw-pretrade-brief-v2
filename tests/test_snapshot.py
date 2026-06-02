@@ -375,3 +375,48 @@ async def test_refresh_snapshot_archive_pass_covers_tracked_universe(stub_uw, fr
     await snapshot.refresh_snapshot()
     pinned_partition = list(tmp_data_dir.glob("raw/endpoint=spot_exposures_strike/dt=*/ticker=PINNED_ONLY"))
     assert pinned_partition, "pinned ticker must be archived"
+
+
+async def test_in_ctx_propagates_freshness_collector():
+    """run_in_executor drops contextvars; _in_ctx must carry the freshness
+    collector into the pool thread so reads done there are recorded."""
+    import asyncio
+    from datetime import datetime, timezone
+    from server import snapshot as snap_mod, freshness
+    loop = asyncio.get_running_loop()
+    obs = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc)
+
+    def worker():
+        freshness.record("greeks", obs, "archive")
+        return "ok"
+
+    with freshness.collect() as fc:
+        r = await snap_mod._in_ctx(loop, worker)
+        s = fc.summary()
+    assert r == "ok"
+    assert s["data_provenance"] == "archive"
+    assert s["as_of"] == obs.isoformat()
+
+
+async def test_in_ctx_propagates_cached_only():
+    """The request-path cached_only() guard must reach pool threads via _in_ctx,
+    so on-demand fetches don't fire live UW from a worker thread."""
+    import asyncio
+    from server import snapshot as snap_mod, storage
+    loop = asyncio.get_running_loop()
+
+    def worker():
+        return storage._CACHED_ONLY.get()
+
+    with storage.cached_only():
+        got = await snap_mod._in_ctx(loop, worker)
+    assert got is True   # propagated into the pool thread
+
+
+async def test_in_ctx_without_context_is_neutral():
+    """Outside any collector / cached_only, _in_ctx behaves like a plain submit."""
+    import asyncio
+    from server import snapshot as snap_mod, storage
+    loop = asyncio.get_running_loop()
+    got = await snap_mod._in_ctx(loop, lambda: storage._CACHED_ONLY.get())
+    assert got is False
