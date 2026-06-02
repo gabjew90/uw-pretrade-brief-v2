@@ -72,73 +72,105 @@ def score_contract(c: dict, ctx: dict) -> dict:
     regardless of the other four)."""
     spot = ctx["spot"]
     calls = ctx.get("direction", "calls") == "calls"
-    checks: dict[str, str] = {}
 
+    def _fac(ok, note):
+        return {"ok": ok, "note": note}
+
+    factors: dict[str, dict] = {}
+
+    # ── Tier 1: Thesis (Flow · Campaign · Room) ──────────────────────────────
     fs = ctx.get("flow_strikes")
-    checks["flow"] = "unknown" if fs is None else ("pass" if c["strike"] in fs else "fail")
+    if fs is None:
+        factors["flow"] = _fac(None, "flow data unavailable")
+    elif c["strike"] in fs:
+        factors["flow"] = _fac(True, "smart-money flow hit this strike")
+    else:
+        factors["flow"] = _fac(False, "no flow at this strike")
 
     ob = ctx.get("oi_building")
-    checks["campaign"] = "unknown" if ob is None else ("pass" if c["strike"] in ob else "fail")
+    if ob is None:
+        factors["campaign"] = _fac(None, "OI trend unavailable")
+    elif c["strike"] in ob:
+        factors["campaign"] = _fac(True, "OI building here")
+    else:
+        factors["campaign"] = _fac(False, "OI flat / not building here")
 
     wall = ctx.get("call_wall") if calls else ctx.get("put_wall")
     if wall is None:
-        checks["room"] = "unknown"
+        factors["room"] = _fac(None, "wall data unavailable")
     else:
         room_pct = ((wall - c["strike"]) if calls else (c["strike"] - wall)) / spot * 100
-        checks["room"] = "pass" if room_pct >= _ROOM_MIN_PCT else "fail"
+        if room_pct >= _ROOM_MIN_PCT:
+            factors["room"] = _fac(True, f"{room_pct:.1f}% to the {'call' if calls else 'put'} wall")
+        else:
+            factors["room"] = _fac(False, f"{room_pct:.1f}% — at/over the wall")
 
+    # ── Tier 2: Realism (Target) ─────────────────────────────────────────────
     em = ctx.get("expected_move_pct")
     be_move = None
     if em is None or c.get("premium") is None:
-        checks["target"] = "unknown"
+        factors["target"] = _fac(None, "expected move unavailable")
     else:
         be_move = _breakeven_move_pct(c, spot, calls)
-        checks["target"] = "pass" if be_move <= em else "fail"
+        if be_move <= em:
+            factors["target"] = _fac(True, f"needs {be_move:.1f}% vs {em:.1f}% expected")
+        else:
+            factors["target"] = _fac(False, f"needs {be_move:.1f}% — bigger than {em:.1f}% expected")
 
+    # ── Tier 3: Cost / risk (Execution · Greeks) ─────────────────────────────
     spread, iv, atm_iv = c.get("spread_pct"), c.get("iv"), ctx.get("atm_iv")
     if spread is None or atm_iv is None or iv is None:
-        checks["execution"] = "unknown"
+        factors["execution"] = _fac(None, "quote/IV unavailable")
     else:
-        checks["execution"] = "pass" if (spread <= _SPREAD_MAX_PCT and iv <= atm_iv * _SKEW_PUMP) else "fail"
+        skew_ok = iv <= atm_iv * _SKEW_PUMP
+        if spread <= _SPREAD_MAX_PCT and skew_ok:
+            factors["execution"] = _fac(True, f"spread {spread:.0f}%, IV fair vs ATM")
+        elif spread > _SPREAD_MAX_PCT:
+            factors["execution"] = _fac(False, f"spread {spread:.0f}% — bleeds edge")
+        else:
+            factors["execution"] = _fac(False, "IV skew-pumped vs ATM")
 
     delta = c.get("delta")
     if delta is None:
-        checks["greeks"] = "unknown"
+        factors["greeks"] = _fac(None, "Δ unavailable")
     else:
         ok_delta = _DELTA_LO <= abs(delta) <= _DELTA_HI
         theta = c.get("theta")
         ok_theta = theta is None or (c.get("premium") and abs(theta) / c["premium"] <= _THETA_MAX_FRAC)
-        checks["greeks"] = "pass" if (ok_delta and ok_theta) else "fail"
+        if ok_delta and ok_theta:
+            factors["greeks"] = _fac(True, f"Δ{abs(delta):.2f}, θ tolerable")
+        elif not ok_delta:
+            factors["greeks"] = _fac(False, f"Δ{abs(delta):.2f} — outside {_DELTA_LO:g}-{_DELTA_HI:g}")
+        else:
+            factors["greeks"] = _fac(False, f"Δ{abs(delta):.2f}, θ decay too heavy")
 
-    eligible = checks["target"] != "fail" and checks["execution"] != "fail"
-    score = sum(1 for v in checks.values() if v == "pass")
-    reason = ""
-    if checks["target"] == "fail":
-        reason = f"Needs a {be_move:.1f}% move — bigger than the week's expected {em:.1f}%."
-    elif checks["execution"] == "fail":
-        reason = "Wide spread or skew-pumped IV — cost eats the edge."
-    elif checks["room"] == "fail":
-        reason = "Little room to the wall in your direction."
+    def _pts(*names):
+        return sum(1 for n in names if factors[n]["ok"] is True)
+    tier1 = _pts("flow", "campaign", "room")
+    tier2 = _pts("target")
+    tier3 = _pts("execution", "greeks")
     return {
         "strike": c["strike"], "type": c.get("type"), "premium": c.get("premium"),
         "delta": delta, "spread_pct": spread, "iv": iv, "oi": c.get("oi"),
-        "be_move_pct": be_move, "checks": checks, "score": score,
-        "eligible": eligible, "reason": reason,
+        "be_move_pct": be_move,
+        "factors": factors, "tier1": tier1, "tier2": tier2, "tier3": tier3,
+        "score": tier1 + tier2 + tier3,
     }
 
 
-def pick_best(scored: list[dict]) -> dict | None:
-    """Best eligible contract: highest score, then flow-aligned, then cheaper,
-    then delta nearest 0.45. None when nothing is eligible."""
-    eligible = [s for s in scored if s.get("eligible")]
-    if not eligible:
-        return None
-
+def rank_contracts(scored: list[dict]) -> list[dict]:
+    """Rank all contracts best→worst by tier (Thesis → Realism → Cost), then the
+    flow→cost→delta tiebreak within a tier. NO veto: a wide-spread / unrealistic
+    contract ranks LOWER but is never dropped. Adds a 1-based `rank` to each."""
     def key(s):
-        flow_rank = 0 if (s.get("checks", {}).get("flow") == "pass") else 1
-        return (-s.get("score", 0), flow_rank, s.get("premium") or 1e9,
+        flow_ok = (s.get("factors", {}).get("flow", {}) or {}).get("ok") is True
+        return (-s.get("tier1", 0), -s.get("tier2", 0), -s.get("tier3", 0),
+                0 if flow_ok else 1, s.get("premium") or 1e9,
                 abs((s.get("delta") or 0) - 0.45))
-    return sorted(eligible, key=key)[0]
+    ordered = sorted(scored, key=key)
+    for i, s in enumerate(ordered, 1):
+        s["rank"] = i
+    return ordered
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
@@ -258,7 +290,7 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
     if gates["stand_down"]:
         return {"status": "stand_down", "ticker": ticker, "direction": direction,
                 "expiry": expiry, "gates": gates, "term_curve": term_curve,
-                "recommendation": None, "reason": gates["reason"]}
+                "ranked": [], "top": None, "reason": gates["reason"]}
 
     greeks_by_strike: dict[float, dict] = {}
     for r in (greeks_p.get("data") if greeks_p else []) or []:
@@ -285,20 +317,27 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
         delta = _f(gk.get(f"{dpx}_delta", gk.get("delta")))
         theta = _f(gk.get(f"{dpx}_theta", gk.get("theta")))
         gk_iv = _f(gk.get(f"{dpx}_volatility", gk.get("iv")))
-        scored.append(score_contract({
+        iv = (r.get("iv") or None) or gk_iv
+        row = score_contract({
             "strike": r["strike"], "type": r["type"], "premium": ask or mid or None,
             "delta": delta, "theta": theta,
             "spread_pct": round(spread_pct, 1) if spread_pct is not None else None,
-            "iv": (r.get("iv") or None) or gk_iv, "oi": r.get("oi"),
-        }, sctx))
+            "iv": iv, "oi": r.get("oi"),
+        }, sctx)
+        # Raw chain quote (display): so the row reads as a real contract you'd take
+        # to a broker, alongside the why-it-ranks factors.
+        row.update({
+            "expiry": expiry, "theta": theta,
+            "bid": round(bid, 2), "ask": round(ask, 2),
+            "last": round(r.get("last") or 0, 2), "mid": round(mid, 2),
+            "iv": round(iv, 4) if iv is not None else None,
+            "volume": r.get("volume"), "oi": r.get("oi"),
+        })
+        scored.append(row)
 
-    best = pick_best(scored)
-    scored = [{**s, "pick": bool(best and s["strike"] == best["strike"])} for s in scored]
-    if best:
-        best = {**best, "pick": True}
-
+    ranked = rank_contracts(scored)
     return {
         "status": "ok", "ticker": ticker, "direction": direction, "expiry": expiry,
         "gates": gates, "term_curve": term_curve, "expected_move_pct": expected_move_pct,
-        "contracts": scored, "recommendation": best,
+        "ranked": ranked, "top": ranked[0] if ranked else None,
     }

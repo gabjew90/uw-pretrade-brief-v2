@@ -591,6 +591,7 @@ def contract_records(payload) -> list[dict]:
                 "strike": parsed["strike"],
                 "bid": float(r.get("nbbo_bid") or 0),
                 "ask": float(r.get("nbbo_ask") or 0),
+                "last": float(r.get("last_price") or 0),
                 "iv": float(r.get("implied_volatility") or 0),
                 "volume": int(r.get("volume") or 0),
                 "oi": int(r.get("open_interest") or 0),

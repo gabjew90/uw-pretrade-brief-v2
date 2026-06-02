@@ -716,6 +716,24 @@
   .t4-legend { margin-top: 10px; font-size: 10px; color: var(--axis); line-height: 1.5; }
   .t4-prov { margin-top: 7px; font-size: 9.5px; color: var(--axis); }
 
+  /* Tile 4 ranked-comparison redesign */
+  .t4-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+    background: linear-gradient(90deg, rgba(122,162,247,0.12), transparent 80%);
+    border-left: 3px solid var(--pos); border-radius: 6px; padding: 7px 11px; margin-bottom: 10px; }
+  .t4-top-l { font-size: 8.5px; color: var(--pos); letter-spacing: 0.1em; font-weight: 700; }
+  .t4-top strong { font-family: var(--ff-mono); font-size: 13px; color: var(--title); }
+  .t4-top-q { font-family: var(--ff-mono); font-size: 10.5px; color: var(--axis); }
+  .t4-ranked th.grp { color: var(--axis); font-weight: 400; opacity: 0.7; letter-spacing: 0; text-align: center; }
+  .t4-ranked tr.sub th { font-size: 9px; padding-top: 0; border-bottom: 1px solid var(--grid); }
+  .t4-ranked tr.istop td { background: rgba(122,162,247,0.10); }
+  .t4-ranked tr.istop td.k:first-child { color: var(--pos); font-weight: 700; }
+  .t4-ranked td.sc { font-weight: 700; color: var(--title); }
+  .t4-ranked td.facs { letter-spacing: 2px; white-space: nowrap; }
+  .t4-f { cursor: help; }
+  .t4-f.pass { color: var(--ok); }
+  .t4-f.fail { color: var(--neg); }
+  .t4-f.unk  { color: var(--axis); }
+
   /* Task 12: Tile 4 Cost & Timing — IVR gauge + curve indicator */
   .ivr-gauge {
     position: relative; height: 28px;
@@ -2903,68 +2921,86 @@ function renderTile4Picker(row, t4) {
       <div class="t4-term-v">${termVerdict}</div>
     </div>`;
 
-  // Recommendation card OR stand-down
-  let card;
+  const ranked = t4.ranked || [];
+  const sfx = t4.direction === "calls" ? "C" : "P";
+  const num = (v, d, s = "", suf = "") => v != null ? s + v.toFixed(d) + suf : "—";
+
+  // Stand-down (a hard gate tripped) shows in place of the ranking.
   if (t4.status === "stand_down") {
-    card = `<div class="t4-card standdown">
+    var body = `<div class="t4-card standdown">
       <div class="t4-card-h">⛔ STAND DOWN — no trade</div>
       <div class="t4-card-s">${t4.reason || "A hard gate tripped."}</div>
     </div>`;
-  } else if (t4.recommendation) {
-    const r = t4.recommendation;
-    const controls = (r.delta != null && r.premium) ? Math.abs(r.delta) * 100 * (row.spot || 0) : null;
-    card = `<div class="t4-card pick">
-      <div class="t4-card-h">★ ${row.ticker} ${t4.expiry} ${(r.strike).toFixed(0)}${t4.direction === "calls" ? "C" : "P"}</div>
-      <div class="t4-card-ask">ask <strong>$${(r.premium || 0).toFixed(2)}</strong>${controls ? ` · controls ~$${(controls/1000).toFixed(1)}k` : ""}</div>
-      <div class="t4-card-stats">
-        <span>Δ ${r.delta != null ? r.delta.toFixed(2) : "—"}</span>
-        <span>spread ${r.spread_pct != null ? r.spread_pct.toFixed(0) + "%" : "—"}</span>
-        <span>need ${r.be_move_pct != null ? r.be_move_pct.toFixed(1) + "%" : "—"} vs exp ${t4.expected_move_pct != null ? t4.expected_move_pct.toFixed(1) + "%" : "—"}</span>
-      </div>
-    </div>`;
+  } else if (!ranked.length) {
+    var body = `<div class="t4-card none"><div class="t4-card-h">No contracts in range</div>
+      <div class="t4-card-s">No chain data for this direction/expiry right now.</div></div>`;
   } else {
-    card = `<div class="t4-card none">
-      <div class="t4-card-h">No qualifying contract</div>
-      <div class="t4-card-s">Every strike in range fails Target or Execution — needed move exceeds the week's expected move, or spreads/IV are too rich. Standing down beats forcing it.</div>
+    // Slim "top of the ranking" callout — a highlight, not a verdict.
+    const top = t4.top || ranked[0];
+    const topCallout = `<div class="t4-top">
+      <span class="t4-top-l">TOP OF RANKING</span>
+      <strong>${row.ticker} ${t4.expiry} ${top.strike.toFixed(0)}${sfx}</strong>
+      <span class="t4-top-q">bid ${num(top.bid,2,'$')} / ask ${num(top.ask,2,'$')} · Δ${num(top.delta,2)} · needs ${num(top.be_move_pct,1,'','%')} vs ${num(t4.expected_move_pct,1,'','%')} exp</span>
     </div>`;
-  }
 
-  // Scored chain table
-  const dot = s => s === "pass" ? '<span class="t4-dot pass">●</span>'
-    : s === "fail" ? '<span class="t4-dot fail">○</span>'
-    : '<span class="t4-dot unk">·</span>';
-  const rows = (t4.contracts || []).map(c => {
-    const ch = c.checks || {};
-    const dots = ["flow", "campaign", "room", "target", "execution", "greeks"].map(k => dot(ch[k])).join("");
-    return `<tr class="${c.pick ? "ispick" : ""} ${c.eligible ? "" : "demoted"}">
-      <td class="k">${c.pick ? "★ " : ""}${(c.strike).toFixed(0)}</td>
-      <td>$${(c.premium != null ? c.premium : 0).toFixed(2)}</td>
-      <td>${c.delta != null ? c.delta.toFixed(2) : "—"}</td>
-      <td>${c.spread_pct != null ? c.spread_pct.toFixed(0) + "%" : "—"}</td>
-      <td>${c.be_move_pct != null ? c.be_move_pct.toFixed(1) + "%" : "—"}</td>
-      <td class="dots">${dots}</td>
-      <td class="rj">${c.eligible ? "" : (c.reason || "")}</td>
-    </tr>`;
-  }).join("");
-  const table = `<div class="t4-table-wrap"><table class="t4-table">
-    <thead><tr><th>strike</th><th>ask</th><th>Δ</th><th>spr</th><th>need</th>
-      <th title="Flow · Campaign · Room · Target · Execution · Greeks">F C R T E G</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    // Factor glyph + the transparent note (title= shows the why on hover).
+    const FK = ["flow", "campaign", "room", "target", "execution", "greeks"];
+    const facCell = f => {
+      const ok = f ? f.ok : undefined;
+      const cls = ok === true ? "pass" : ok === false ? "fail" : "unk";
+      const g = ok === true ? "✓" : ok === false ? "✗" : "·";
+      const note = (f && f.note) ? f.note.replace(/"/g, "&quot;") : "no data";
+      return `<span class="t4-f ${cls}" title="${note}">${g}</span>`;
+    };
+    const rows = ranked.map(c => {
+      const f = c.factors || {};
+      const facs = FK.map(k => facCell(f[k])).join("");
+      return `<tr${c.rank === 1 ? ' class="istop"' : ""}>
+        <td class="k">${c.rank}</td>
+        <td class="k">${c.strike.toFixed(0)}${sfx}</td>
+        <td>${num(c.bid,2,'$')}</td><td>${num(c.ask,2,'$')}</td>
+        <td>${num(c.last,2,'$')}</td>
+        <td>${c.iv != null ? (c.iv*100).toFixed(0)+'%' : '—'}</td>
+        <td>${c.volume != null ? c.volume.toLocaleString() : '—'}</td>
+        <td>${c.oi != null ? c.oi.toLocaleString() : '—'}</td>
+        <td>${num(c.delta,2)}</td>
+        <td>${num(c.spread_pct,0,'','%')}</td>
+        <td>${num(c.be_move_pct,1,'','%')}</td>
+        <td class="facs">${facs}</td>
+        <td class="sc">${c.score}/6</td>
+      </tr>`;
+    }).join("");
+    const table = `<div class="t4-table-wrap"><table class="t4-table t4-ranked">
+      <thead><tr>
+        <th>#</th><th>strike</th>
+        <th colspan="6" class="grp">— quote —</th>
+        <th colspan="3" class="grp">— derived —</th>
+        <th title="Flow · Campaign · Room · Target · Execution · Greeks">F·C·R·T·E·G</th><th>score</th>
+      </tr><tr class="sub">
+        <th></th><th></th>
+        <th>bid</th><th>ask</th><th>last</th><th>IV</th><th>vol</th><th>OI</th>
+        <th>Δ</th><th>spr</th><th>need</th>
+        <th></th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table></div>`;
+    var body = topCallout + table;
+  }
 
   const staleTag = t4.stale
     ? `<span style="font-size:9px;color:var(--warn);font-family:var(--ff-mono);border:1px solid var(--warn);border-radius:4px;padding:1px 5px;margin-left:8px;">STALE · last-good</span>`
     : "";
   return `
     <h3>
-      <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker & Final Gate${staleTag}</span>
-      <button class="help-icon" data-help="tile4">?</button>
+      <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker</span>
+      <button class="help-icon" data-help="tile4">?</button>${staleTag}
     </h3>
     ${badges}
     ${termPanel}
-    ${card}
-    ${table}
-    <div class="t4-legend">● pass · ○ fail · · not checked &nbsp;|&nbsp; <strong>F</strong>low <strong>C</strong>ampaign <strong>R</strong>oom <strong>T</strong>arget <strong>E</strong>xecution <strong>G</strong>reeks. Target &amp; Execution are hard gates — fail either and a contract can't be the ★.</div>
-    <div class="t4-prov">🔵 LIVE · option-contracts + greeks + atm-chains + interpolated-iv + earnings/FDA. Recommends a contract; does not predict the outcome.</div>
+    ${body}
+    <div class="t4-legend">
+      Ranked best→worst by <strong>thesis</strong> (flow/OI/room) → <strong>realism</strong> (needed vs expected move) → <strong>cost</strong> (spread/IV/greeks). You choose — the #1 row is a highlight, not a verdict. Hover a ✓/✗ for the reason.<br>
+      <span style="color:var(--axis)">Checks:</span> <strong>Flow</strong> smart-money hit this strike · <strong>Campaign</strong> OI building here · <strong>Room</strong> distance to the wall · <strong>Target</strong> breakeven ≤ expected move · <strong>Execution</strong> tight spread &amp; fair IV · <strong>Greeks</strong> Δ in band &amp; θ tolerable.
+    </div>
+    <div class="t4-prov">🔵 LIVE · option-contracts + greeks + atm-chains + interpolated-iv + earnings/FDA. Ranks contracts; does not predict the outcome.</div>
   `;
 }
 

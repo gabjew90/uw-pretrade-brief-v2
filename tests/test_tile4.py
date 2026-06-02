@@ -53,63 +53,84 @@ def _c(**kw):
     return base
 
 
-def test_perfect_contract_scores_six_and_eligible():
+def test_factors_are_transparent_with_value_and_note():
+    """Each factor is self-explaining: {ok, value, note} — not a bare pass/fail."""
     s = tile4.score_contract(_c(), _ctx())
+    f = s["factors"]
+    assert set(f) == {"flow", "campaign", "room", "target", "execution", "greeks"}
+    for name, fac in f.items():
+        assert set(fac) >= {"ok", "note"}, name
+        assert isinstance(fac["note"], str) and fac["note"], f"{name} needs a note"
+    # the note carries the actual value / why
+    assert "%" in f["room"]["note"] or "wall" in f["room"]["note"].lower()
+    assert f["target"]["note"]  # e.g. "needs 4.5% vs 6% expected"
+
+
+def test_perfect_contract_all_factors_ok_and_tiers_full():
+    s = tile4.score_contract(_c(), _ctx())
+    assert all(s["factors"][k]["ok"] is True for k in s["factors"])
+    assert s["tier1"] == 3 and s["tier2"] == 1 and s["tier3"] == 2   # 3 thesis, 1 realism, 2 cost
     assert s["score"] == 6
-    assert s["eligible"] is True
-    assert all(v == "pass" for v in s["checks"].values())
 
 
-def test_target_fail_caps_eligibility():
-    # breakeven = (103 + 8 - 100)/100 = 11% > 6% expected -> Target fail
-    s = tile4.score_contract(_c(premium=8.0), _ctx())
-    assert s["checks"]["target"] == "fail"
-    assert s["eligible"] is False
-    assert "move" in s["reason"].lower()
+def test_no_hard_veto_wide_spread_still_scored_not_disqualified():
+    """A wide spread fails Execution but the contract is NOT disqualified — it
+    just loses its tier-3 points and ranks lower. No 'eligible' veto anymore."""
+    s = tile4.score_contract(_c(spread_pct=40.0), _ctx())
+    assert s["factors"]["execution"]["ok"] is False
+    assert "eligible" not in s                 # no veto field
+    assert s["tier3"] < 2                       # lost cost points
+    assert s["tier1"] == 3                      # thesis intact → still ranks decently
 
 
-def test_execution_fail_caps_eligibility():
-    s = tile4.score_contract(_c(spread_pct=9.0), _ctx())   # wide spread
-    assert s["checks"]["execution"] == "fail"
-    assert s["eligible"] is False
-
-
-def test_unknown_dot_when_data_missing_never_passes():
+def test_missing_data_factor_ok_is_none_never_fabricated_pass():
     s = tile4.score_contract(_c(), _ctx(flow_strikes=None, expected_move_pct=None))
-    assert s["checks"]["flow"] == "unknown"
-    assert s["checks"]["target"] == "unknown"
-    # unknown target does NOT cap eligibility (only an explicit fail does)
-    assert s["eligible"] is True
+    assert s["factors"]["flow"]["ok"] is None
+    assert s["factors"]["target"]["ok"] is None
+    assert "unavailable" in s["factors"]["flow"]["note"].lower()
 
 
-def test_room_fail_at_wall():
-    s = tile4.score_contract(_c(strike=110.0), _ctx())   # strike AT the call wall
-    assert s["checks"]["room"] == "fail"
+def test_room_at_wall_fails_with_explanatory_note():
+    s = tile4.score_contract(_c(strike=110.0), _ctx())   # AT the call wall
+    assert s["factors"]["room"]["ok"] is False
+    assert "wall" in s["factors"]["room"]["note"].lower()
 
 
-# ── Pick selection / tiebreaker ──────────────────────────────────────────────
+# ── Ranking (tier1 → tier2 → tier3, no veto) ─────────────────────────────────
 
-def test_pick_best_prefers_eligible_high_score():
-    scored = [
-        {"strike": 108.0, "score": 4, "eligible": True, "checks": {"flow": "fail"}, "premium": 1.5, "delta": 0.40},
-        {"strike": 105.0, "score": 6, "eligible": True, "checks": {"flow": "pass"}, "premium": 2.0, "delta": 0.45},
-        {"strike": 103.0, "score": 6, "eligible": False, "checks": {"flow": "pass"}, "premium": 1.0, "delta": 0.5},
+def _scored(**kw):
+    base = dict(tier1=3, tier2=1, tier3=2, score=6, factors={"flow": {"ok": True}},
+                premium=1.5, delta=0.45, strike=103.0)
+    base.update(kw)
+    return base
+
+
+def test_rank_orders_by_tier_thesis_dominates():
+    rows = [
+        _scored(strike=108, tier1=1, tier2=1, tier3=2),   # weak thesis
+        _scored(strike=103, tier1=3, tier2=0, tier3=0),   # strong thesis, weak realism/cost
+        _scored(strike=105, tier1=2, tier2=1, tier3=2),
     ]
-    pick = tile4.pick_best(scored)
-    assert pick["strike"] == 105.0      # highest score among eligible
+    ranked = tile4.rank_contracts(rows)
+    assert [r["strike"] for r in ranked] == [103, 105, 108]   # tier1 dominates
+    assert [r["rank"] for r in ranked] == [1, 2, 3]
 
 
-def test_pick_tiebreak_flow_then_cost_then_delta():
-    scored = [
-        {"strike": 106.0, "score": 6, "eligible": True, "checks": {"flow": "fail"}, "premium": 1.0, "delta": 0.45},
-        {"strike": 105.0, "score": 6, "eligible": True, "checks": {"flow": "pass"}, "premium": 2.5, "delta": 0.45},
+def test_rank_keeps_low_quality_contract_not_dropped():
+    """No veto: a wide-spread / unrealistic contract still appears, just last."""
+    rows = [_scored(strike=103, tier1=3, tier2=1, tier3=2),
+            _scored(strike=120, tier1=0, tier2=0, tier3=0)]   # bad on everything
+    ranked = tile4.rank_contracts(rows)
+    assert len(ranked) == 2                       # nothing dropped
+    assert ranked[-1]["strike"] == 120
+
+
+def test_rank_tiebreak_within_tier_flow_then_cost_then_delta():
+    rows = [
+        _scored(strike=106, tier1=3, tier2=1, tier3=2, factors={"flow": {"ok": False}}, premium=1.0, delta=0.45),
+        _scored(strike=105, tier1=3, tier2=1, tier3=2, factors={"flow": {"ok": True}},  premium=2.5, delta=0.45),
     ]
-    assert tile4.pick_best(scored)["strike"] == 105.0   # flow-aligned beats cheaper
-
-
-def test_pick_none_when_no_eligible():
-    scored = [{"strike": 105.0, "score": 5, "eligible": False, "checks": {}, "premium": 2.0, "delta": 0.45}]
-    assert tile4.pick_best(scored) is None
+    assert tile4.rank_contracts(rows)[0]["strike"] == 105   # flow-aligned wins the tie
 
 
 # ── Orchestration (build_tile4) ──────────────────────────────────────────────
@@ -168,19 +189,23 @@ def test_build_tile4_stand_down_on_high_iv_rank(stub4, monkeypatch):
     monkeypatch.setattr(storage, "fetch_interpolated_iv", lambda t, h=False: {"data": [{"percentile": 0.95, "days": 7}]})
     out = tile4.build_tile4("SPY", _ctx4())
     assert out["status"] == "stand_down"
-    assert out["recommendation"] is None
+    assert out["ranked"] == [] and out["top"] is None
 
 
-def test_build_tile4_ok_scores_contracts_and_picks(stub4):
+def test_build_tile4_ok_ranks_contracts_with_quote_and_factors(stub4):
     out = tile4.build_tile4("SPY", _ctx4())
     assert out["status"] == "ok"
     assert out["direction"] == "calls"
-    assert len(out["contracts"]) >= 1
+    assert len(out["ranked"]) >= 1
     assert out["expected_move_pct"] == pytest.approx(6.0)   # 6.0 straddle / 100 spot * 100
-    assert out["recommendation"] is not None
-    assert out["recommendation"]["strike"] == 103.0
-    # delta parsed from call_delta (not flat 'delta') → Greeks check evaluated
-    pick = out["recommendation"]
-    assert pick["delta"] == pytest.approx(0.45)
-    assert pick["checks"]["greeks"] == "pass"
-    assert pick["checks"]["target"] == "pass"
+    top = out["top"]
+    assert top is not None and top["rank"] == 1
+    # 103 is the thesis-aligned, realistic strike → ranks first
+    assert top["strike"] == 103.0
+    # transparent factors present + delta parsed from call_delta
+    assert top["delta"] == pytest.approx(0.45)
+    assert top["factors"]["greeks"]["ok"] is True
+    assert top["factors"]["target"]["ok"] is True
+    # raw quote carried through for display
+    assert top["bid"] == 1.51 and top["ask"] == 1.55
+    assert "oi" in top and "volume" in top and "iv" in top
