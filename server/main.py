@@ -388,18 +388,3 @@ async def admin_export(token: str | None = None, days: int = 7):
                     headers={"Content-Disposition": "attachment; filename=uw_data.tar.gz"})
 
 
-@app.get("/admin/ws-probe")
-async def admin_ws_probe(token: str | None = None, channel: str = "flow_alerts",
-                         seconds: float = 12.0, max_msgs: int = 60):
-    """TEMPORARY spike: probe UW's WebSocket from the server (where UW_API_KEY +
-    network are) to confirm Basic-tier access + the auth/subscribe protocol.
-    Token-guarded (reuses BACKFILL_TOKEN). Read-only; key never returned. REMOVE
-    this route + server/ws_probe.py once the findings are read."""
-    expected = os.environ.get("BACKFILL_TOKEN")
-    if not expected or token != expected:
-        raise HTTPException(status_code=403, detail="forbidden")
-    from server import ws_probe
-    findings = await ws_probe.probe(channel=channel, seconds=seconds, max_msgs=max_msgs)
-    return JSONResponse(findings)
-
-

@@ -1,0 +1,552 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: Markets normal — green light
+      - generic [ref=e5]: VIX 18.4 · FOMC in 6 days · structural bets favored
+  - generic [ref=e6]:
+    - generic [ref=e7]: ⏱
+    - generic [ref=e8]:
+      - strong [ref=e9]: 727m ago
+      - text: · 15 tickers, refreshes every 60s
+  - generic [ref=e10]:
+    - heading "▸ Watchlist" [level=2] [ref=e11]:
+      - generic [ref=e12]: ▸ Watchlist
+    - generic [ref=e13]:
+      - textbox "Search ticker (e.g., AAPL)" [ref=e14]
+      - button "Clear" [ref=e15] [cursor=pointer]
+    - generic [ref=e16]:
+      - generic [ref=e172] [cursor=pointer]:
+        - generic [ref=e173]: NVDA
+        - generic [ref=e174]: ↓ Puts
+        - generic [ref=e175]:
+          - 'generic "Gate flow: green" [ref=e176]'
+          - 'generic "Gate oi: yellow" [ref=e177]'
+          - 'generic "Gate structural: red" [ref=e178]'
+          - 'generic "Gate cost: green" [ref=e179]'
+        - generic [ref=e180]: 2/4 green · Structure fails · OI marginal
+        - generic [ref=e181]: —
+      - generic [ref=e182] [cursor=pointer]:
+        - generic [ref=e183]: INTC
+        - generic [ref=e184]: ↑ Calls
+        - generic [ref=e185]:
+          - 'generic "Gate flow: green" [ref=e186]'
+          - 'generic "Gate oi: yellow" [ref=e187]'
+          - 'generic "Gate structural: red" [ref=e188]'
+          - 'generic "Gate cost: yellow" [ref=e189]'
+        - generic [ref=e190]: 1/4 green — setup does not qualify
+        - generic [ref=e191]: —
+      - generic [ref=e192] [cursor=pointer]:
+        - generic [ref=e193]: SLV
+        - generic [ref=e194]: ↑ Calls
+        - generic [ref=e195]:
+          - 'generic "Gate flow: red" [ref=e196]'
+          - 'generic "Gate oi: yellow" [ref=e197]'
+          - 'generic "Gate structural: red" [ref=e198]'
+          - 'generic "Gate cost: green" [ref=e199]'
+        - generic [ref=e200]: 1/4 green — setup does not qualify
+        - generic [ref=e201]: —
+      - generic [ref=e202] [cursor=pointer]:
+        - generic [ref=e203]: SOUN
+        - generic [ref=e204]: ↓ Puts
+        - generic [ref=e205]:
+          - 'generic "Gate flow: red" [ref=e206]'
+          - 'generic "Gate oi: yellow" [ref=e207]'
+          - 'generic "Gate structural: yellow" [ref=e208]'
+          - 'generic "Gate cost: green" [ref=e209]'
+        - generic [ref=e210]: 1/4 green — setup does not qualify
+        - generic [ref=e211]: —
+      - generic [ref=e212] [cursor=pointer]:
+        - generic [ref=e213]: IREN
+        - generic [ref=e214]: ↓ Puts
+        - generic [ref=e215]:
+          - 'generic "Gate flow: red" [ref=e216]'
+          - 'generic "Gate oi: yellow" [ref=e217]'
+          - 'generic "Gate structural: yellow" [ref=e218]'
+          - 'generic "Gate cost: green" [ref=e219]'
+        - generic [ref=e220]: 1/4 green — setup does not qualify
+        - generic [ref=e221]: —
+      - generic [ref=e222] [cursor=pointer]:
+        - generic [ref=e223]: ZM
+        - generic [ref=e224]: ↓ Puts
+        - generic [ref=e225]:
+          - 'generic "Gate flow: green" [ref=e226]'
+          - 'generic "Gate oi: yellow" [ref=e227]'
+          - 'generic "Gate structural: yellow" [ref=e228]'
+          - 'generic "Gate cost: yellow" [ref=e229]'
+        - generic [ref=e230]: 1/4 green — setup does not qualify
+        - generic [ref=e231]: —
+      - generic [ref=e232] [cursor=pointer]:
+        - generic [ref=e233]: SPXW
+        - generic [ref=e234]: ↓ Puts
+        - generic [ref=e235]:
+          - 'generic "Gate flow: yellow" [ref=e236]'
+          - 'generic "Gate oi: yellow" [ref=e237]'
+          - 'generic "Gate structural: yellow" [ref=e238]'
+          - 'generic "Gate cost: green" [ref=e239]'
+        - generic [ref=e240]: 1/4 green — setup does not qualify
+        - generic [ref=e241]: —
+      - generic [ref=e242] [cursor=pointer]:
+        - generic [ref=e243]: U
+        - generic [ref=e244]: ↓ Puts
+        - generic [ref=e245]:
+          - 'generic "Gate flow: red" [ref=e246]'
+          - 'generic "Gate oi: yellow" [ref=e247]'
+          - 'generic "Gate structural: yellow" [ref=e248]'
+          - 'generic "Gate cost: green" [ref=e249]'
+        - generic [ref=e250]: 1/4 green — setup does not qualify
+        - generic [ref=e251]: —
+      - generic [ref=e252] [cursor=pointer]:
+        - generic [ref=e253]: ORBS
+        - generic [ref=e254]: ↓ Puts
+        - generic [ref=e255]:
+          - 'generic "Gate flow: red" [ref=e256]'
+          - 'generic "Gate oi: yellow" [ref=e257]'
+          - 'generic "Gate structural: yellow" [ref=e258]'
+          - 'generic "Gate cost: green" [ref=e259]'
+        - generic [ref=e260]: 1/4 green — setup does not qualify
+        - generic [ref=e261]: —
+      - generic [ref=e262] [cursor=pointer]:
+        - generic [ref=e263]: GDYN
+        - generic [ref=e264]: ↓ Puts
+        - generic [ref=e265]:
+          - 'generic "Gate flow: red" [ref=e266]'
+          - 'generic "Gate oi: yellow" [ref=e267]'
+          - 'generic "Gate structural: yellow" [ref=e268]'
+          - 'generic "Gate cost: red" [ref=e269]'
+        - generic [ref=e270]: No gates passed — skip
+        - generic [ref=e271]: —
+      - generic [ref=e272] [cursor=pointer]:
+        - generic [ref=e273]: IMSR
+        - generic [ref=e274]: ↓ Puts
+        - generic [ref=e275]:
+          - 'generic "Gate flow: red" [ref=e276]'
+          - 'generic "Gate oi: yellow" [ref=e277]'
+          - 'generic "Gate structural: yellow" [ref=e278]'
+          - 'generic "Gate cost: yellow" [ref=e279]'
+        - generic [ref=e280]: No gates passed — skip
+        - generic [ref=e281]: —
+      - generic [ref=e282] [cursor=pointer]:
+        - generic [ref=e283]: ZS
+        - generic [ref=e284]: ↓ Puts
+        - generic [ref=e285]:
+          - 'generic "Gate flow: red" [ref=e286]'
+          - 'generic "Gate oi: yellow" [ref=e287]'
+          - 'generic "Gate structural: red" [ref=e288]'
+          - 'generic "Gate cost: yellow" [ref=e289]'
+        - generic [ref=e290]: No gates passed — skip
+        - generic [ref=e291]: —
+      - generic [ref=e292] [cursor=pointer]:
+        - generic [ref=e293]: TTMI
+        - generic [ref=e294]: ↓ Puts
+        - generic [ref=e295]:
+          - 'generic "Gate flow: yellow" [ref=e296]'
+          - 'generic "Gate oi: yellow" [ref=e297]'
+          - 'generic "Gate structural: yellow" [ref=e298]'
+          - 'generic "Gate cost: red" [ref=e299]'
+        - generic [ref=e300]: No gates passed — skip
+        - generic [ref=e301]: —
+      - generic [ref=e302] [cursor=pointer]:
+        - generic [ref=e303]: XLK
+        - generic [ref=e304]: ↓ Puts
+        - generic [ref=e305]:
+          - 'generic "Gate flow: yellow" [ref=e306]'
+          - 'generic "Gate oi: yellow" [ref=e307]'
+          - 'generic "Gate structural: red" [ref=e308]'
+          - 'generic "Gate cost: yellow" [ref=e309]'
+        - generic [ref=e310]: No gates passed — skip
+        - generic [ref=e311]: —
+      - generic [ref=e312] [cursor=pointer]:
+        - generic [ref=e313]: PLTR
+        - generic [ref=e314]: ↓ Puts
+        - generic [ref=e315]:
+          - 'generic "Gate flow: red" [ref=e316]'
+          - 'generic "Gate oi: yellow" [ref=e317]'
+          - 'generic "Gate structural: red" [ref=e318]'
+          - 'generic "Gate cost: yellow" [ref=e319]'
+        - generic [ref=e320]: No gates passed — skip
+        - generic [ref=e321]: —
+  - generic [ref=e167]:
+    - heading "▾ Deep-dive card — NVDA PUTS" [level=2] [ref=e322]
+    - generic [ref=e323]:
+      - generic [ref=e324]:
+        - 'heading "Tile 1: Flow Conviction ?" [level=3] [ref=e325]':
+          - generic [ref=e326]: "Tile 1: Flow Conviction"
+          - button "?" [ref=e328] [cursor=pointer]
+        - generic [ref=e329]:
+          - generic [ref=e330]:
+            - generic [ref=e331]: Alerts
+            - generic [ref=e332]: "5"
+          - generic [ref=e333]:
+            - generic [ref=e334]: Total premium
+            - generic [ref=e335]: $998k
+          - generic [ref=e336]:
+            - generic [ref=e337]: Ask-side %
+            - generic [ref=e338]: 83%
+        - generic [ref=e339]:
+          - generic [ref=e340]: call bought
+          - generic [ref=e342]: put bought
+          - generic [ref=e344]: hollow = sold
+          - generic [ref=e345]: ◯ ring = swept
+          - generic [ref=e346]: bigger = more $
+        - img [ref=e348]:
+          - generic: $212
+          - generic: $238
+          - generic: $264
+          - generic: $290
+          - generic: $316
+          - generic: now $224
+          - generic: 10:27 AM
+          - generic: 11:27 AM
+          - generic: 12:27 PM
+          - generic: 1:27 PM
+          - generic: 2:27 PM
+          - generic: time (ET, last 4hr session)
+        - generic [ref=e354]: Tap a bubble for trade detail
+      - generic [ref=e355]:
+        - 'heading "Tile 2: Positioning Reality Check ?" [level=3] [ref=e356]':
+          - generic [ref=e357]: "Tile 2: Positioning Reality Check"
+          - button "?" [ref=e359] [cursor=pointer]
+        - generic [ref=e360]:
+          - generic [ref=e361]:
+            - generic [ref=e362]: Opening activity
+            - generic [ref=e363]: 0%
+            - generic [ref=e364]: vol/OI 0.17×
+          - generic [ref=e365]:
+            - generic [ref=e366]: 5-day OI trend
+            - generic [ref=e367]: → +3%
+            - generic [ref=e368]: 2-session
+          - generic [ref=e369]:
+            - generic [ref=e370]: Confirmation
+            - generic [ref=e371]: Flat
+            - generic [ref=e373]: positioning
+        - generic [ref=e374]:
+          - generic [ref=e375]:
+            - generic [ref=e376]:
+              - generic [ref=e377]: $225
+              - generic [ref=e378]: $269k flow
+            - generic [ref=e379]:
+              - 'generic "05-28: 308,039 OI (settled)" [ref=e380]':
+                - generic [ref=e382]: 05-28
+              - 'generic "05-29: 322,645 OI (settled)" [ref=e383]':
+                - generic [ref=e385]: 05-29
+            - generic "Today's volume/OI ratio — OI confirms ~9am next session" [ref=e386]:
+              - generic [ref=e387]: today
+              - generic [ref=e388]: 1.0×
+            - generic [ref=e389]:
+              - generic [ref=e390]: ΔOI +15k
+              - generic [ref=e391]: δ +5.9B
+          - generic [ref=e392]:
+            - generic [ref=e393]:
+              - generic [ref=e394]: $270
+              - generic [ref=e395]: $340k flow
+            - generic [ref=e396]:
+              - 'generic "05-28: 194,752 OI (settled)" [ref=e397]':
+                - generic [ref=e399]: 05-28
+              - 'generic "05-29: 195,116 OI (settled)" [ref=e400]':
+                - generic [ref=e402]: 05-29
+            - generic "Today's volume/OI ratio — OI confirms ~9am next session" [ref=e403]:
+              - generic [ref=e404]: today
+              - generic [ref=e405]: 0.1×
+            - generic [ref=e406]:
+              - generic [ref=e407]: ΔOI +364
+              - generic [ref=e408]: δ +876k
+          - generic [ref=e409]:
+            - generic [ref=e410]:
+              - generic [ref=e411]: $310
+              - generic [ref=e412]: $389k flow
+            - generic [ref=e413]:
+              - 'generic "05-28: 76,571 OI (settled)" [ref=e414]':
+                - generic [ref=e416]: 05-28
+              - 'generic "05-29: 77,079 OI (settled)" [ref=e417]':
+                - generic [ref=e419]: 05-29
+            - generic "Today's volume/OI ratio — OI confirms ~9am next session" [ref=e420]:
+              - generic [ref=e421]: today
+              - generic [ref=e422]: 0.2×
+            - generic [ref=e423]:
+              - generic [ref=e424]: ΔOI +508
+              - generic [ref=e425]: δ —
+        - generic [ref=e426]:
+          - generic [ref=e427]: Flow premium by expiry
+          - generic [ref=e428]:
+            - 'generic "2028-06-16: 39% of flow premium" [ref=e429]'
+            - 'generic "2026-09-18: 34% of flow premium" [ref=e430]'
+            - 'generic "2026-06-05: 27% of flow premium" [ref=e431]'
+          - generic [ref=e432]:
+            - generic [ref=e433]: 2028-06-16 39%
+            - generic [ref=e435]: 2026-09-18 34%
+            - generic [ref=e437]: 2026-06-05 27%
+        - generic [ref=e439]:
+          - text: OI history from our own archive
+          - generic [ref=e440] [cursor=pointer]: 🔵LIVE
+          - text: · delta from greek-exposure
+          - generic [ref=e441] [cursor=pointer]: 🔵LIVE
+          - text: · today's OI provisional until settle (~9am next session).
+      - generic [ref=e442]:
+        - 'heading "Tile 3: Structural Setup ? as of 2:26 PM ET · archive" [level=3] [ref=e443]':
+          - generic [ref=e444]: "Tile 3: Structural Setup"
+          - button "?" [ref=e446] [cursor=pointer]
+          - generic "oldest contributing field · archive" [ref=e447]: as of 2:26 PM ET · archive
+        - generic [ref=e448]:
+          - generic [ref=e449]: PIN — moves dampened
+          - generic [ref=e450]:
+            - text: Dealers are
+            - strong [ref=e451]: long γ
+            - text: — moves get dampened, price pins. Flip at $223 (-0.9%).
+        - generic [ref=e452]:
+          - generic [ref=e453]:
+            - generic [ref=e454]: Weighting
+            - button "Open interest" [ref=e455] [cursor=pointer]
+            - button "Volume" [ref=e456] [cursor=pointer]
+          - generic [ref=e457]:
+            - generic [ref=e458]: Expiry
+            - button "Jun 01 this wk" [ref=e459] [cursor=pointer]
+            - button "Jun 03 next wk" [ref=e460] [cursor=pointer]
+            - button "Jun 05 +2 wk" [ref=e461] [cursor=pointer]
+        - generic [ref=e462]:
+          - img [ref=e464]:
+            - generic [ref=e466]: $205
+            - generic [ref=e471]: $210
+            - generic [ref=e477]: $215
+            - generic [ref=e484]: $220
+            - generic [ref=e491]: $225
+            - generic [ref=e498]: $230
+            - generic [ref=e503]: $235
+            - generic [ref=e506]: $240
+            - generic [ref=e508]: ◀ put γ (floor)
+            - generic [ref=e509]: call γ (ceiling) ▶
+            - generic [ref=e510]: peak γ ≈ 153M
+            - generic [ref=e511]: SPOT $224
+            - generic [ref=e512]: FLIP $223
+            - generic [ref=e513]: CALL WALL $225
+            - generic [ref=e514]: PUT WALL $223
+          - generic [ref=e515]:
+            - generic [ref=e516]:
+              - generic [ref=e517]:
+                - generic [ref=e518]: Call wall
+                - generic [ref=e519]: $225.00
+              - generic [ref=e520]:
+                - generic [ref=e521]: γ Flip
+                - generic [ref=e522]: $222.50 (-0.9%)
+              - generic [ref=e523]:
+                - generic [ref=e524]: Spot
+                - generic [ref=e525]: $224.44
+              - generic [ref=e526]:
+                - generic [ref=e527]: Put wall
+                - generic [ref=e528]: $222.50
+            - generic [ref=e529]:
+              - generic [ref=e530]: DRIFT · 0DTE
+              - generic [ref=e531]:
+                - generic [ref=e532]: Charm · time pull
+                - generic [ref=e535]: ▼ downward as time passes
+              - generic [ref=e536]:
+                - generic [ref=e537]: Vanna · vol pull
+                - generic [ref=e540]: ▲ up if IV rises
+        - generic [ref=e541]:
+          - text: "Bars:"
+          - strong [ref=e542]: right = call γ
+          - text: (resistance / ceiling) ·
+          - strong [ref=e543]: left = put γ
+          - text: (support / floor). Taller = dealers defend it harder. The flip is where the regime switches. Flip to
+          - strong [ref=e544]: Volume
+          - text: for today's build; switch
+          - strong [ref=e545]: expiry
+          - text: — the regime can differ week to week.
+          - generic [ref=e546]: 🔵 LIVE · spot-exposures/expiry-strike + greek-exposure/expiry · real-time structural snapshot, not a forecast.
+      - generic [ref=e547]:
+        - 'heading "Tile 4: Contract Picker ? as of 9:32 AM ET · archive" [level=3] [ref=e548]':
+          - generic [ref=e549]: "Tile 4: Contract Picker"
+          - button "?" [ref=e551] [cursor=pointer]
+          - generic "oldest contributing field · archive" [ref=e552]: as of 9:32 AM ET · archive
+        - generic [ref=e553]:
+          - generic [ref=e554]:
+            - generic [ref=e555]: Event window
+            - generic [ref=e556]: clear
+          - generic [ref=e557]:
+            - generic [ref=e558]: IV rank
+            - generic [ref=e559]: IVR 60
+        - generic [ref=e560]:
+          - img [ref=e561]:
+            - generic [ref=e562]: back avg 45
+            - generic [ref=e589]: this wk
+            - generic [ref=e590]: "50"
+            - generic [ref=e591]: "41"
+          - generic [ref=e592]: Front-month vol is RICH vs back — you're paying a near-term premium. Caution.
+        - generic [ref=e593]:
+          - generic [ref=e594]: TOP OF RANKING
+          - strong [ref=e595]: NVDA 2026-06-01 205P
+          - generic [ref=e596]: bid $0.00 / ask $0.01 · Δ-0.00 · needs 8.7% vs 0.6% exp
+        - table [ref=e598]:
+          - rowgroup [ref=e599]:
+            - row "# strike — quote — — the six checks (value) — score" [ref=e600]:
+              - columnheader "#" [ref=e601]
+              - columnheader "strike" [ref=e602]
+              - columnheader "— quote —" [ref=e603]
+              - columnheader "— the six checks (value) —" [ref=e604]
+              - columnheader "score" [ref=e605]
+            - row "bid ask last IV vol OI Flow Camp Room Tgt Exec Grk" [ref=e606]:
+              - columnheader [ref=e607]
+              - columnheader [ref=e608]
+              - columnheader "bid" [ref=e609]
+              - columnheader "ask" [ref=e610]
+              - columnheader "last" [ref=e611]
+              - columnheader "IV" [ref=e612]
+              - columnheader "vol" [ref=e613]
+              - columnheader "OI" [ref=e614]
+              - columnheader "Flow" [ref=e615]
+              - columnheader "Camp" [ref=e616]
+              - columnheader "Room" [ref=e617]
+              - columnheader "Tgt" [ref=e618]
+              - columnheader "Exec" [ref=e619]
+              - columnheader "Grk" [ref=e620]
+              - columnheader [ref=e621]
+          - rowgroup [ref=e622]:
+            - row "1 205P $0.00 $0.01 $0.01 10% 11,289 5,881 — — 2.2% 8.7/0.6 200% Δ0.00 1/6" [ref=e623]:
+              - cell "1" [ref=e624]
+              - cell "205P" [ref=e625]
+              - cell "$0.00" [ref=e626]
+              - cell "$0.01" [ref=e627]
+              - cell "$0.01" [ref=e628]
+              - cell "10%" [ref=e629]
+              - cell "11,289" [ref=e630]
+              - cell "5,881" [ref=e631]
+              - cell "—" [ref=e632]
+              - cell "—" [ref=e633]
+              - cell "2.2%" [ref=e634]
+              - cell "8.7/0.6" [ref=e635]
+              - cell "200%" [ref=e636]
+              - cell "Δ0.00" [ref=e637]
+              - cell "1/6" [ref=e638]
+            - row "2 208P $0.00 $0.01 $0.01 11% 5,575 4,120 — — 3.3% 7.6/0.6 200% Δ0.00 1/6" [ref=e639]:
+              - cell "2" [ref=e640]
+              - cell "208P" [ref=e641]
+              - cell "$0.00" [ref=e642]
+              - cell "$0.01" [ref=e643]
+              - cell "$0.01" [ref=e644]
+              - cell "11%" [ref=e645]
+              - cell "5,575" [ref=e646]
+              - cell "4,120" [ref=e647]
+              - cell "—" [ref=e648]
+              - cell "—" [ref=e649]
+              - cell "3.3%" [ref=e650]
+              - cell "7.6/0.6" [ref=e651]
+              - cell "200%" [ref=e652]
+              - cell "Δ0.00" [ref=e653]
+              - cell "1/6" [ref=e654]
+            - row "3 210P $0.00 $0.01 $0.01 10% 39,665 10,291 — — 4.5% 6.4/0.6 200% Δ0.01 1/6" [ref=e655]:
+              - cell "3" [ref=e656]
+              - cell "210P" [ref=e657]
+              - cell "$0.00" [ref=e658]
+              - cell "$0.01" [ref=e659]
+              - cell "$0.01" [ref=e660]
+              - cell "10%" [ref=e661]
+              - cell "39,665" [ref=e662]
+              - cell "10,291" [ref=e663]
+              - cell "—" [ref=e664]
+              - cell "—" [ref=e665]
+              - cell "4.5%" [ref=e666]
+              - cell "6.4/0.6" [ref=e667]
+              - cell "200%" [ref=e668]
+              - cell "Δ0.01" [ref=e669]
+              - cell "1/6" [ref=e670]
+            - row "4 213P $0.01 $0.02 $0.01 9% 29,579 7,844 — — 5.6% 5.3/0.6 67% Δ0.01 1/6" [ref=e671]:
+              - cell "4" [ref=e672]
+              - cell "213P" [ref=e673]
+              - cell "$0.01" [ref=e674]
+              - cell "$0.02" [ref=e675]
+              - cell "$0.01" [ref=e676]
+              - cell "9%" [ref=e677]
+              - cell "29,579" [ref=e678]
+              - cell "7,844" [ref=e679]
+              - cell "—" [ref=e680]
+              - cell "—" [ref=e681]
+              - cell "5.6%" [ref=e682]
+              - cell "5.3/0.6" [ref=e683]
+              - cell "67%" [ref=e684]
+              - cell "Δ0.01" [ref=e685]
+              - cell "1/6" [ref=e686]
+            - row "5 215P $0.01 $0.02 $0.01 7% 77,525 8,019 — — 6.7% 4.2/0.6 67% Δ0.01 1/6" [ref=e687]:
+              - cell "5" [ref=e688]
+              - cell "215P" [ref=e689]
+              - cell "$0.01" [ref=e690]
+              - cell "$0.02" [ref=e691]
+              - cell "$0.01" [ref=e692]
+              - cell "7%" [ref=e693]
+              - cell "77,525" [ref=e694]
+              - cell "8,019" [ref=e695]
+              - cell "—" [ref=e696]
+              - cell "—" [ref=e697]
+              - cell "6.7%" [ref=e698]
+              - cell "4.2/0.6" [ref=e699]
+              - cell "67%" [ref=e700]
+              - cell "Δ0.01" [ref=e701]
+              - cell "1/6" [ref=e702]
+            - row "6 218P $0.01 $0.02 $0.02 6% 106,804 4,293 — — 7.8% 3.1/0.6 67% Δ0.01 1/6" [ref=e703]:
+              - cell "6" [ref=e704]
+              - cell "218P" [ref=e705]
+              - cell "$0.01" [ref=e706]
+              - cell "$0.02" [ref=e707]
+              - cell "$0.02" [ref=e708]
+              - cell "6%" [ref=e709]
+              - cell "106,804" [ref=e710]
+              - cell "4,293" [ref=e711]
+              - cell "—" [ref=e712]
+              - cell "—" [ref=e713]
+              - cell "7.8%" [ref=e714]
+              - cell "3.1/0.6" [ref=e715]
+              - cell "67%" [ref=e716]
+              - cell "Δ0.01" [ref=e717]
+              - cell "1/6" [ref=e718]
+            - row "7 220P $0.02 $0.03 $0.02 4% 144,997 2,221 — — 8.9% 2.0/0.6 40% Δ0.03 1/6" [ref=e719]:
+              - cell "7" [ref=e720]
+              - cell "220P" [ref=e721]
+              - cell "$0.02" [ref=e722]
+              - cell "$0.03" [ref=e723]
+              - cell "$0.02" [ref=e724]
+              - cell "4%" [ref=e725]
+              - cell "144,997" [ref=e726]
+              - cell "2,221" [ref=e727]
+              - cell "—" [ref=e728]
+              - cell "—" [ref=e729]
+              - cell "8.9%" [ref=e730]
+              - cell "2.0/0.6" [ref=e731]
+              - cell "40%" [ref=e732]
+              - cell "Δ0.03" [ref=e733]
+              - cell "1/6" [ref=e734]
+            - row "8 223P $0.12 $0.13 $0.12 3% 65,962 1,031 — — 10.0% 0.9/0.6 8% Δ0.14 1/6" [ref=e735]:
+              - cell "8" [ref=e736]
+              - cell "223P" [ref=e737]
+              - cell "$0.12" [ref=e738]
+              - cell "$0.13" [ref=e739]
+              - cell "$0.12" [ref=e740]
+              - cell "3%" [ref=e741]
+              - cell "65,962" [ref=e742]
+              - cell "1,031" [ref=e743]
+              - cell "—" [ref=e744]
+              - cell "—" [ref=e745]
+              - cell "10.0%" [ref=e746]
+              - cell "0.9/0.6" [ref=e747]
+              - cell "8%" [ref=e748]
+              - cell "Δ0.14" [ref=e749]
+              - cell "1/6" [ref=e750]
+        - generic [ref=e751]:
+          - text: Ranked best→worst by
+          - strong [ref=e752]: thesis
+          - text: (flow/OI/room) →
+          - strong [ref=e753]: realism
+          - text: (needed vs expected move) →
+          - strong [ref=e754]: cost
+          - text: "(spread/IV/greeks). You choose — the #1 row is a highlight, not a verdict. Hover a ✓/✗ for the reason."
+          - text: "Checks:"
+          - strong [ref=e755]: Flow
+          - text: smart-money hit this strike ·
+          - strong [ref=e756]: Campaign
+          - text: OI building here ·
+          - strong [ref=e757]: Room
+          - text: distance to the wall ·
+          - strong [ref=e758]: Target
+          - text: breakeven ≤ expected move ·
+          - strong [ref=e759]: Execution
+          - text: tight spread & fair IV ·
+          - strong [ref=e760]: Greeks
+          - text: Δ in band & θ tolerable.
+        - generic [ref=e761]: 🔵 LIVE · option-contracts + greeks + atm-chains + interpolated-iv + earnings/FDA. Ranks contracts; does not predict the outcome.
