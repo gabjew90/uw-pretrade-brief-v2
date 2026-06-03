@@ -512,3 +512,6 @@ def test_through_within_ttl_parquet_hit_records_cache(tmp_data_dir):
     assert out == {"data": [7]}
     # a within-TTL parquet hit (NOT cached_only) is "cache", not "archive"
     assert s["data_provenance"] == "cache"
+    # as_of carries the served row's real pull time (not now / not None)
+    assert s["as_of"] is not None
+    assert s["as_of"].startswith(fresh_ts.isoformat()[:19])
