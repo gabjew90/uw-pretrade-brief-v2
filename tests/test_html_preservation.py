@@ -32,11 +32,16 @@ def test_hydration_marker_present():
 
 
 def test_all_render_tile_functions_preserved():
-    """Critical render functions from the v1 prototype must still exist in v2."""
+    """Critical render functions from the v1 prototype must still exist in v2.
+
+    NOTE: renderTile4Cost, renderTile5Confirmation, and renderTermStructureChart
+    were INTENTIONALLY removed (2026-06-02 polish pass) — the product is 4 tiles,
+    those two prototype tiles were dropped, and the term-structure sparkline they
+    used is superseded by the Tile 4 picker's termCurveSvg. They're off this list
+    on purpose; the guard still protects the render functions that remain live."""
     text = _V2_HTML.read_text(encoding="utf-8")
     for fn in ["renderTile1Flow", "renderTile2OI", "renderTile3Structural",
-               "renderTile4Cost", "renderTile5Confirmation", "renderTile6Picker",
-               "ladderSvg", "renderFlowChart", "renderTermStructureChart"]:
+               "renderTile6Picker", "ladderSvg", "renderFlowChart"]:
         assert fn in text, f"render function {fn}() missing from v2 HTML"
 
 

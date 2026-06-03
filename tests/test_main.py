@@ -472,3 +472,20 @@ def test_tile3_replay_route_stamps_as_of(client, monkeypatch):
     assert body["status"] == "ok"
     assert body["as_of"] == obs.isoformat()
     assert body["data_provenance"] == "archive"
+
+
+def test_tile4_replay_route_unavailable_is_not_stamped(client, monkeypatch):
+    """A non-ok build (status 'unavailable') must NOT be stamped — there's no
+    coherent as_of to attach when the view couldn't be built. The replay branch
+    returns it raw."""
+    from server import main as main_mod, tile4
+    monkeypatch.setenv("REPLAY", "1")
+
+    def fake_build(t, ctx):
+        return {"status": "unavailable", "ticker": t, "reason": "no data"}
+    monkeypatch.setattr(tile4, "build_tile4", fake_build)
+    _seed_one_row(main_mod, "SPY")
+    body = client.get("/api/tile4/SPY").json()
+    assert body["status"] == "unavailable"
+    assert "as_of" not in body
+    assert "data_provenance" not in body
