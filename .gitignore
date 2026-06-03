@@ -9,3 +9,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# transient dev/agent artifacts (screenshots, browser-driver dumps, scheduler lock)
+.playwright-mcp/
+.claude/
+*.png
+_run_probe.py
+_uw_openapi.json
