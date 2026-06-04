@@ -1363,7 +1363,7 @@ function renderRegimeBanner() {
     label.textContent = 'Awaiting snapshot…';
     detail.textContent = '';
     ageEl.textContent = '—';
-    detailEl.textContent = 'Server warming up; reload to refresh';
+    detailEl.textContent = 'Server warming up; auto-refresh (grid only)';
     return;
   }
   const regime = snap.regime || { label: 'normal', detail: '', vix: 0 };
@@ -1376,7 +1376,7 @@ function renderRegimeBanner() {
   const fetchedAt = new Date(snap.fetched_at);
   const ageSec = Math.floor((Date.now() - fetchedAt.getTime()) / 1000);
   ageEl.textContent = ageSec < 60 ? `${ageSec}s ago` : `${Math.floor(ageSec / 60)}m ago`;
-  detailEl.textContent = `${snap.rows.length} tickers · reload to refresh`;
+  detailEl.textContent = `${snap.rows.length} tickers · auto-refresh (grid only)`;
   if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale');
 }
 /* V2-EDIT-6-END */
@@ -3061,14 +3061,36 @@ document.getElementById("deepdive-content").addEventListener("mouseover", (e) =>
     detail.innerHTML = hover;
   }
 });
-/* V2-EDIT-3-BEGIN — auto-refresh DISABLED (operator choice, 2026-06-04).
-   The old 60s poll rebuilt the OPEN deep-dive every cycle (flicker / lost scroll
-   + closed tooltips) and — because ROWS === LIVE_ROWS — did `LIVE_ROWS.length=0`,
-   which WIPED searched (looked-up) tickers from the view ~60s after a search.
-   The dashboard now updates on page reload or ticker click only.
-   To re-enable a NON-disruptive refresh later: refill LIVE_ROWS from
-   /snapshot.json while preserving __lookedup rows, and call renderWatchlist()
-   WITHOUT renderDeepDive() (so the view you're reading isn't torn down). */
+/* V2-EDIT-3-BEGIN — GRID-ONLY refresh (operator choice, 2026-06-04).
+   The flow-driven hot-15 rotates fast during RTH; a frozen grid means clicking a
+   now-rotated-out ticker breaks the deep-dive. So we re-sync the WATCHLIST every
+   60s — but deliberately do NOT touch the open deep-dive (no flicker / lost
+   scroll, the original complaint). Two rows are PRESERVED across the refresh so
+   nothing is yanked out from under the user: (a) searched/__lookedup tickers, and
+   (b) the currently-SELECTED row (even if it rotated out of the hot-15), so its
+   deep-dive stays resolvable. */
+async function refreshWatchlistGrid() {
+  try {
+    const r = await fetch('/snapshot.json');
+    if (!r.ok) return;
+    const snap = await r.json();
+    if (!snap.rows) return;
+    const fresh = new Set(snap.rows.map(x => x.ticker));
+    // keep looked-up + the open selection if the fresh snapshot dropped them
+    const preserved = LIVE_ROWS.filter(row =>
+      !fresh.has(row.ticker) &&
+      (row.__lookedup || (state.selected && row.ticker === state.selected)));
+    LIVE_ROWS.length = 0;
+    LIVE_ROWS.push(...snap.rows, ...preserved);
+    if (window.__SNAPSHOT__) window.__SNAPSHOT__ = snap;   // keep header age/regime fresh
+    if (typeof renderRegimeBanner === 'function') renderRegimeBanner();
+    if (typeof renderWatchlist === 'function') renderWatchlist();
+    // NOTE: intentionally NO renderDeepDive() — the card you're reading stays put.
+  } catch (e) {
+    console.warn('grid refresh failed:', e);
+  }
+}
+setInterval(refreshWatchlistGrid, 60000);
 /* V2-EDIT-3-END */
 </script>
 </body>
