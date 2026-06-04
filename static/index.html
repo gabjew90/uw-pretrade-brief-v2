@@ -1516,7 +1516,9 @@ function fetchTile4Detail(ticker) {
   const cached = state.tile4Detail[ticker];
   if (cached && cached !== "loading" && cached !== "error") return;
   state.tile4Detail[ticker] = "loading";
-  fetch(`/api/tile4/${encodeURIComponent(ticker)}`)
+  const row = ROWS.find(r => r.ticker === ticker);
+  const dir = (row && row.direction) || "calls";   // deep-dive toggle → ranked side
+  fetch(`/api/tile4/${encodeURIComponent(ticker)}?direction=${encodeURIComponent(dir)}`)
     .then(r => r.json())
     .then(d => { state.tile4Detail[ticker] = d; if (state.selected === ticker) renderDeepDive(); })
     .catch(() => { state.tile4Detail[ticker] = "error"; });
@@ -1538,6 +1540,19 @@ function fetchTile3Detail(ticker) {
 
 function setTile3Weighting(w) { state.tile3Weighting = w; renderDeepDive(); }
 function setTile3Expiry(e) { state.tile3Expiry = e; renderDeepDive(); }
+
+/* Direction toggle (CALLS ⇄ PUTS) in the deep-dive title. Mutates the in-memory
+ * row so every tile re-frames, then re-fetches Tile 4 for the chosen side (its
+ * contracts are direction-specific). Tiles 1/2/3 are direction-agnostic in
+ * content — only their framing text follows the row, so no extra fetch. */
+function setDeepDiveDirection(ticker, dir) {
+  const row = ROWS.find(r => r.ticker === ticker);
+  if (!row || row.direction === dir) return;
+  row.direction = dir;
+  delete state.tile4Detail[ticker];   // force a re-rank for the new side
+  fetchTile4Detail(ticker);           // re-fetches /api/tile4?direction=dir
+  renderDeepDive();                   // reflect the flip immediately
+}
 
 /* ============================================================
  * Task 6: "Nothing today" card render + toggle
@@ -1635,7 +1650,12 @@ function renderDeepDive() {
     return;
   }
   const lu = row.__lookedup ? ` <span style="color:var(--warn);font-size:9px;border:1px solid var(--warn);border-radius:4px;padding:1px 5px;">LOOKED UP · not in today's hot list</span>` : "";
-  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span> <span style="color:var(--axis);font-size:11px;margin-left:6px;">${row.direction.toUpperCase()}</span>${lu}`;
+  // CALLS ⇄ PUTS toggle — defaults to the gamma-inferred direction; flipping it
+  // re-ranks Tile 4 for the chosen side and re-frames the deep-dive (you choose).
+  const dirToggle = `<span class="dir-toggle" style="margin-left:8px;" title="Direction defaults to the dealer-gamma read — flip it to rank the other side.">`
+    + `<button class="t3-tog ${row.direction === 'calls' ? 'on' : ''}" onclick="setDeepDiveDirection('${row.ticker}','calls')">CALLS</button>`
+    + `<button class="t3-tog ${row.direction === 'puts' ? 'on' : ''}" onclick="setDeepDiveDirection('${row.ticker}','puts')">PUTS</button></span>`;
+  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${lu}`;
   c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
 }
 
