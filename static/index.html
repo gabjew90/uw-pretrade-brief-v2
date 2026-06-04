@@ -2721,14 +2721,16 @@ function renderTile4Picker(row, t4) {
   const sfx = t4.direction === "calls" ? "C" : "P";
   const num = (v, d, s = "", suf = "") => v != null ? s + v.toFixed(d) + suf : "—";
 
-  // Stand-down (a hard gate tripped) shows in place of the ranking.
-  if (t4.status === "stand_down") {
-    var body = `<div class="t4-card standdown">
-      <div class="t4-card-h">⛔ STAND DOWN — no trade</div>
-      <div class="t4-card-s">${t4.reason || "A hard gate tripped."}</div>
-    </div>`;
-  } else if (!ranked.length) {
-    var body = `<div class="t4-card none"><div class="t4-card-h">No contracts in range</div>
+  // Stand-down is a CAUTION shown ABOVE the ranking, not instead of it — the
+  // picker is a comparison tool, so the contracts are still shown (you choose).
+  const standDownBanner = (t4.status === "stand_down")
+    ? `<div class="t4-card standdown">
+        <div class="t4-card-h">⛔ STAND DOWN — ${t4.reason || "a hard gate tripped"}</div>
+        <div class="t4-card-s">Gate caution — contracts shown for comparison, not a recommendation.</div>
+      </div>`
+    : "";
+  if (!ranked.length) {
+    var body = standDownBanner + `<div class="t4-card none"><div class="t4-card-h">No contracts in range</div>
       <div class="t4-card-s">No chain data for this direction/expiry right now.</div></div>`;
   } else {
     // Slim "top of the ranking" callout — a highlight, not a verdict.
@@ -2779,7 +2781,7 @@ function renderTile4Picker(row, t4) {
         <th title="delta of this contract">Grk</th>
         <th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>`;
-    var body = topCallout + table;
+    var body = standDownBanner + topCallout + table;
   }
 
   const staleTag = t4.stale

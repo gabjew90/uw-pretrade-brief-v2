@@ -200,11 +200,19 @@ def test_build_tile4_unavailable_on_chain_failure(monkeypatch):
     assert out["status"] == "unavailable"
 
 
-def test_build_tile4_stand_down_on_high_iv_rank(stub4, monkeypatch):
+def test_build_tile4_stand_down_still_shows_contracts(stub4, monkeypatch):
+    """Stand-down is a CAUTION, not a hard block: the picker is a ranked
+    comparison tool, so the contracts are still built/ranked and returned (with
+    the gate reason surfaced) — the operator chooses."""
     monkeypatch.setattr(storage, "fetch_interpolated_iv", lambda t, h=False: {"data": [{"percentile": 0.95, "days": 7}]})
     out = tile4.build_tile4("SPY", _ctx4())
     assert out["status"] == "stand_down"
-    assert out["ranked"] == [] and out["top"] is None
+    assert out.get("reason")                      # gate reason surfaced for the banner
+    # contracts shown even on stand-down (the behavior change)
+    assert len(out["ranked"]) >= 1
+    assert out["top"] is not None and out["top"]["rank"] == 1
+    # same rich rows as the ok path (quote + transparent factors)
+    assert "bid" in out["top"] and "factors" in out["top"]
 
 
 def test_build_tile4_ok_ranks_contracts_with_quote_and_factors(stub4):
