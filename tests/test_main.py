@@ -11,10 +11,12 @@ from server import main, snapshot as snapshot_mod
 
 @pytest.fixture(autouse=True)
 def _reset_snapshot_cache():
-    """The snapshot cache is module-global; reset it after each test so tests
-    that seed it (e.g. the admin-backfill cases) can't leak into others."""
+    """The snapshot + lookup caches are module-global; reset them after each test
+    so tests that seed them (e.g. the admin-backfill / search-any-ticker cases)
+    can't leak into others."""
     yield
     main._snapshot_cache["latest"] = None
+    getattr(main, "_lookup_cache", {}).clear()
 
 
 @pytest.fixture
@@ -489,3 +491,70 @@ def test_tile4_replay_route_unavailable_is_not_stamped(client, monkeypatch):
     assert body["status"] == "unavailable"
     assert "as_of" not in body
     assert "data_provenance" not in body
+
+
+# ── search-any-ticker: the on-demand deep-dive tiles must work for a SEARCHED
+#    ticker too (it's not in the snapshot, but /api/lookup built its row). ──
+
+def _fake_lookup_row(ticker="ROKU", spot=77.0, direction="puts"):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        ticker=ticker, spot=spot, direction=direction,
+        flow_alerts_detail=[], tile2=None,
+        wall_up_dist_pct=None, wall_dn_dist_pct=None,
+        model_dump=lambda mode=None: {"ticker": ticker, "spot": spot, "direction": direction})
+
+
+def test_tile4_resolves_looked_up_ticker_not_in_snapshot(client, monkeypatch):
+    """Regression: a SEARCHED ticker (absent from the snapshot) must still get the
+    rich Tile 4 — the route resolves the row built by /api/lookup, not only the
+    snapshot. Before the fix tile4 returned 'not in snapshot' → fallback picker."""
+    from server import snapshot as snap_mod, tile4
+    row = _fake_lookup_row()
+
+    async def fake_build(t):
+        return row
+    monkeypatch.setattr(snap_mod, "build_single_row", fake_build)
+    # 1. search it — populates the server-side lookup cache
+    assert client.get("/api/lookup/ROKU").json()["ticker"] == "ROKU"
+    # 2. capture the ctx the tile4 build receives
+    seen = {}
+
+    def fake_t4(t, ctx):
+        seen["ctx"] = ctx
+        return {"status": "ok", "ticker": t}
+    monkeypatch.setattr(tile4, "build_tile4", fake_t4)
+    body = client.get("/api/tile4/ROKU").json()
+    assert body.get("reason") != "not in snapshot"
+    assert body["status"] == "ok"
+    assert seen["ctx"]["spot"] == 77.0
+    assert seen["ctx"]["direction"] == "puts"
+
+
+def test_tile3_resolves_looked_up_ticker_spot_direction(client, monkeypatch):
+    """A searched ticker's Tile 3 must build with the looked-up row's real
+    spot/direction (not the spot=0 / 'calls' default that yields the fallback)."""
+    from server import snapshot as snap_mod, tile3_detail
+    row = _fake_lookup_row()
+
+    async def fake_build(t):
+        return row
+    monkeypatch.setattr(snap_mod, "build_single_row", fake_build)
+    client.get("/api/lookup/ROKU")
+    seen = {}
+
+    def fake_t3(t, spot, direction):
+        seen.update(spot=spot, direction=direction)
+        return {"status": "ok", "ticker": t}
+    monkeypatch.setattr(tile3_detail, "build_tile3_detail", fake_t3)
+    body = client.get("/api/tile3/ROKU").json()
+    assert body["status"] == "ok"
+    assert seen["spot"] == 77.0 and seen["direction"] == "puts"
+
+
+def test_tile4_unknown_ticker_still_unavailable(client):
+    """A ticker that was never searched AND isn't in the snapshot stays
+    'not in snapshot' — the fix must not change that."""
+    body = client.get("/api/tile4/ZZZZ").json()
+    assert body["status"] == "unavailable"
+    assert body["reason"] == "not in snapshot"
