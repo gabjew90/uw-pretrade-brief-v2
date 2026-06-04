@@ -317,10 +317,10 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
                            term_front=term_front, term_back=term_back)
     term_curve = [{"dte": t["dte"], "iv": round(t["iv"] * 100, 1)} for t in term]
 
-    if gates["stand_down"]:
-        return {"status": "stand_down", "ticker": ticker, "direction": direction,
-                "expiry": expiry, "gates": gates, "term_curve": term_curve,
-                "ranked": [], "top": None, "reason": gates["reason"]}
+    # NOTE: stand-down no longer short-circuits to an empty result. The picker is
+    # a ranked COMPARISON tool, not a decider — we build and show the contracts
+    # even when a gate trips, surfacing the caution via status + reason. The
+    # operator chooses (the frontend renders a STAND DOWN banner above the table).
 
     greeks_by_strike: dict[float, dict] = {}
     for r in (greeks_p.get("data") if greeks_p else []) or []:
@@ -366,8 +366,12 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
         scored.append(row)
 
     ranked = rank_contracts(scored)
-    return {
-        "status": "ok", "ticker": ticker, "direction": direction, "expiry": expiry,
+    out = {
+        "status": "stand_down" if gates["stand_down"] else "ok",
+        "ticker": ticker, "direction": direction, "expiry": expiry,
         "gates": gates, "term_curve": term_curve, "expected_move_pct": expected_move_pct,
         "ranked": ranked, "top": ranked[0] if ranked else None,
     }
+    if gates["stand_down"]:
+        out["reason"] = gates["reason"]   # surfaced in the frontend STAND DOWN banner
+    return out
