@@ -558,3 +558,24 @@ def test_tile4_unknown_ticker_still_unavailable(client):
     body = client.get("/api/tile4/ZZZZ").json()
     assert body["status"] == "unavailable"
     assert body["reason"] == "not in snapshot"
+
+
+def test_tile4_direction_override_param(client, monkeypatch):
+    """The deep-dive direction toggle: /api/tile4/{t}?direction=puts ranks the
+    PUTS side even when the row's gamma direction is 'calls'. Missing/invalid
+    direction falls back to the row's gamma direction."""
+    from server import main as main_mod, tile4
+    _seed_one_row(main_mod, "SPY")   # row.direction defaults to 'calls'
+    seen = {}
+
+    def fake_t4(t, ctx):
+        seen["dir"] = ctx["direction"]
+        return {"status": "ok", "ticker": t}
+    monkeypatch.setattr(tile4, "build_tile4", fake_t4)
+
+    client.get("/api/tile4/SPY")                       # no param → gamma direction
+    assert seen["dir"] == "calls"
+    client.get("/api/tile4/SPY?direction=puts")        # override
+    assert seen["dir"] == "puts"
+    client.get("/api/tile4/SPY?direction=garbage")     # invalid → fallback
+    assert seen["dir"] == "calls"

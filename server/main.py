@@ -238,15 +238,17 @@ async def tile3_detail_route(ticker: str):
 
 
 @app.get("/api/tile4/{ticker}")
-async def tile4_route(ticker: str):
+async def tile4_route(ticker: str, direction: str | None = None):
     """Contract Picker & Final Gate. ON-DEMAND — fetches the vol/greeks/event data
     live when a ticker is selected (cached 5 min). Reuses the cached snapshot
-    row's Tiles 1-3 outputs (direction, flow strikes, OI campaign, walls). See
-    server/tile4.py."""
+    row's Tiles 1-3 outputs (flow strikes, OI campaign, walls). `direction`
+    (calls|puts) is the deep-dive toggle override; missing/invalid falls back to
+    the row's gamma-inferred direction. See server/tile4.py."""
     t = ticker.upper()
     row = _resolve_row(t)   # snapshot OR a searched (looked-up) ticker's row
     if row is None:
         return JSONResponse({"status": "unavailable", "ticker": t, "reason": "not in snapshot"})
+    eff_dir = direction if direction in ("calls", "puts") else (getattr(row, "direction", "calls") or "calls")
     spot = float(getattr(row, "spot", 0) or 0)
     # Flow value per strike: sum smart-money premium at each strike (real $, not
     # just a yes/no membership) so the picker can show it.
@@ -275,7 +277,7 @@ async def tile4_route(ticker: str):
     wu, wd = getattr(row, "wall_up_dist_pct", None), getattr(row, "wall_dn_dist_pct", None)
     ctx = {
         "spot": spot,
-        "direction": getattr(row, "direction", "calls"),
+        "direction": eff_dir,
         "flow_premium_by_strike": flow_premium_by_strike,
         "oi_by_strike": oi_by_strike,
         "call_wall": spot * (1 + wu / 100) if (spot and wu is not None) else None,
@@ -288,7 +290,9 @@ async def tile4_route(ticker: str):
                 if isinstance(d, dict) and d.get("status") in ("ok", "stand_down"):
                     freshness.stamp(d)
                 return d
-        return _atomic_view(lambda: tile4.build_tile4(t, ctx), "tile4", t)
+        # Per-direction view key so the last-good fallback never serves the
+        # opposite side after a toggle.
+        return _atomic_view(lambda: tile4.build_tile4(t, ctx), "tile4", f"{t}_{eff_dir}")
     detail = await asyncio.to_thread(_run)
     return JSONResponse(detail)
 
