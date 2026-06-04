@@ -24,6 +24,34 @@ from server.schema import Snapshot
 log = logging.getLogger(__name__)
 
 _snapshot_cache: dict[str, Snapshot | None] = {"latest": None}
+
+# Rows built on demand by /api/lookup (search-any-ticker). These tickers are NOT
+# in the snapshot, so the on-demand tile3/tile4 routes — which read spot/direction/
+# flow/OI/walls off a row — would otherwise miss them and serve the thin fallback
+# tiles (the "searched ticker loads a different interface" bug). Cache the built
+# row here so a searched ticker's deep-dive matches a hot one. Session-scoped
+# (cleared on restart); bounded FIFO so it can't grow without limit.
+_lookup_cache: dict = {}
+_LOOKUP_CACHE_MAX = 200
+
+
+def _cache_lookup_row(ticker: str, row) -> None:
+    if ticker not in _lookup_cache and len(_lookup_cache) >= _LOOKUP_CACHE_MAX:
+        _lookup_cache.pop(next(iter(_lookup_cache)), None)   # drop oldest
+    _lookup_cache[ticker] = row
+
+
+def _resolve_row(ticker: str):
+    """Find a ticker's row for the on-demand tile routes. Prefer the live snapshot
+    (freshest, from the loop); else a row built on demand by /api/lookup
+    (search-any-ticker). Returns None if neither has it."""
+    snap = _snapshot_cache.get("latest")
+    row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == ticker), None)
+    if row is not None:
+        return row
+    return _lookup_cache.get(ticker)
+
+
 _REFRESH_INTERVAL_SECONDS = 120  # 15 tickers × 9 endpoints = 135 calls/cycle; 120s = ~68/min, fits 120/min budget
 # When the market is closed we re-check the clock every 5 min instead of every
 # 120s — resumes within 5 min of the open without spinning UW-free clock checks.
@@ -191,8 +219,7 @@ async def tile3_detail_route(ticker: str):
     tickers/session, so this is far cheaper than prewarming all 15 each cycle.
     spot/direction from the cached snapshot."""
     t = ticker.upper()
-    snap = _snapshot_cache.get("latest")
-    row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
+    row = _resolve_row(t)   # snapshot OR a searched (looked-up) ticker's row
     flow_spot = float(getattr(row, "spot", 0.0) or 0.0)
     direction = getattr(row, "direction", "calls") or "calls"
 
@@ -217,8 +244,7 @@ async def tile4_route(ticker: str):
     row's Tiles 1-3 outputs (direction, flow strikes, OI campaign, walls). See
     server/tile4.py."""
     t = ticker.upper()
-    snap = _snapshot_cache.get("latest")
-    row = next((r for r in (snap.rows if snap and snap.rows else []) if r.ticker == t), None)
+    row = _resolve_row(t)   # snapshot OR a searched (looked-up) ticker's row
     if row is None:
         return JSONResponse({"status": "unavailable", "ticker": t, "reason": "not in snapshot"})
     spot = float(getattr(row, "spot", 0) or 0)
@@ -288,6 +314,9 @@ async def lookup_route(ticker: str):
     if row is None:
         return JSONResponse({"status": "unavailable", "ticker": t,
                              "reason": "no data for this ticker"})
+    # Remember the built row so the on-demand tile3/tile4 routes can resolve this
+    # searched ticker (it's not in the snapshot) and render the RICH tiles.
+    _cache_lookup_row(t, row)
     payload = row.model_dump(mode="json")
     payload["as_of"] = fsum["as_of"]
     payload["data_provenance"] = fsum["data_provenance"]
