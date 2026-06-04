@@ -1363,7 +1363,7 @@ function renderRegimeBanner() {
     label.textContent = 'Awaiting snapshot…';
     detail.textContent = '';
     ageEl.textContent = '—';
-    detailEl.textContent = 'Server warming up; refreshes every 60s';
+    detailEl.textContent = 'Server warming up; reload to refresh';
     return;
   }
   const regime = snap.regime || { label: 'normal', detail: '', vix: 0 };
@@ -1376,7 +1376,7 @@ function renderRegimeBanner() {
   const fetchedAt = new Date(snap.fetched_at);
   const ageSec = Math.floor((Date.now() - fetchedAt.getTime()) / 1000);
   ageEl.textContent = ageSec < 60 ? `${ageSec}s ago` : `${Math.floor(ageSec / 60)}m ago`;
-  detailEl.textContent = `${snap.rows.length} tickers, refreshes every 60s`;
+  detailEl.textContent = `${snap.rows.length} tickers · reload to refresh`;
   if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale');
 }
 /* V2-EDIT-6-END */
@@ -3041,21 +3041,14 @@ document.getElementById("deepdive-content").addEventListener("mouseover", (e) =>
     detail.innerHTML = hover;
   }
 });
-/* V2-EDIT-3-BEGIN — poll /snapshot.json every 60s for fresh data */
-setInterval(async () => {
-  try {
-    const r = await fetch('/snapshot.json');
-    if (!r.ok) return;
-    const snap = await r.json();
-    if (!snap.rows) return;
-    LIVE_ROWS.length = 0;
-    LIVE_ROWS.push(...snap.rows);
-    if (typeof renderWatchlist === 'function') renderWatchlist();
-    if (typeof renderDeepDive === 'function') renderDeepDive();
-  } catch (e) {
-    console.warn('snapshot refresh failed:', e);
-  }
-}, 60000);
+/* V2-EDIT-3-BEGIN — auto-refresh DISABLED (operator choice, 2026-06-04).
+   The old 60s poll rebuilt the OPEN deep-dive every cycle (flicker / lost scroll
+   + closed tooltips) and — because ROWS === LIVE_ROWS — did `LIVE_ROWS.length=0`,
+   which WIPED searched (looked-up) tickers from the view ~60s after a search.
+   The dashboard now updates on page reload or ticker click only.
+   To re-enable a NON-disruptive refresh later: refill LIVE_ROWS from
+   /snapshot.json while preserving __lookedup rows, and call renderWatchlist()
+   WITHOUT renderDeepDive() (so the view you're reading isn't torn down). */
 /* V2-EDIT-3-END */
 </script>
 </body>
