@@ -15,9 +15,16 @@ The background loop refreshes ~15 tickers × ~6–9 endpoints every 120s during 
 - **Tile 2 multi-session OI** has an existing on-demand path: `backfill.backfill_oi_history([ticker], 7)` pulls a ticker's recent sessions from UW when it's first viewed (`server/snapshot.py:208–217`). The archive is an optimization, not a hard dependency.
 - **The v0.2 percentile gates are still stubbed** (`server/history.py` raises `NotImplementedError`; `gates.compute_gates(..., history=None)`), so removing the loop breaks no live feature there.
 
-The storage *layer* (read-through cache + parquet archive) stays — it is load-bearing and still writes on every fetch. Only the background *loop* is removed.
+The storage *layer* (read-through cache + parquet archive) stays — it is load-bearing and still writes on every fetch (now append-only). Only the background *loop* is removed. This honors the CLAUDE.md guardrail (don't drop the storage layer); the one refinement to record there is that the *percentile-gate* foundation is NOT this view-driven archive but the deferred thin daily writer (see History trade-off).
 
 ## Architecture
+
+### Storage model: read-through cache in front of append-only immutable logs
+The whole design rests on one pattern: a **read-through cache** backed by **append-only, immutable logs** — never read-modify-write. Appends are atomic and conflict-free by construction, so a page-load build and a concurrent click build can't corrupt each other, and history/audit ("what did the dashboard say at 10:43?")/replay come for free. Two logs, the *same* shape:
+- **Snapshot log (`snapshots.jsonl`) — canonical for the grid.** One immutable assembled `Snapshot` appended per build. Serves instant repaint, history, and grid replay. The "store snapshots when the user loads" requirement *is* this append.
+- **Raw per-endpoint archive (parquet) — kept, converted to append-only.** Today it read-modify-rewrites the hour-partition file in place (the write-path bug). It becomes one immutable part file per write. It stays because it backs **deep-dive replay** (Tile 3-rich / Tile 4 are rebuilt from raw payloads under `cached_only`) and cross-restart cache persistence — neither of which the snapshot log provides.
+
+Both are append-only; the read-modify-write subsystem is eliminated, not patched. (Per-namespace TTLs sit in front — see "Cache by rate of change".)
 
 ### Remove the loop
 - Delete `_refresh_loop()` and the lifespan task that starts it (`server/main.py`).
@@ -27,9 +34,12 @@ The storage *layer* (read-through cache + parquet archive) stays — it is load-
 - `REPLAY` is **kept**: with no loop it simply means the request path builds from `cached_only` archive (page-load builds the light snapshot from parquet; clicks read parquet).
 
 ### Page-load = light build, cached
-New entry point `snapshot.get_or_build_snapshot() -> Snapshot` used by `/` and `/snapshot.json`. It uses **two independent freshness windows** so a fast-moving signal and a slow-moving one don't share a TTL:
-- **Flow grid** — `SNAPSHOT_MAX_AGE_S`, default **60s**. Governs the hot-15 + flow gate + direction.
-- **Regime** — `REGIME_MAX_AGE_S`, default **600s** (10 min). The regime barely moves intraday; recomputing its ~5 SPY calls on every past-60s reload is waste.
+New entry point `snapshot.get_or_build_snapshot() -> Snapshot` used by `/` and `/snapshot.json`. It applies **cache-by-rate-of-change** — one TTL per cache namespace, not a single global window, so a fast-moving signal and a slow-moving one never share a TTL (and a reload never re-spends a slow signal's calls when nothing moved):
+- **Flow grid** — `SNAPSHOT_MAX_AGE_S`, default **60s** (tens of seconds). Governs the hot-15 + flow gate + direction.
+- **Regime / gamma** — `REGIME_MAX_AGE_S`, default **600s** (minutes). Barely moves intraday; recomputing its ~5 SPY calls on every past-60s reload is waste.
+- **Reference data** (ticker info, earnings, economic calendar) — hours, via the existing quasi-static 24h tier in `storage`. No new knob; just don't fold it into the grid window.
+
+This is the same principle the read-through cache's TTL tiers already encode; the front door simply respects per-namespace ages instead of rebuilding everything together.
 
 Logic:
 1. Read the current build (RAM `_snapshot_cache["latest"]`, else last persisted `snapshots.jsonl`).
@@ -54,8 +64,8 @@ With both the loop and the auto-refresh gone, the grid is **frozen between manua
 - **Staleness is loud, not subtle.** Past the flow window, the header shows a prominent stale state (the existing `.stale` tint plus an explicit banner like **"Flow as of 10:02 — 58m old · refresh"**), not just a quiet "58m ago." The freshness envelope already computes the age; this elevates it visually so a scan-only user can't mistake stale flow for live.
 - **Manual "refresh grid" button** (1 call). Re-pulls flow — equivalent to `get_or_build_snapshot` with the flow window forced to 0 — and re-renders **only the watchlist grid + header**, never the open deep-dive (honoring the operator's standing "don't refresh under my cursor" rule; this is user-initiated, the thing they objected to was *automatic* refresh). Regime follows its own `REGIME_MAX_AGE_S` (the button doesn't force-spend SPY calls unless the regime is also stale). This restores cheap intraday currency without reintroducing background polling.
 
-### Archive write-path fix (atomic, race-safe)
-The current writer (`storage._append_row`) read-modify-rewrites the entire hour-partition file in place: `existing = pq.ParquetFile(path).read(); concat; pq.write_table(path)`. Three defects: (1) **non-atomic** — a crash mid-write corrupts the live file; (2) **O(n²) within the hour** — every append rewrites all prior rows; (3) **lost-update race** — two concurrent builds reading+rewriting the same `endpoint/ticker/hour` file clobber each other. Removing the loop slashes write volume (so (2) mostly evaporates), and the new **light-build-vs-click-full-build** concurrency makes (3) more likely, so fix the write path now:
+### Archive write-path: apply the append-only principle (atomic, race-safe)
+This is the raw archive becoming append-only — the second half of the storage-model pattern above. The current writer (`storage._append_row`) read-modify-rewrites the entire hour-partition file in place: `existing = pq.ParquetFile(path).read(); concat; pq.write_table(path)`. Three defects: (1) **non-atomic** — a crash mid-write corrupts the live file; (2) **O(n²) within the hour** — every append rewrites all prior rows; (3) **lost-update race** — two concurrent builds reading+rewriting the same `endpoint/ticker/hour` file clobber each other. Removing the loop slashes write volume (so (2) mostly evaporates), and the new **light-build-vs-click-full-build** concurrency makes (3) more likely, so convert the write path to immutable appends:
 - **One part file per write, atomically.** Write each record to `part-HHMMSS-<short>.parquet` via a temp file + `os.replace` (the codebase already uses this `tmp → os.replace` idiom elsewhere in `storage.py`). No read-modify-write; each write is a small, independent, atomically-renamed file.
 - **Readers already glob.** `_read_latest_from_parquet` and `read_oi_history` already do `sorted(d.glob("part-*.parquet"), reverse=True)` and pick the freshest `fetched_at`, so many small part files are read-compatible with no reader change beyond confirming newest-first ordering holds for the `HHMMSS` names (it does, lexicographically within a day).
 - **File growth is acceptable** at the new (low) write volume; an optional compaction pass is explicitly deferred (YAGNI) and noted, not silently skipped.
