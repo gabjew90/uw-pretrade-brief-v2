@@ -446,3 +446,25 @@ async def test_in_ctx_concurrent_gather_shares_one_collector():
     assert sorted(results) == list(range(12))
     assert s["n_archive"] == 12          # every concurrent append landed
     assert s["as_of"] == base.replace(minute=0).isoformat()   # oldest field wins
+
+
+async def test_build_row_direction_from_opening_flow(stub_uw, fresh_storage_state, tmp_data_dir, monkeypatch):
+    from server import snapshot as snap
+    from server.schema import FlowAlert
+    # Force a clear opening-PUT imbalance regardless of gamma.
+    # Use real FlowAlert objects so both derive_direction and Row validation pass.
+    def _fa(type_, prem):
+        return FlowAlert(
+            type=type_, total_premium=prem, all_opening_trades=True,
+            strike=100.0, volume_oi_ratio=0.3, total_ask_side_prem=0.0,
+            total_bid_side_prem=0.0, has_sweep=False, has_singleleg=True,
+            has_multileg=False, underlying_price=100.0, option_chain="",
+            expiry="2026-06-06", total_size=10, volume=100, open_interest=300,
+            created_at="2026-06-04T14:00:00Z",
+        )
+    fake = [_fa("put", 2_000_000), _fa("call", 100_000)]
+    monkeypatch.setattr(snap, "_project_flow_alerts", lambda raw: fake)
+    row = await snap.build_single_row("SPY")
+    assert row is not None
+    assert row.direction == "puts"
+    assert row.direction_basis == "opening_flow"

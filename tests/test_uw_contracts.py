@@ -100,3 +100,27 @@ def test_live_uw_shape_satisfies_contract(endpoint):
         pytest.skip(f"{endpoint}: no live data (rate-limited / off-hours)")
     violations = check_payload(endpoint, payload)
     assert not violations, "LIVE contract drift:\n  " + "\n  ".join(violations)
+
+
+@pytest.mark.live
+def test_live_opening_flow_field_populates():
+    """all_opening_trades is now load-bearing for DIRECTION — verify the Basic
+    tier actually sets it true sometimes (same risk class as the ask-side /
+    net_prem_ticks=0 gotchas). Reports the opening fraction; fails only if the
+    field is entirely absent (drift) — an all-false result is logged loudly."""
+    import os
+    if not os.environ.get("UW_API_KEY"):
+        pytest.skip("UW_API_KEY not set")
+    from server import uw
+    try:
+        payload = uw.fetch_flow_alerts(limit=200)
+    except uw.UWError as e:
+        pytest.skip(f"flow_alerts live fetch failed: {e}")
+    rows = payload.get("data") or []
+    if not rows:
+        pytest.skip("no live flow rows")
+    assert all("all_opening_trades" in r for r in rows[:5]), "field missing (drift)"
+    opening = sum(1 for r in rows if r.get("all_opening_trades"))
+    frac = opening / len(rows)
+    print(f"\n[opening-flow probe] {opening}/{len(rows)} alerts opening ({frac:.0%})")
+    assert frac >= 0.0

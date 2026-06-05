@@ -134,3 +134,33 @@ def _cost_gate(row: dict) -> Color:
     if ivr <= GATE_THRESHOLDS["ivr_yellow_max"]:
         return "yellow"
     return "red"
+
+
+def derive_direction(flow_alerts, gex_sign: str, flip_pct: float) -> tuple[str, str]:
+    """Pick the call/put side. OPENING flow leads (Ge-Lin-Pearson: opening bets
+    predict, closing bets don't); fall back to total signed flow (Pan-Poteshman),
+    then to the legacy gamma rule. Returns (direction, direction_basis) where
+    basis is 'opening_flow' | 'total_flow' | 'gamma_fallback'. Pure; reads
+    attributes tolerantly so it works on FlowAlert objects or dicts."""
+    def _prem(want_type, opening_only):
+        out = 0.0
+        for x in flow_alerts or []:
+            typ = getattr(x, "type", None) if not isinstance(x, dict) else x.get("type")
+            opn = getattr(x, "all_opening_trades", False) if not isinstance(x, dict) else x.get("all_opening_trades", False)
+            prem = getattr(x, "total_premium", 0.0) if not isinstance(x, dict) else x.get("total_premium", 0.0)
+            if typ == want_type and (opn or not opening_only):
+                out += float(prem or 0.0)
+        return out
+
+    open_call, open_put = _prem("call", True), _prem("put", True)
+    if open_call or open_put:
+        return ("calls" if open_call >= open_put else "puts", "opening_flow")
+
+    tot_call, tot_put = _prem("call", False), _prem("put", False)
+    if tot_call or tot_put:
+        return ("calls" if tot_call >= tot_put else "puts", "total_flow")
+
+    # legacy gamma rule, last resort, never silent (basis says so)
+    if gex_sign == "NEG" or flip_pct > 0:
+        return ("calls", "gamma_fallback")
+    return ("puts", "gamma_fallback")

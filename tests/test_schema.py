@@ -39,3 +39,15 @@ def test_row_accepts_optional_failures_list():
         _failures=["darkpool", "earnings"],
     )
     assert r._failures == ["darkpool", "earnings"]
+
+
+def test_row_has_direction_basis_default():
+    from server.schema import Row, Gates, GateMethod
+    row = Row(ticker="SPY", spot=1.0, direction="calls",
+              gates=Gates(flow="green", oi="green", structural="green", cost="green"),
+              gate_method=GateMethod(flow="absolute", oi="absolute",
+                                     structural="absolute", cost="absolute"))
+    assert row.direction_basis == "gamma_fallback"           # honest default
+    row2 = Row(ticker="SPY", spot=1.0, direction="calls", direction_basis="opening_flow",
+               gates=row.gates, gate_method=row.gate_method)
+    assert row2.direction_basis == "opening_flow"
