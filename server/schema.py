@@ -202,6 +202,12 @@ class Regime(BaseModel):
     label: Literal["normal", "risk-off"] = "normal"
     detail: str = ""
     vix: float = 0.0
+    headline: str = ""
+    posture: Literal["Favorable", "Mixed", "Stand down", ""] = ""
+    event_line: str | None = None
+    vol_line: str = ""
+    tide_badge: str = ""
+    opex: bool = False
 
 
 class Snapshot(BaseModel):

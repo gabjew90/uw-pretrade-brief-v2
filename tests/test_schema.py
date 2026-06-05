@@ -51,3 +51,12 @@ def test_row_has_direction_basis_default():
     row2 = Row(ticker="SPY", spot=1.0, direction="calls", direction_basis="opening_flow",
                gates=row.gates, gate_method=row.gate_method)
     assert row2.direction_basis == "opening_flow"
+
+
+def test_regime_has_structured_market_fields():
+    from server.schema import Regime
+    r = Regime(label="normal", headline="Trend regime — extends", posture="Favorable")
+    assert r.posture == "Favorable"
+    assert r.headline.startswith("Trend")
+    assert r.event_line is None and r.opex is False        # honest defaults
+    assert r.vix == 0.0 and r.detail == ""                 # back-compat fields intact
