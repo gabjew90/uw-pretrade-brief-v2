@@ -300,6 +300,7 @@
   .row .timestamp.stale { color: var(--warn); }
   .t-asof { font-size: 9px; color: var(--axis); font-family: var(--ff-mono); margin-left: 8px; }
   .t-asof.stale { color: var(--warn); }
+  .dir-basis { font-size: 9px; color: var(--warn); font-family: var(--ff-mono); margin-left: 6px; border: 1px solid var(--warn); border-radius: 4px; padding: 1px 5px; }
 
   /* Task 6: Nothing today card */
   .nothing-card {
@@ -1652,10 +1653,14 @@ function renderDeepDive() {
   const lu = row.__lookedup ? ` <span style="color:var(--warn);font-size:9px;border:1px solid var(--warn);border-radius:4px;padding:1px 5px;">LOOKED UP · not in today's hot list</span>` : "";
   // CALLS ⇄ PUTS toggle — defaults to the gamma-inferred direction; flipping it
   // re-ranks Tile 4 for the chosen side and re-frames the deep-dive (you choose).
-  const dirToggle = `<span class="dir-toggle" style="margin-left:8px;" title="Direction defaults to the dealer-gamma read — flip it to rank the other side.">`
+  const dirToggle = `<span class="dir-toggle" style="margin-left:8px;" title="Direction defaults to the opening-flow read — flip it to rank the other side.">`
     + `<button class="t3-tog ${row.direction === 'calls' ? 'on' : ''}" onclick="setDeepDiveDirection('${row.ticker}','calls')">CALLS</button>`
     + `<button class="t3-tog ${row.direction === 'puts' ? 'on' : ''}" onclick="setDeepDiveDirection('${row.ticker}','puts')">PUTS</button></span>`;
-  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${lu}`;
+  // Honesty marker: when the side wasn't picked from opening flow, say so.
+  const basisTag = (row.direction_basis && row.direction_basis !== "opening_flow")
+    ? `<span class="dir-basis" title="Side derived from a weaker basis than opening flow.">via ${row.direction_basis === "total_flow" ? "total flow" : "gamma (weak)"}</span>`
+    : "";
+  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${basisTag}${lu}`;
   c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
 }
 
