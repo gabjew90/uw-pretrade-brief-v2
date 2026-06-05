@@ -267,6 +267,33 @@ def _expected_move_pct(atm_payload, spot: float) -> float | None:
     return None
 
 
+_HOLD_DAYS = 3  # rough weekly-hold horizon for the theta-drag estimate
+
+def _cost_check(top: dict | None, expected_move_pct: float | None) -> dict:
+    """Can the expected move clear the top contract's round-trip cost?
+    cost ≈ full bid/ask spread (% of mid) + theta paid over ~_HOLD_DAYS, as a %
+    of premium. covers=None when we can't compute the move (honest unknown)."""
+    spread = (top or {}).get("spread_pct")
+    theta = (top or {}).get("theta")
+    prem = (top or {}).get("ask") or (top or {}).get("mid")
+    theta_drag = None
+    if theta is not None and prem:
+        theta_drag = abs(theta) * _HOLD_DAYS / prem * 100.0
+    rt = (round((spread or 0.0) + (theta_drag or 0.0), 1)
+          if (spread is not None or theta_drag is not None) else None)
+    covers = None
+    if expected_move_pct is not None and rt is not None:
+        covers = expected_move_pct >= rt
+    return {
+        "expected_move_pct": expected_move_pct,
+        "round_trip_cost_pct": rt,
+        "spread_pct": spread,
+        "theta_drag_pct": round(theta_drag, 1) if theta_drag is not None else None,
+        "hold_days": _HOLD_DAYS,
+        "covers": covers,
+    }
+
+
 def build_tile4(ticker: str, ctx: dict) -> dict:
     """Assemble the contract-picker payload. ctx carries the reused Tiles 1-3
     outputs (spot, direction, flow_strikes, oi_building, call_wall, put_wall).
@@ -371,6 +398,7 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
         "ticker": ticker, "direction": direction, "expiry": expiry,
         "gates": gates, "term_curve": term_curve, "expected_move_pct": expected_move_pct,
         "ranked": ranked, "top": ranked[0] if ranked else None,
+        "cost_check": _cost_check(ranked[0] if ranked else None, expected_move_pct),
     }
     if gates["stand_down"]:
         out["reason"] = gates["reason"]   # surfaced in the frontend STAND DOWN banner

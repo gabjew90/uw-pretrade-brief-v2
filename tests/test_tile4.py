@@ -178,8 +178,8 @@ def stub4(monkeypatch):
         {"option_symbol": "SPY260605P00100000", "bid": "2.9", "ask": "3.1", "stock_price": "100"}]})
     # greeks: real shape = one row per strike w/ separate call_/put_ columns.
     monkeypatch.setattr(storage, "fetch_greeks", lambda t, e: {"data": [
-        {"strike": "103", "call_delta": "0.45", "call_theta": "-0.10",
-         "put_delta": "-0.55", "put_theta": "-0.09"},
+        {"strike": "103", "call_delta": "0.45", "call_theta": "-0.01",
+         "put_delta": "-0.55", "put_theta": "-0.01"},
         {"strike": "108", "call_delta": "0.25", "call_theta": "-0.06",
          "put_delta": "-0.75", "put_theta": "-0.05"}]})
     monkeypatch.setattr(storage, "fetch_earnings", lambda t, h=False: {"data": []})
@@ -232,3 +232,25 @@ def test_build_tile4_ok_ranks_contracts_with_quote_and_factors(stub4):
     # raw quote carried through for display
     assert top["bid"] == 1.51 and top["ask"] == 1.55
     assert "oi" in top and "volume" in top and "iv" in top
+
+
+def test_build_tile4_cost_check_present_and_flags_uncovered(stub4, monkeypatch):
+    """Tile 4 surfaces whether the expected move can clear the round-trip cost
+    (spread + ~3d theta) of the top contract."""
+    out = tile4.build_tile4("SPY", _ctx4())
+    assert out["status"] == "ok"
+    cc = out.get("cost_check")
+    assert cc is not None
+    assert "expected_move_pct" in cc and "round_trip_cost_pct" in cc and "covers" in cc
+    assert isinstance(cc["covers"], bool)
+    # The stub's expected move (6%) comfortably clears a tight-spread contract
+    assert cc["covers"] is True
+
+
+def test_build_tile4_cost_check_none_when_no_expected_move(stub4, monkeypatch):
+    """If expected move can't be computed, cost_check is reported as unknown,
+    not a false 'covers'."""
+    monkeypatch.setattr(tile4, "_expected_move_pct", lambda atm, spot: None)
+    out = tile4.build_tile4("SPY", _ctx4())
+    cc = out.get("cost_check")
+    assert cc is not None and cc["covers"] is None and cc["expected_move_pct"] is None
