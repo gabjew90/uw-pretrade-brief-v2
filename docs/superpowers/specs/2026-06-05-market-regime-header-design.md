@@ -16,7 +16,10 @@ The header is the natural home for the index-level context the per-ticker signal
    - unavailable → honest "index gamma unavailable."
    - (QQQ optional as a secondary confirm; SPY is the headline.)
 
-2. **Event veto — market-wide** (hard "stand down" override). `GET /api/market/economic-calendar` (confirmed on-tier; current & next week; `type` includes `fomc`). If a high-impact event (FOMC / CPI / jobs / fed-speaker of weight) is **today or tomorrow** → top-line **"FOMC tomorrow — don't initiate weeklies into it."** This is the macro earnings-gate; it belongs at the top, not per-row.
+2. **Event veto — market-wide** (hard "stand down" override). `GET /api/market/economic-calendar` (confirmed on-tier; current & next week; `type` includes `fomc`). High-impact events = FOMC / CPI / NFP-jobs / weighty fed-speakers (a small allowlist, start conservative).
+   - **Window = the HOLD window, not just tomorrow.** Weeklies are held 1–5 days, so a trade opened today routinely crosses an event 3–4 days out. An UPCOMING high-impact event **within ~5 calendar days** must surface: ≤1 day → strong veto ("FOMC tomorrow — don't initiate weeklies into it"); 2–5 days → warn ("CPI in 3d — any weekly you open now will likely cross it").
+   - **Before vs after the print.** Only events still in the FUTURE veto. An event that already printed **earlier today** is binary-risk-resolved (often a clean tape) → NOT a stand-down; drop it from the veto (use the event's date+time vs now). Don't flag the afternoon after a morning CPI.
+   - This is the macro earnings-gate; it belongs at the top, not buried per-row — AND it also feeds the per-ticker cost gate (see "Wire the event into the per-ticker cost gate" below).
 
 3. **Vol environment, framed for a BUYER** (not "VIX 14"). SPY **implied vs realized** vol + direction of travel → translate to ownability:
    - cheap & calm (IV ≲ RV, low/steady) → "options are cheap to own — fine."
@@ -29,10 +32,15 @@ The header is the natural home for the index-level context the per-ticker signal
 
 ## Synthesis — one market posture for the strategy
 Collapse the above into **Favorable / Mixed / Stand down**, mirroring the per-ticker verdict at the market level:
-- **Event veto is a HARD override → Stand down** (event today/tomorrow), regardless of everything else.
-- Else **gamma regime drives the base**: NEG/trend → lean Favorable; POS/chop → lean Mixed.
-- **Vol + tide are modifiers**: IV-crush risk or strongly hostile tide can downgrade Favorable→Mixed or Mixed→Stand down.
-- It must be willing to read **Mixed or Stand down most days** — that's the truth for this strategy, and the header is the right place to set that expectation before the user scrolls.
+- **Upcoming event within the hold window is a HARD override → Stand down** (≤1d) / at least the warn-banner downgrades Favorable→Mixed (2–5d), regardless of gamma.
+- Else **gamma regime drives the base — and chop is hostile enough to stand down on its own:**
+  - NEG / trend → base **Favorable**.
+  - POS / pinned-chop → base **Stand down** (premium decays while price pins — premium death for directional weeklies). This is the key calibration: the header must wave you off on a *chop day*, not only an *event day*.
+- **Vol + tide are modifiers (can lift OR lower one notch):** from chop-Stand-down, genuinely cheap+calm vol AND a non-hostile tide can lift to **Mixed** (rarely Favorable); from trend-Favorable, IV-crush risk or a strongly hostile tide downgrades to **Mixed**.
+- Consequence (intended): the header reads **Mixed or Stand down most days** — including ordinary chop days, not just FOMC days. That's the truth for this strategy, and setting that expectation before the user scrolls is the header's whole job.
+
+## Wire the event into the per-ticker cost gate (not just the header)
+The economic-calendar detection computed here must ALSO feed `gates._cost_gate`, not only the banner — otherwise a single name reads all-green while the header says "FOMC tomorrow," the exact "computed but not wired into the verdict" contradiction we keep fixing. Pass an `event_within_hold` (market macro event upcoming within the hold window) into the cost gate so the per-ticker Cost light caps at yellow/red when a macro event is imminent. This closes the separate "event filter is earnings-only" cleanup item (#7) with the SAME data — the per-ticker cost gate currently checks earnings+IV only; it gains the macro-event input here.
 
 ## Hard constraints (the framing discipline)
 - **No number dump.** Never list raw VIX/GEX/breadth. Every line says what it means for owning weekly premium.
@@ -43,15 +51,19 @@ Collapse the above into **Favorable / Mixed / Stand down**, mirroring the per-ti
 - `server/uw.py`: `fetch_economic_calendar()` → `GET /api/market/economic-calendar`.
 - `server/storage.py`: `fetch_economic_calendar()` wrapper (QUASI_STATIC-ish TTL; the calendar changes daily, so ~1h TTL).
 - `server/market_regime.py` (NEW, focused module): pure `compute_market_regime(spy_gex, vix_state, econ_events, tide, now) -> dict` producing the structured header (headline text, event line|None, vol line, tide badge, opex flag, posture ∈ Favorable|Mixed|Stand down). Pure + heavily unit-tested (the synthesis + the no-direction rule).
-- `server/snapshot.py`: once per snapshot, fetch the market inputs (SPY spot_exposures for gex, SPY realized/iv, market_tide, economic_calendar) and call `compute_market_regime`; attach to the `Snapshot.regime`. ~4 extra calls/cycle (cheap; cached).
+- `server/snapshot.py`: once per snapshot, fetch the market inputs (SPY spot_exposures for gex, SPY realized/iv, market_tide, economic_calendar) and call `compute_market_regime`; attach to the `Snapshot.regime`. ~4 extra calls/cycle (cheap; cached). Thread the regime's `event_within_hold` flag into each row's gate computation.
+- `server/gates.py`: `_cost_gate` gains an `event_within_hold` input (the market macro-event flag, from the regime computation, threaded through the row build) — macro event imminent → the per-ticker Cost light caps at yellow/red. Closes the #7 "event filter is earnings-only" cleanup item with the same data.
 - `server/schema.py`: extend `Regime` (or add a `MarketRegime` sub-model) with the structured fields (headline, event, vol, tide, opex, posture) — keep `label`/`detail`/`vix` for back-compat or migrate the banner render.
 - `static/index.html`: render the regime line(s) from the structured `snapshot.regime` — headline + event veto (prominent when present) + vol + badges + the posture chip. Replace the env-string banner. Retire `REGIME`/`REGIME_DETAIL_TEXT` reliance (keep `REGIME` only as a manual override if desired).
 
 ## Testing (TDD)
-- `compute_market_regime`: NEG→"Trend regime…favorable", POS→"Pinned/chop…hard"; event today/tomorrow → posture Stand down (hard override) regardless of gamma; IV-elevated-falling downgrades; honest-degrade when inputs missing; **the no-direction guard** — assert the output text never contains buy/sell/calls/puts/"market up/down" (regime vocabulary only).
-- `fetch_economic_calendar`: contract + golden fixture + opt-in live probe (confirm `type`/date fields; same trust-but-verify as other endpoints).
+- `compute_market_regime`: NEG→"Trend regime…favorable"; **POS/chop → posture Stand down on its own** (no event needed); upcoming event ≤1d → Stand down (hard override) regardless of gamma; event 2–5d → warn + downgrade Favorable→Mixed; an event that already printed earlier today does NOT veto; vol/tide lift chop→Mixed only when cheap+calm+non-hostile, and downgrade trend→Mixed on crush-risk/hostile-tide; honest-degrade when inputs missing; **the no-direction guard** — assert the output text never contains buy/sell/calls/puts/"market up/down" (regime vocabulary only).
+- `gates._cost_gate`: with `event_within_hold=True`, a per-ticker Cost light that would be green caps to yellow/red — so a row can't read all-green while the header vetoes.
+- `fetch_economic_calendar`: contract + golden fixture + opt-in live probe (confirm `type`/date fields).
+- **SPY GEX headline input — trust-but-verify** (same as economic-calendar): the headline rests on SPY `spot_exposures`; add a population probe — if it's frequently "unavailable" the headline degrades often, and we need to know.
 - Frontend: render from structured regime; honest "unavailable" lines; verify offline via replay + screenshot.
 
 ## Honest caveats
-- "Direction of travel" for vol needs a prior value (archive); if absent, show level-only with a note — don't fake a trend.
-- The economic-calendar event-importance classification (which events count as a veto) needs a small allowlist (FOMC, CPI, NFP/jobs, major fed speakers); start conservative and tune.
+- "Direction of travel" for vol needs a prior value (archive). **Cross-plan dependency:** this re-introduces the archive that the deferred #2 (live-on-demand) plan may delete — so the #2 thin daily writer MUST add **SPY IV/RV and SPY GEX** to its endpoint list, or vol-trend and any regime history won't survive going live-on-demand. If absent now, show level-only with an honest note — don't fake a trend.
+- The economic-calendar event-importance classification (which events count) needs a small allowlist (FOMC, CPI, NFP/jobs, major fed speakers); start conservative and tune.
+- **SPY GEX is a proxy** for "market gamma," which actually concentrates in SPX/0DTE — a good-enough read, not the literal dealer book. Worth a mental asterisk; if a QQQ secondary is added and SPY/QQQ disagree, surface that rather than silently trusting SPY.
