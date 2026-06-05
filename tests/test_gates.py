@@ -100,3 +100,44 @@ def test_compute_gate_method_returns_v2_methods():
         "structural": "absolute",
         "cost": "percentile",
     }
+
+
+# ---------- derive_direction tests ----------
+from types import SimpleNamespace
+
+
+def _fa(type_, premium, opening):
+    # mimics a FlowAlert: .type, .total_premium, .all_opening_trades
+    return SimpleNamespace(type=type_, total_premium=premium, all_opening_trades=opening)
+
+
+def test_direction_opening_flow_leads_calls():
+    alerts = [_fa("call", 900_000, True), _fa("put", 100_000, True),
+              _fa("put", 5_000_000, False)]  # huge CLOSING put must NOT flip the side
+    d, basis = gates.derive_direction(alerts, gex_sign="POS", flip_pct=-1.0)
+    assert d == "calls" and basis == "opening_flow"
+
+
+def test_direction_opening_flow_leads_puts():
+    alerts = [_fa("put", 800_000, True), _fa("call", 200_000, True)]
+    d, basis = gates.derive_direction(alerts, gex_sign="NEG", flip_pct=1.0)
+    assert d == "puts" and basis == "opening_flow"
+
+
+def test_direction_falls_back_to_total_flow_when_no_opening():
+    alerts = [_fa("call", 300_000, False), _fa("put", 900_000, False)]  # none opening
+    d, basis = gates.derive_direction(alerts, gex_sign="NEG", flip_pct=1.0)
+    assert d == "puts" and basis == "total_flow"
+
+
+def test_direction_falls_back_to_gamma_when_no_flow():
+    d, basis = gates.derive_direction([], gex_sign="NEG", flip_pct=-1.0)
+    assert d == "calls" and basis == "gamma_fallback"          # NEG -> calls (old rule)
+    d2, basis2 = gates.derive_direction([], gex_sign="POS", flip_pct=-1.0)
+    assert d2 == "puts" and basis2 == "gamma_fallback"
+
+
+def test_direction_opening_tie_breaks_to_calls_but_basis_is_opening():
+    alerts = [_fa("call", 500_000, True), _fa("put", 500_000, True)]
+    d, basis = gates.derive_direction(alerts, gex_sign="POS", flip_pct=-1.0)
+    assert d == "calls" and basis == "opening_flow"   # tie -> calls, still opening-based
