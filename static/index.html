@@ -301,6 +301,7 @@
   .t-asof { font-size: 9px; color: var(--axis); font-family: var(--ff-mono); margin-left: 8px; }
   .t-asof.stale { color: var(--warn); }
   .dir-basis { font-size: 9px; color: var(--warn); font-family: var(--ff-mono); margin-left: 6px; border: 1px solid var(--warn); border-radius: 4px; padding: 1px 5px; }
+  .dir-basis.manual { color: var(--axis); border-color: var(--axis); }
 
   /* Task 6: Nothing today card */
   .nothing-card {
@@ -1446,6 +1447,8 @@ function setDeepDiveDirection(ticker, dir) {
   const row = ROWS.find(r => r.ticker === ticker);
   if (!row || row.direction === dir) return;
   row.direction = dir;
+  row.direction_basis = "operator_override";   // you chose this side — the basis
+                                               // tag must not keep claiming flow/gamma picked it
   delete state.tile4Detail[ticker];   // force a re-rank for the new side
   fetchTile4Detail(ticker);           // re-fetches /api/tile4?direction=dir
   renderDeepDive();                   // reflect the flip immediately
@@ -1552,9 +1555,13 @@ function renderDeepDive() {
   const dirToggle = `<span class="dir-toggle" style="margin-left:8px;" title="Direction defaults to the opening-flow read — flip it to rank the other side.">`
     + `<button class="t3-tog ${row.direction === 'calls' ? 'on' : ''}" onclick="setDeepDiveDirection('${row.ticker}','calls')">CALLS</button>`
     + `<button class="t3-tog ${row.direction === 'puts' ? 'on' : ''}" onclick="setDeepDiveDirection('${row.ticker}','puts')">PUTS</button></span>`;
-  // Honesty marker: when the side wasn't picked from opening flow, say so.
-  const basisTag = (row.direction_basis && row.direction_basis !== "opening_flow")
-    ? `<span class="dir-basis" title="Side derived from a weaker basis than opening flow.">via ${row.direction_basis === "total_flow" ? "total flow" : "gamma (weak)"}</span>`
+  // Honesty marker: say how the side was chosen. "manual" = you flipped it (so
+  // it must NOT claim flow/gamma picked it); otherwise flag the weaker bases.
+  const _db = row.direction_basis;
+  const basisTag = _db === "operator_override"
+    ? `<span class="dir-basis manual" title="You flipped this side manually.">manual</span>`
+    : (_db && _db !== "opening_flow")
+    ? `<span class="dir-basis" title="Side derived from a weaker basis than opening flow.">via ${_db === "total_flow" ? "total flow" : "gamma (weak)"}</span>`
     : "";
   titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${basisTag}${lu}`;
   c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
