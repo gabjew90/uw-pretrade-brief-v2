@@ -267,28 +267,28 @@ def _expected_move_pct(atm_payload, spot: float) -> float | None:
     return None
 
 
-_HOLD_DAYS = 3  # rough weekly-hold horizon for the theta-drag estimate
+_HOLD_DAYS = 3  # rough weekly-hold horizon for the theta-drag context estimate
 
 def _cost_check(top: dict | None, expected_move_pct: float | None) -> dict:
-    """Can the expected move clear the top contract's round-trip cost?
-    cost ≈ full bid/ask spread (% of mid) + theta paid over ~_HOLD_DAYS, as a %
-    of premium. covers=None when we can't compute the move (honest unknown)."""
+    """Can the expected move clear the trade's cost? Dimensionally sound: compare
+    the expected UNDERLYING move to the top contract's breakeven move
+    (be_move_pct already bakes in the premium paid). theta_drag_pct/spread_pct are
+    premium-% cost CONTEXT (the bleed), never mixed into the underlying-% compare.
+    covers=None when either input is missing (honest unknown)."""
+    be = (top or {}).get("be_move_pct")
     spread = (top or {}).get("spread_pct")
     theta = (top or {}).get("theta")
     prem = (top or {}).get("ask") or (top or {}).get("mid")
-    theta_drag = None
-    if theta is not None and prem:
-        theta_drag = abs(theta) * _HOLD_DAYS / prem * 100.0
-    rt = (round((spread or 0.0) + (theta_drag or 0.0), 1)
-          if (spread is not None or theta_drag is not None) else None)
+    theta_drag = (abs(theta) * _HOLD_DAYS / prem * 100.0
+                  if (theta is not None and prem) else None)
     covers = None
-    if expected_move_pct is not None and rt is not None:
-        covers = expected_move_pct >= rt
+    if expected_move_pct is not None and be is not None:
+        covers = expected_move_pct >= be
     return {
         "expected_move_pct": expected_move_pct,
-        "round_trip_cost_pct": rt,
-        "spread_pct": spread,
+        "breakeven_move_pct": be,
         "theta_drag_pct": round(theta_drag, 1) if theta_drag is not None else None,
+        "spread_pct": spread,
         "hold_days": _HOLD_DAYS,
         "covers": covers,
     }

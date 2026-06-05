@@ -178,8 +178,8 @@ def stub4(monkeypatch):
         {"option_symbol": "SPY260605P00100000", "bid": "2.9", "ask": "3.1", "stock_price": "100"}]})
     # greeks: real shape = one row per strike w/ separate call_/put_ columns.
     monkeypatch.setattr(storage, "fetch_greeks", lambda t, e: {"data": [
-        {"strike": "103", "call_delta": "0.45", "call_theta": "-0.01",
-         "put_delta": "-0.55", "put_theta": "-0.01"},
+        {"strike": "103", "call_delta": "0.45", "call_theta": "-0.10",
+         "put_delta": "-0.55", "put_theta": "-0.10"},
         {"strike": "108", "call_delta": "0.25", "call_theta": "-0.06",
          "put_delta": "-0.75", "put_theta": "-0.05"}]})
     monkeypatch.setattr(storage, "fetch_earnings", lambda t, h=False: {"data": []})
@@ -234,23 +234,28 @@ def test_build_tile4_ok_ranks_contracts_with_quote_and_factors(stub4):
     assert "oi" in top and "volume" in top and "iv" in top
 
 
-def test_build_tile4_cost_check_present_and_flags_uncovered(stub4, monkeypatch):
-    """Tile 4 surfaces whether the expected move can clear the round-trip cost
-    (spread + ~3d theta) of the top contract."""
+def test_build_tile4_cost_check_covers_when_move_clears_breakeven(stub4):
+    """covers compares expected UNDERLYING move to the top contract's breakeven
+    move (NOT premium-% costs). Stub: be_move ~4.6% (strike 103, ask 1.55) <= 6% em."""
     out = tile4.build_tile4("SPY", _ctx4())
     assert out["status"] == "ok"
-    cc = out.get("cost_check")
-    assert cc is not None
-    assert "expected_move_pct" in cc and "round_trip_cost_pct" in cc and "covers" in cc
-    assert isinstance(cc["covers"], bool)
-    # The stub's expected move (6%) comfortably clears a tight-spread contract
+    cc = out["cost_check"]
     assert cc["covers"] is True
+    assert cc["breakeven_move_pct"] is not None and cc["expected_move_pct"] == 6.0
+    # theta_drag is premium-% CONTEXT and is reported (realistic -0.10 theta -> ~19%)
+    assert cc["theta_drag_pct"] is not None
 
 
-def test_build_tile4_cost_check_none_when_no_expected_move(stub4, monkeypatch):
-    """If expected move can't be computed, cost_check is reported as unknown,
-    not a false 'covers'."""
+def test_build_tile4_cost_check_unknown_when_no_expected_move(stub4, monkeypatch):
+    """No expected move -> covers is None (honest unknown), not a false True/False."""
     monkeypatch.setattr(tile4, "_expected_move_pct", lambda atm, spot: None)
-    out = tile4.build_tile4("SPY", _ctx4())
-    cc = out.get("cost_check")
-    assert cc is not None and cc["covers"] is None and cc["expected_move_pct"] is None
+    cc = tile4.build_tile4("SPY", _ctx4())["cost_check"]
+    assert cc["covers"] is None and cc["expected_move_pct"] is None
+
+
+def test_cost_check_not_covered_when_breakeven_exceeds_move():
+    """Pure unit test of the helper: a far-OTM contract whose breakeven move
+    exceeds the expected move -> covers False."""
+    top = {"be_move_pct": 9.0, "spread_pct": 3.0, "theta": -0.1, "ask": 1.5}
+    cc = tile4._cost_check(top, expected_move_pct=6.0)
+    assert cc["covers"] is False and cc["breakeven_move_pct"] == 9.0
