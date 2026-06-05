@@ -736,6 +736,11 @@
   .t4-fv.pass { color: var(--ok); }
   .t4-fv.fail { color: var(--neg); }
   .t4-fv.unk  { color: var(--axis); }
+  .t4-cost { font-size: 10px; font-family: var(--ff-mono); margin: 6px 0; padding: 4px 8px; border-radius: 4px; }
+  .t4-cost.ok { color: var(--ok); background: rgba(158,206,106,0.08); }
+  .t4-cost.bad { color: var(--warn); background: rgba(210,153,34,0.10); }
+  .t4-cost.unknown { color: var(--axis); }
+  .t4-cost-ctx { color: var(--axis); margin-left: 6px; }
 
   /* Task 12: Tile 4 Cost & Timing — IVR gauge + curve indicator */
   .ivr-gauge {
@@ -2813,11 +2818,17 @@ function renderTile4Picker(row, t4) {
     ? `<span style="font-size:9px;color:var(--warn);font-family:var(--ff-mono);border:1px solid var(--warn);border-radius:4px;padding:1px 5px;margin-left:8px;">STALE · last-good</span>`
     : "";
   const asOfTag = freshnessLine(t4.as_of, t4.data_provenance, 300);
+  const cc = t4.cost_check || {};
+  const _n = (v, s = "") => (v != null ? v.toFixed(1) + s : "—");
+  const ccLine = (cc.covers === null || cc.covers === undefined)
+    ? `<div class="t4-cost unknown">Move vs cost: expected move unavailable — can't judge if it pays.</div>`
+    : `<div class="t4-cost ${cc.covers ? "ok" : "bad"}">Expected move ${_n(cc.expected_move_pct, "%")} vs breakeven ${_n(cc.breakeven_move_pct, "%")} — ${cc.covers ? "the move can clear breakeven." : "breakeven is beyond the expected move — caution."} <span class="t4-cost-ctx">bleed: spread ${_n(cc.spread_pct, "%")} + ~${_n(cc.theta_drag_pct, "%")} θ/${cc.hold_days}d of premium</span></div>`;
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 4: Contract Picker</span>
       <button class="help-icon" data-help="tile4">?</button>${staleTag}${asOfTag}
     </h3>
+    ${ccLine}
     ${badges}
     ${termPanel}
     ${body}
