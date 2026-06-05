@@ -1265,7 +1265,7 @@ function renderRegimeBanner() {
     label.textContent = 'Awaiting snapshot…';
     detail.textContent = '';
     ageEl.textContent = '—';
-    detailEl.textContent = 'Server warming up; auto-refresh (grid only)';
+    detailEl.textContent = 'Server warming up; updates on reload';
     return;
   }
   const regime = snap.regime || { label: 'normal', detail: '', vix: 0 };
@@ -1287,8 +1287,10 @@ function renderRegimeBanner() {
 
   const fetchedAt = new Date(snap.fetched_at);
   const ageSec = Math.floor((Date.now() - fetchedAt.getTime()) / 1000);
-  ageEl.textContent = ageSec < 60 ? `${ageSec}s ago` : `${Math.floor(ageSec / 60)}m ago`;
-  detailEl.textContent = `${snap.rows.length} tickers · auto-refresh (grid only)`;
+  ageEl.textContent = ageSec < 60 ? `${ageSec}s ago`
+                    : ageSec < 3600 ? `${Math.floor(ageSec / 60)}m ago`
+                    : `${Math.floor(ageSec / 3600)}h ago`;
+  detailEl.textContent = `${snap.rows.length} tickers · updates on reload/click`;
   if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale');
 }
 /* V2-EDIT-6-END */
@@ -1432,7 +1434,24 @@ function fetchTile4Detail(ticker) {
   const dir = (row && row.direction) || "calls";   // deep-dive toggle → ranked side
   fetch(`/api/tile4/${encodeURIComponent(ticker)}?direction=${encodeURIComponent(dir)}`)
     .then(r => r.json())
-    .then(d => { state.tile4Detail[ticker] = d; if (state.selected === ticker) renderDeepDive(); })
+    .then(d => {
+      // Click-resilience: with the background grid-refresh removed, a ticker still
+      // shown in the (page-load) grid may have rotated out of the server's CURRENT
+      // snapshot — the server then can't resolve the row ("not in snapshot").
+      // Rather than dead-ending the deep-dive, build the row on demand (same path as
+      // search) and re-select. Scope this to the row-resolution failure ONLY (not
+      // build-data gaps like "no spot"/"chain", which a lookup can't fix) and guard
+      // against re-looping if the lookup itself fails.
+      if (d && d.status === "unavailable" && d.reason === "not in snapshot" &&
+          state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
+        delete state.tile3Detail[ticker];   // force both tiles to re-fetch once the
+        delete state.tile4Detail[ticker];   // row exists in the server lookup cache
+        lookupTicker(ticker);               // builds the row → re-selects → re-fetches
+        return;
+      }
+      state.tile4Detail[ticker] = d;
+      if (state.selected === ticker) renderDeepDive();
+    })
     .catch(() => { state.tile4Detail[ticker] = "error"; });
 }
 
@@ -2989,36 +3008,29 @@ document.getElementById("deepdive-content").addEventListener("mouseover", (e) =>
     detail.innerHTML = hover;
   }
 });
-/* V2-EDIT-3-BEGIN — GRID-ONLY refresh (operator choice, 2026-06-04).
-   The flow-driven hot-15 rotates fast during RTH; a frozen grid means clicking a
-   now-rotated-out ticker breaks the deep-dive. So we re-sync the WATCHLIST every
-   60s — but deliberately do NOT touch the open deep-dive (no flicker / lost
-   scroll, the original complaint). Two rows are PRESERVED across the refresh so
-   nothing is yanked out from under the user: (a) searched/__lookedup tickers, and
-   (b) the currently-SELECTED row (even if it rotated out of the hot-15), so its
-   deep-dive stays resolvable. */
-async function refreshWatchlistGrid() {
-  try {
-    const r = await fetch('/snapshot.json');
-    if (!r.ok) return;
-    const snap = await r.json();
-    if (!snap.rows) return;
-    const fresh = new Set(snap.rows.map(x => x.ticker));
-    // keep looked-up + the open selection if the fresh snapshot dropped them
-    const preserved = LIVE_ROWS.filter(row =>
-      !fresh.has(row.ticker) &&
-      (row.__lookedup || (state.selected && row.ticker === state.selected)));
-    LIVE_ROWS.length = 0;
-    LIVE_ROWS.push(...snap.rows, ...preserved);
-    if (window.__SNAPSHOT__) window.__SNAPSHOT__ = snap;   // keep header age/regime fresh
-    if (typeof renderRegimeBanner === 'function') renderRegimeBanner();
-    if (typeof renderWatchlist === 'function') renderWatchlist();
-    // NOTE: intentionally NO renderDeepDive() — the card you're reading stays put.
-  } catch (e) {
-    console.warn('grid refresh failed:', e);
-  }
+/* V2-EDIT-3-BEGIN — passive snapshot-age tick (operator choice, 2026-06-05).
+   The disruptive 60s grid network-refresh was REMOVED. It re-fetched /snapshot.json
+   and rotated the hot-15 out from under the user; even "grid-only" it still flickered
+   the watchlist and felt like a random refresh (the operator's complaint). The
+   dashboard now updates ONLY on reload or ticker-click — no background polling.
+   This tiny timer does NO network and does NOT touch the grid or the deep-dive: it
+   only keeps the "Xs ago" staleness label honest so a page left open doesn't claim
+   "moments ago" forever. Click-resilience for a hot-15 entry that rotated out
+   server-side now lives in fetchTile4Detail (on-demand lookup fallback), so killing
+   the refresh no longer breaks clicking a now-stale grid ticker. */
+function tickSnapshotAge() {
+  const snap = window.__SNAPSHOT__;
+  if (!snap || !snap.fetched_at) return;
+  const ageEl = document.getElementById('snapshot-age');
+  const ageBanner = document.getElementById('snapshot-age-banner');
+  if (!ageEl) return;
+  const ageSec = Math.floor((Date.now() - new Date(snap.fetched_at).getTime()) / 1000);
+  ageEl.textContent = ageSec < 60 ? `${ageSec}s ago`
+                    : ageSec < 3600 ? `${Math.floor(ageSec / 60)}m ago`
+                    : `${Math.floor(ageSec / 3600)}h ago`;
+  if (ageBanner) { if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale'); }
 }
-setInterval(refreshWatchlistGrid, 60000);
+setInterval(tickSnapshotAge, 30000);
 /* V2-EDIT-3-END */
 </script>
 </body>
