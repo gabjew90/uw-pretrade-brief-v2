@@ -141,3 +141,31 @@ def test_direction_opening_tie_breaks_to_calls_but_basis_is_opening():
     alerts = [_fa("call", 500_000, True), _fa("put", 500_000, True)]
     d, basis = gates.derive_direction(alerts, gex_sign="POS", flip_pct=-1.0)
     assert d == "calls" and basis == "opening_flow"   # tie -> calls, still opening-based
+
+
+# ---------- structural gate gamma-cap tests ----------
+
+def _struct_row(**kw):
+    base = {"flip_dist_pct": 1.0, "direction": "calls",
+            "wall_up_dist_pct": 5.0, "wall_dn_dist_pct": 5.0, "gex_sign": "NEG"}
+    base.update(kw)
+    return base
+
+
+def test_structural_green_when_negative_gamma_and_flip_near():
+    assert gates._structural_gate(_struct_row(gex_sign="NEG", flip_dist_pct=1.0)) == "green"
+
+
+def test_structural_positive_gamma_caps_green_to_yellow():
+    assert gates._structural_gate(_struct_row(gex_sign="POS", flip_dist_pct=1.0)) == "yellow"
+
+
+def test_structural_positive_gamma_leaves_red_as_red():
+    row = _struct_row(gex_sign="POS", direction="calls", wall_up_dist_pct=0.5, flip_dist_pct=1.0)
+    assert gates._structural_gate(row) == "red"
+
+
+def test_structural_missing_gex_sign_behaves_as_before():
+    row = _struct_row(flip_dist_pct=1.0)
+    del row["gex_sign"]
+    assert gates._structural_gate(row) == "green"
