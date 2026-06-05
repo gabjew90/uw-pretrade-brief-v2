@@ -107,8 +107,12 @@ from types import SimpleNamespace
 
 
 def _fa(type_, premium, opening):
-    # mimics a FlowAlert: .type, .total_premium, .all_opening_trades
-    return SimpleNamespace(type=type_, total_premium=premium, all_opening_trades=opening)
+    # mimics a FlowAlert. "opening" now means volume_oi_ratio>1 (net-new
+    # positioning) — the signal derive_direction uses; all_opening_trades kept
+    # for shape fidelity but no longer drives the opening leg.
+    return SimpleNamespace(type=type_, total_premium=premium,
+                           volume_oi_ratio=(2.0 if opening else 0.5),
+                           all_opening_trades=opening)
 
 
 def test_direction_opening_flow_leads_calls():
@@ -141,6 +145,20 @@ def test_direction_opening_tie_breaks_to_calls_but_basis_is_opening():
     alerts = [_fa("call", 500_000, True), _fa("put", 500_000, True)]
     d, basis = gates.derive_direction(alerts, gex_sign="POS", flip_pct=-1.0)
     assert d == "calls" and basis == "opening_flow"   # tie -> calls, still opening-based
+
+
+def test_direction_opening_leg_uses_volume_oi_ratio_not_all_opening_flag():
+    # UW returns all_opening_trades=False ~always; the opening signal is
+    # volume_oi_ratio>1 (volume exceeded prior OI = net-new positioning). Opening
+    # side (voi>1) leans PUTS; a huge NON-opening (voi<1) call must NOT flip it.
+    alerts = [
+        SimpleNamespace(type="put", total_premium=800_000, volume_oi_ratio=2.5, all_opening_trades=False),
+        SimpleNamespace(type="call", total_premium=200_000, volume_oi_ratio=1.5, all_opening_trades=False),
+        SimpleNamespace(type="call", total_premium=5_000_000, volume_oi_ratio=0.2, all_opening_trades=False),
+    ]
+    d, basis = gates.derive_direction(alerts, gex_sign="POS", flip_pct=-1.0)
+    assert basis == "opening_flow"
+    assert d == "puts"
 
 
 # ---------- structural gate gamma-cap tests ----------

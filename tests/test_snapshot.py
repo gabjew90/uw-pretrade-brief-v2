@@ -453,12 +453,13 @@ async def test_in_ctx_concurrent_gather_shares_one_collector():
 async def test_build_row_direction_from_opening_flow(stub_uw, fresh_storage_state, tmp_data_dir, monkeypatch):
     from server import snapshot as snap
     from server.schema import FlowAlert
-    # Force a clear opening-PUT imbalance regardless of gamma.
-    # Use real FlowAlert objects so both derive_direction and Row validation pass.
+    # Force a clear opening-PUT imbalance regardless of gamma. Opening intensity
+    # is volume_oi_ratio>1 (net-new positioning) — the signal derive_direction now
+    # uses; all_opening_trades is ~always False on UW Basic so it can't drive it.
     def _fa(type_, prem):
         return FlowAlert(
-            type=type_, total_premium=prem, all_opening_trades=True,
-            strike=100.0, volume_oi_ratio=0.3, total_ask_side_prem=0.0,
+            type=type_, total_premium=prem, all_opening_trades=False,
+            strike=100.0, volume_oi_ratio=2.0, total_ask_side_prem=0.0,
             total_bid_side_prem=0.0, has_sweep=False, has_singleleg=True,
             has_multileg=False, underlying_price=100.0, option_chain="",
             expiry="2026-06-06", total_size=10, volume=100, open_interest=300,

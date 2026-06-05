@@ -152,14 +152,25 @@ def derive_direction(flow_alerts, gex_sign: str, flip_pct: float) -> tuple[str, 
     predict, closing bets don't); fall back to total signed flow (Pan-Poteshman),
     then to the legacy gamma rule. Returns (direction, direction_basis) where
     basis is 'opening_flow' | 'total_flow' | 'gamma_fallback'. Pure; reads
-    attributes tolerantly so it works on FlowAlert objects or dicts."""
+    attributes tolerantly so it works on FlowAlert objects or dicts.
+
+    Opening intensity is detected via volume_oi_ratio > 1 (today's volume exceeded
+    prior OI = net-new positioning) — the same proxy Tile 2 uses. UW's
+    all_opening_trades flag (strict "every trade opening") is ~always False on
+    this tier, so it cannot carry the opening signal."""
+    def _opening(x) -> bool:
+        voi = getattr(x, "volume_oi_ratio", 0.0) if not isinstance(x, dict) else x.get("volume_oi_ratio", 0.0)
+        try:
+            return float(voi or 0.0) > 1.0
+        except (TypeError, ValueError):
+            return False
+
     def _prem(want_type, opening_only):
         out = 0.0
         for x in flow_alerts or []:
             typ = getattr(x, "type", None) if not isinstance(x, dict) else x.get("type")
-            opn = getattr(x, "all_opening_trades", False) if not isinstance(x, dict) else x.get("all_opening_trades", False)
             prem = getattr(x, "total_premium", 0.0) if not isinstance(x, dict) else x.get("total_premium", 0.0)
-            if typ == want_type and (opn or not opening_only):
+            if typ == want_type and (_opening(x) or not opening_only):
                 out += float(prem or 0.0)
         return out
 
