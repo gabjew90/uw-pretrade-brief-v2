@@ -5,7 +5,9 @@
 
 **Primary driver:** **simplicity** — fewer moving parts, a system that's easy to reason about and run. (Cost is a secondary, not-guaranteed benefit; see Honest trade-offs.) The 60s auto-refresh was already removed (commit 3aa5677); this removes the remaining background machinery — the loop itself.
 
-**Not in scope:** the skew leg / Plan 3; the exit-reference (#3); any change to the tile *contents* or the regime *computation*. This is purely a change to *when and how* data is fetched and assembled.
+**Also in scope (folded in per review):** the **archive write-path fix** (the original storage-write finding behind #2). Removing the loop drops write *volume* but not the two write defects, and the new light-build-vs-click-full-build concurrency actually makes one of them sharper — so fix it now, while volume is low and adoption is cheap.
+
+**Not in scope:** the skew leg / Plan 3; the exit-reference (#3); any change to the tile *contents* or the regime *computation*. This is purely a change to *when and how* data is fetched, assembled, and written.
 
 ## Why
 The background loop refreshes ~15 tickers × ~6–9 endpoints every 120s during RTH — well over 100 calls/cycle, enough that the soft budget guard sheds endpoints partway through a session. It exists to (a) discover the flow-driven hot-15, (b) seed the parquet archive over time, (c) precompute the snapshot so page-load is instant, (d) compute the market regime. Investigation showed three of these no longer require an always-on loop:
@@ -25,35 +27,57 @@ The storage *layer* (read-through cache + parquet archive) stays — it is load-
 - `REPLAY` is **kept**: with no loop it simply means the request path builds from `cached_only` archive (page-load builds the light snapshot from parquet; clicks read parquet).
 
 ### Page-load = light build, cached
-New entry point `snapshot.get_or_build_snapshot(max_age_s) -> Snapshot` used by `/` and `/snapshot.json`:
-1. Read the current build (RAM `_snapshot_cache["latest"]`, else last persisted `snapshots.jsonl`).
-2. If its `as_of` age `< max_age_s` (default **60s**, via env `SNAPSHOT_MAX_AGE_S`) → return it (back-to-back reloads cost 0 UW calls).
-3. Else call `snapshot.build_light_snapshot()`:
-   - **1** `flow_alerts` call → hot-15 ranked, with **flow gate** and **direction**. The flow gate is cross-sectional rank over the single flow-alerts payload (`gates._flow_gate`). Direction uses the flow-based basis (`opening_flow` → `total_flow`); the `gamma_fallback` leg of `derive_direction` needs per-ticker GEX, which a light build doesn't fetch — that's fine, since opening flow is the primary direction signal and the gamma read fills in on click (full build). Light rows therefore carry `direction_basis ∈ {opening_flow, total_flow}` or, if flow is genuinely ambiguous, an explicit "direction on click" state — never a fabricated gamma read.
-   - Compute the market regime (existing `_build_market_regime`, ~5 SPY calls).
-   - Stamp freshness, persist to disk + RAM, return.
+New entry point `snapshot.get_or_build_snapshot() -> Snapshot` used by `/` and `/snapshot.json`. It uses **two independent freshness windows** so a fast-moving signal and a slow-moving one don't share a TTL:
+- **Flow grid** — `SNAPSHOT_MAX_AGE_S`, default **60s**. Governs the hot-15 + flow gate + direction.
+- **Regime** — `REGIME_MAX_AGE_S`, default **600s** (10 min). The regime barely moves intraday; recomputing its ~5 SPY calls on every past-60s reload is waste.
 
-A light row sets `is_light: true` and omits the per-ticker heavy fields (`spot_data`, OI/Structural/Cost gate inputs, tile2/tile3 payloads). The OI / Structural / Cost lights render as a neutral "—" with a "click to evaluate" affordance; the **Flow** light and **direction** render normally.
+Logic:
+1. Read the current build (RAM `_snapshot_cache["latest"]`, else last persisted `snapshots.jsonl`).
+2. If the flow grid's `as_of` age `< SNAPSHOT_MAX_AGE_S` → reuse the whole build (0 UW calls).
+3. Else rebuild the flow grid (**1** `flow_alerts` call). For the regime: if the cached regime's age `< REGIME_MAX_AGE_S`, **carry it forward unchanged**; only recompute it (~5 SPY calls) when it too is stale. So the common "reload after a few minutes" path spends ~1 call, not ~6.
+4. Stamp freshness, persist to disk + RAM, return.
+
+`build_light_snapshot()` produces the flow grid:
+- **1** `flow_alerts` call → hot-15 ranked, with **flow gate** and **direction**. The flow gate is cross-sectional rank over the single flow-alerts payload (`gates._flow_gate`). Direction uses the flow-based basis (`opening_flow` → `total_flow`); the `gamma_fallback` leg of `derive_direction` needs per-ticker GEX, which a light build doesn't fetch.
+
+A light row sets `is_light: true` and omits the per-ticker heavy fields (`spot_data`, OI/Structural/Cost gate inputs, tile2/tile3 payloads). The OI / Structural / Cost lights render as a neutral "—" with a "click to evaluate" affordance.
+
+**The light direction is rendered as explicitly provisional.** Because a light build fetches no gamma, the signal-honesty "flow vs gamma — signals disagree" warning *cannot exist yet*. A bare "AAPL → calls" in the grid would imply a confidence the light build hasn't earned — and could sprout a "but gamma disagrees" caveat one click later. So the grid direction is shown as visibly unconfirmed: e.g. **`AAPL → calls (flow-only · gamma on click)`**, dimmed/badged distinctly from a full row's confirmed direction. On click → full build, the direction either confirms or gains its disagreement flag, and the provisional styling drops. This keeps the grid honest for a scan-only user, not just honest-on-inspection of the `is_light`/`direction_basis` tags.
 
 ### Click = full build (mostly existing)
 - Frontend `selectTicker(ticker)`: if the row has `is_light`, route through the existing `lookupTicker(ticker)` path, which calls `/api/lookup/{ticker}` → `snapshot.build_single_row(t)` (full row: all 4 gates + tile inputs), replaces the light row in `ROWS`, and caches it (server `_lookup_cache` + parquet). Non-light rows (already fully built this session) proceed directly.
 - Tile 3 / Tile 4 fetch on demand exactly as today (`/api/tile3`, `/api/tile4`). The click-resilience added in 3aa5677 (fallback to lookup on `reason:"not in snapshot"`) remains and composes cleanly.
 - Re-clicking a ticker already built this session is instant (served from `_lookup_cache` + within-TTL parquet).
 
+### Loud staleness + a one-call "refresh grid" button
+With both the loop and the auto-refresh gone, the grid is **frozen between manual reloads** — a user who loads at 10:00 and doesn't reload is reading 10:00's hot-15 and flow gate at 11:00. This is a real behavioral cost, not mere "latency," and the design owns it with two mechanisms:
+- **Staleness is loud, not subtle.** Past the flow window, the header shows a prominent stale state (the existing `.stale` tint plus an explicit banner like **"Flow as of 10:02 — 58m old · refresh"**), not just a quiet "58m ago." The freshness envelope already computes the age; this elevates it visually so a scan-only user can't mistake stale flow for live.
+- **Manual "refresh grid" button** (1 call). Re-pulls flow — equivalent to `get_or_build_snapshot` with the flow window forced to 0 — and re-renders **only the watchlist grid + header**, never the open deep-dive (honoring the operator's standing "don't refresh under my cursor" rule; this is user-initiated, the thing they objected to was *automatic* refresh). Regime follows its own `REGIME_MAX_AGE_S` (the button doesn't force-spend SPY calls unless the regime is also stale). This restores cheap intraday currency without reintroducing background polling.
+
+### Archive write-path fix (atomic, race-safe)
+The current writer (`storage._append_row`) read-modify-rewrites the entire hour-partition file in place: `existing = pq.ParquetFile(path).read(); concat; pq.write_table(path)`. Three defects: (1) **non-atomic** — a crash mid-write corrupts the live file; (2) **O(n²) within the hour** — every append rewrites all prior rows; (3) **lost-update race** — two concurrent builds reading+rewriting the same `endpoint/ticker/hour` file clobber each other. Removing the loop slashes write volume (so (2) mostly evaporates), and the new **light-build-vs-click-full-build** concurrency makes (3) more likely, so fix the write path now:
+- **One part file per write, atomically.** Write each record to `part-HHMMSS-<short>.parquet` via a temp file + `os.replace` (the codebase already uses this `tmp → os.replace` idiom elsewhere in `storage.py`). No read-modify-write; each write is a small, independent, atomically-renamed file.
+- **Readers already glob.** `_read_latest_from_parquet` and `read_oi_history` already do `sorted(d.glob("part-*.parquet"), reverse=True)` and pick the freshest `fetched_at`, so many small part files are read-compatible with no reader change beyond confirming newest-first ordering holds for the `HHMMSS` names (it does, lexicographically within a day).
+- **File growth is acceptable** at the new (low) write volume; an optional compaction pass is explicitly deferred (YAGNI) and noted, not silently skipped.
+
 ### History degrades gracefully
 - The archive still writes on every `storage._through` fetch, so history accrues for tickers you actually view.
 - **Tile 2 sessions:** `build_single_row` reads the archive; when a ticker has no history yet, the existing `backfill_oi_history` pulls recent sessions from UW (skipped in REPLAY).
-- **Regime vol-trend:** accrues across page-loads (each build persists SPY IV/RV); when no prior value exists it shows level-only with the honest note (existing regime honest-degrade). See the market-regime-header design's cross-plan note — this satisfies it by persisting SPY IV/RV + GEX on each light build.
+- **Regime vol-trend:** accrues each time the regime is rebuilt (on its `REGIME_MAX_AGE_S` cadence, every build persists SPY IV/RV + GEX); when no prior value exists it shows level-only with the honest note (existing regime honest-degrade). This satisfies the market-regime-header design's cross-plan note (SPY IV/RV + GEX must keep being archived) — at a ~10-min cadence driven by real loads rather than a fixed loop.
 
 ## Components & interfaces
 - `server/snapshot.py`
-  - `build_light_snapshot() -> Snapshot` — NEW. Flow-only rows + regime; makes exactly one `flow_alerts` call plus the regime's SPY calls; no per-ticker heavy endpoints.
-  - `get_or_build_snapshot(max_age_s: int) -> Snapshot` — NEW. Cache-or-build front door; persists on build.
+  - `build_light_snapshot() -> Snapshot` — NEW. Flow-only rows; one `flow_alerts` call; no per-ticker heavy endpoints. Regime is attached by the front door (below), not recomputed here, so it can be carried forward on its own TTL.
+  - `get_or_build_snapshot(*, force_flow=False) -> Snapshot` — NEW. Cache-or-build front door honoring the two windows (`SNAPSHOT_MAX_AGE_S` for the flow grid, `REGIME_MAX_AGE_S` for the regime); carries a still-fresh regime forward onto a rebuilt grid; persists on build. `force_flow=True` backs the manual refresh (flow window → 0).
   - `build_single_row(ticker) -> Row` — EXISTING, unchanged; the full per-ticker build used on click.
   - `refresh_snapshot()` / `_refresh_loop` — REMOVED (the heavy all-rows build and the loop).
-- `server/schema.py` — `Row` gains `is_light: bool = False`.
-- `server/main.py` — `/` and `/snapshot.json` call `get_or_build_snapshot`; lifespan no longer starts a loop; loop knobs removed.
-- `static/index.html` — `renderWatchlist` handles light rows (Flow + direction shown; other gates "—/click to evaluate"); `selectTicker` triggers a full build for `is_light` rows via the existing lookup path.
+- `server/storage.py` — `_append_row` rewritten: one atomically-renamed part file per write (`part-HHMMSS-<short>.parquet` via temp + `os.replace`), no read-modify-write. `_partition_path` (or a new helper) yields the unique per-write filename. Readers unchanged (already glob `part-*.parquet`).
+- `server/schema.py` — `Row` gains `is_light: bool = False`. `Snapshot`/`Regime` already carry `as_of`/freshness used to age the regime independently.
+- `server/main.py` — `/` and `/snapshot.json` call `get_or_build_snapshot()`; a new tiny route (e.g. `GET /snapshot.json?refresh=1`, or `POST /api/refresh-grid`) calls it with `force_flow=True`; lifespan no longer starts a loop; loop knobs removed.
+- `static/index.html` —
+  - `renderWatchlist` handles light rows: Flow light + **provisional** direction (`(flow-only · gamma on click)`, dimmed/badged), other three gates "—/click to evaluate".
+  - `selectTicker` triggers a full build for `is_light` rows via the existing lookup path (drops the provisional styling once the full row lands).
+  - Loud staleness in the header past `SNAPSHOT_MAX_AGE_S`, plus a **"refresh grid"** button that hits the refresh route and re-renders only the grid + header (never the open deep-dive).
 
 ## Error handling
 - `flow_alerts` failure on a light build → serve the last persisted build (stamped stale) if present, else an honest "unavailable — could not reach UW" grid (mirrors today's empty-snapshot honesty). Never overwrite a good persisted build with an empty one.
@@ -61,18 +85,22 @@ A light row sets `is_light: true` and omits the per-ticker heavy fields (`spot_d
 - A click whose full build fails → existing Tile 3/4 "unavailable" cards + lookup-error state.
 
 ## Testing (TDD)
-- `build_light_snapshot`: against a `flow_alerts` golden fixture, returns hot-15 ranked with `flow` gate + `direction` set and `is_light=True`; assert **no** per-ticker heavy endpoints were called (mock/count), and exactly one `flow_alerts` call (+ regime SPY calls).
-- `get_or_build_snapshot`: returns the cached build untouched when `as_of` age `< max_age_s`; rebuilds when older; persists the rebuild to disk.
+- `build_light_snapshot`: against a `flow_alerts` golden fixture, returns hot-15 ranked with `flow` gate + `direction` set and `is_light=True`; assert **no** per-ticker heavy endpoints were called (mock/count), and exactly one `flow_alerts` call.
+- `get_or_build_snapshot` — two-window behavior: (a) flow fresh → whole build reused, 0 calls; (b) flow stale + regime fresh → rebuilds grid (1 flow call), **carries the cached regime forward** (0 SPY calls), asserts the regime object is identical; (c) both stale → grid + regime rebuilt; (d) `force_flow=True` rebuilds the grid regardless of flow age; (e) every rebuild persists to disk.
 - `Row.is_light` defaults False; a full `build_single_row` row is not light.
+- **Provisional direction:** a light row's direction carries `is_light` + a flow-only basis and the frontend renders the provisional badge; a full row does not. (Render-level assertion in the html/JS test where practical, plus a schema/shape assertion.)
+- **Archive write-path:** two concurrent `_append_row` calls for the same `endpoint/ticker/hour` both persist (no lost update) — each produces its own part file and a subsequent read sees both rows; a write is atomic (no partial/corrupt file is ever the live path — temp-then-replace). Reader returns the freshest `fetched_at` across multiple part files.
+- **Refresh route:** the refresh endpoint forces a flow rebuild (1 call) and returns the new grid; does not force a regime recompute when regime is fresh.
 - Regression: `/` and `/snapshot.json` return a valid snapshot with **no** background task running; warming state only on a genuine cold first build.
-- Frontend: a light row renders Flow + direction and a "click to evaluate" state for the other three gates; selecting a light row triggers the lookup/full-build path (extend existing lookup tests).
-- Call-count bounds: one page-load build ≈ 1 (flow) + regime SPY calls; one click ≈ the existing `build_single_row` + tile3/tile4 budget. Assert upper bounds so a regression can't silently fan out.
+- Frontend: selecting a light row triggers the lookup/full-build path and drops the provisional styling (extend existing lookup tests); the refresh button re-renders the grid + header but not the open deep-dive.
+- Call-count bounds: page-load after flow-window only (regime still fresh) ≈ **1** call; cold/both-stale build ≈ 1 + regime SPY calls; one click ≈ the existing `build_single_row` + tile3/tile4 budget. Assert upper bounds so a regression can't silently fan out.
 
 ## Honest trade-offs (must stay true in the UI copy)
 - **Not guaranteed cheaper.** For an active operator opening many tickers, total calls may be similar to the soft-capped loop. The win is **predictability + simplicity**: every call traces to an action, and a whole class of machinery (loop, gating, shedding, stale-holding) is deleted.
-- **Less upfront in the grid.** Only flow strength + direction until you click. The full four-gate read is one click away.
-- **Latency.** First load after the freshness window ≈ 1 flow + ~5 regime calls (~1–2s); a click ≈ ~6–15 calls (~2–4s). Re-loads within the window and re-clicks within TTL are instant.
-- **Sparser history.** Longitudinal data accrues only for tickers you view (plus per-click OI backfill). Acceptable for a single operator; if longitudinal coverage ever matters more, the "thin daily writer" variant (considered and deferred) can be added without undoing this.
+- **Less upfront in the grid.** Only flow strength + a *provisional* direction until you click. The full four-gate read — and any flow-vs-gamma disagreement flag — is one click away. The provisional styling makes that explicit so the grid never overstates confidence.
+- **Frozen between reloads — but loud about it.** No loop and no auto-refresh means the grid is static until you reload or hit "refresh grid." Mitigated, not ignored: staleness is shown prominently past the flow window, and the one-call refresh button re-pulls flow without a full reload or disturbing the open deep-dive.
+- **Latency.** A reload after the flow window but within the regime window ≈ **1** call (~0.5–1s); a cold/both-stale build ≈ 1 flow + ~5 regime calls (~1–2s); a click ≈ ~6–15 calls (~2–4s). Reloads within the flow window and re-clicks within TTL are instant.
+- **Biased history, not just sparser.** Longitudinal data accrues only for the tickers you viewed *on the days you happened to look* — that's a selection bias, not just thinner coverage. It's fine for the current live features (Tile 2 fills gaps via per-click OI backfill; regime vol-trend honest-degrades). **Hard ordering constraint:** if the v0.2 percentile gates are ever un-stubbed, they must NOT be built on this view-driven archive — the "thin daily writer" (deferred here, but the door is kept open) has to be built **first**. The door must be walked through *before* percentiles, not bolted on after. Make this explicit in the percentile-gates plan when it happens.
 
 ## Migration / rollback
 - Pure server+frontend change; no data migration. The parquet archive and `snapshots.jsonl` formats are unchanged (a light snapshot is a normal snapshot with `is_light` rows).
