@@ -67,8 +67,9 @@ CONTRACTS: dict[str, dict] = {
         "note": "snapshot._extract_darkpool: net = price * size",
     },
     "flow_alerts": {
-        "required": ["ticker", "type", "strike", "total_premium"],
-        "note": "snapshot._aggregate_flow + _project_flow_alerts: Tile 1 + flow value",
+        "required": ["ticker", "type", "strike", "total_premium", "all_opening_trades"],
+        "note": "snapshot._aggregate_flow + _project_flow_alerts: Tile 1 + flow value; "
+                "all_opening_trades drives the opening-flow direction (Ge-Lin-Pearson)",
     },
 }
 
