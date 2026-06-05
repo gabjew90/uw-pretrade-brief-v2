@@ -58,6 +58,25 @@ def _regime_num(payload, *keys):
     return None
 
 
+def _regime_iv_level(payload):
+    """Front-week implied-vol LEVEL (decimal annualized) from /interpolated-iv.
+    UW rows key the value as 'volatility' (NOT 'implied_volatility'/'iv') and
+    carry 'percentile' for the rank — the old _regime_num keys never matched, so
+    the regime vol line was permanently 'unavailable'. Pick the smallest-'days'
+    (front-week) row, matching uw.extract_iv_rank's tenor choice."""
+    if isinstance(payload, storage.UWFailure) or not isinstance(payload, dict):
+        return None
+    rows = [r for r in (payload.get("data") or []) if isinstance(r, dict)]
+    if not rows:
+        return None
+    front = min(rows, key=lambda r: r.get("days", 999) or 999)
+    v = front.get("volatility")
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _regime_events(payload):
     if isinstance(payload, storage.UWFailure) or not isinstance(payload, dict):
         return []
@@ -99,8 +118,7 @@ async def _build_market_regime(loop):
     gmax = round(spy_spot * 1.20) if spy_spot else None
     spy_gex = await _in_ctx(loop, partial(storage.fetch_spot_exposures_strike, "SPY", True, gmin, gmax))
     flip, _wu, _wd, sign, _agg, status = _extract_gex(spy_gex, spy_spot)
-    iv = _regime_num(await _in_ctx(loop, partial(storage.fetch_interpolated_iv, "SPY", True)),
-                     "implied_volatility", "iv", "iv_rank")
+    iv = _regime_iv_level(await _in_ctx(loop, partial(storage.fetch_interpolated_iv, "SPY", True)))
     rv = _regime_num(await _in_ctx(loop, partial(storage.fetch_realized_vol, "SPY")),
                      "realized", "realized_vol", "rv")
     econ = await _in_ctx(loop, partial(storage.fetch_economic_calendar))
