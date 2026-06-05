@@ -217,16 +217,10 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         tide_data = await _in_ctx(loop, partial(storage.fetch_sector_tide, sector))
         sector_tide_value = _extract_sector_tide_value(tide_data)
 
-    # Direction inference: positive net dealer γ (gex_sign=POS) means dealers
-    # are long γ → they sell into rallies, buy dips → suppresses upside
-    # momentum. Negative γ means dealers are short γ → amplify moves in either
-    # direction. For directional-trade framing we infer "calls" when γ is
-    # negative (squeeze-friendly upside setup) or when spot is below γ flip
-    # (room to grind higher into the flip), and "puts" otherwise.
-    if gex_sign == "NEG" or flip_pct > 0:
-        direction = "calls"
-    else:
-        direction = "puts"
+    # Direction: OPENING flow leads (Ge-Lin-Pearson — opening bets predict,
+    # closing bets don't), falling back to total flow then the legacy gamma rule.
+    # derive_direction returns the basis so the UI can flag the weaker cases.
+    direction, direction_basis = gates.derive_direction(flow_alerts_detail, gex_sign, flip_pct)
 
     raw_row = {
         "ticker": ticker,
@@ -252,6 +246,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         ticker=ticker,
         spot=spot,
         direction=direction,
+        direction_basis=direction_basis,
         # The prototype's render functions gate on is_synthetic to decide
         # between nested-data shape (true) and flat-top-level shape (false).
         # Our v2 data shape matches the synthetic-style nesting (row.flow.*,
