@@ -118,10 +118,16 @@ def _structural_gate(row: dict) -> Color:
     if dir_wall_pct <= GATE_THRESHOLDS["gate3_wall_dist_pct"]:
         return "red"
     if flip <= GATE_THRESHOLDS["gate3_flip_dist_pct"]:
-        return "green"
-    if flip <= GATE_THRESHOLDS["gate3_flip_dist_pct"] * 2:
+        color: Color = "green"
+    elif flip <= GATE_THRESHOLDS["gate3_flip_dist_pct"] * 2:
+        color = "yellow"
+    else:
+        return "red"
+    # Regime cap: positive dealer gamma (POS = long γ → chop/pin, premium-killing)
+    # can't justify a GREEN directional-weekly structural read. Cap at yellow.
+    if color == "green" and row.get("gex_sign") == "POS":
         return "yellow"
-    return "red"
+    return color
 
 
 def _cost_gate(row: dict) -> Color:

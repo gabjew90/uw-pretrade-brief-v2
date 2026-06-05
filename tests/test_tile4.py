@@ -179,7 +179,7 @@ def stub4(monkeypatch):
     # greeks: real shape = one row per strike w/ separate call_/put_ columns.
     monkeypatch.setattr(storage, "fetch_greeks", lambda t, e: {"data": [
         {"strike": "103", "call_delta": "0.45", "call_theta": "-0.10",
-         "put_delta": "-0.55", "put_theta": "-0.09"},
+         "put_delta": "-0.55", "put_theta": "-0.10"},
         {"strike": "108", "call_delta": "0.25", "call_theta": "-0.06",
          "put_delta": "-0.75", "put_theta": "-0.05"}]})
     monkeypatch.setattr(storage, "fetch_earnings", lambda t, h=False: {"data": []})
@@ -232,3 +232,30 @@ def test_build_tile4_ok_ranks_contracts_with_quote_and_factors(stub4):
     # raw quote carried through for display
     assert top["bid"] == 1.51 and top["ask"] == 1.55
     assert "oi" in top and "volume" in top and "iv" in top
+
+
+def test_build_tile4_cost_check_covers_when_move_clears_breakeven(stub4):
+    """covers compares expected UNDERLYING move to the top contract's breakeven
+    move (NOT premium-% costs). Stub: be_move ~4.6% (strike 103, ask 1.55) <= 6% em."""
+    out = tile4.build_tile4("SPY", _ctx4())
+    assert out["status"] == "ok"
+    cc = out["cost_check"]
+    assert cc["covers"] is True
+    assert cc["breakeven_move_pct"] is not None and cc["expected_move_pct"] == 6.0
+    # theta_drag is premium-% CONTEXT and is reported (realistic -0.10 theta -> ~19%)
+    assert cc["theta_drag_pct"] is not None
+
+
+def test_build_tile4_cost_check_unknown_when_no_expected_move(stub4, monkeypatch):
+    """No expected move -> covers is None (honest unknown), not a false True/False."""
+    monkeypatch.setattr(tile4, "_expected_move_pct", lambda atm, spot: None)
+    cc = tile4.build_tile4("SPY", _ctx4())["cost_check"]
+    assert cc["covers"] is None and cc["expected_move_pct"] is None
+
+
+def test_cost_check_not_covered_when_breakeven_exceeds_move():
+    """Pure unit test of the helper: a far-OTM contract whose breakeven move
+    exceeds the expected move -> covers False."""
+    top = {"be_move_pct": 9.0, "spread_pct": 3.0, "theta": -0.1, "ask": 1.5}
+    cc = tile4._cost_check(top, expected_move_pct=6.0)
+    assert cc["covers"] is False and cc["breakeven_move_pct"] == 9.0

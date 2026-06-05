@@ -267,6 +267,33 @@ def _expected_move_pct(atm_payload, spot: float) -> float | None:
     return None
 
 
+_HOLD_DAYS = 3  # rough weekly-hold horizon for the theta-drag context estimate
+
+def _cost_check(top: dict | None, expected_move_pct: float | None) -> dict:
+    """Can the expected move clear the trade's cost? Dimensionally sound: compare
+    the expected UNDERLYING move to the top contract's breakeven move
+    (be_move_pct already bakes in the premium paid). theta_drag_pct/spread_pct are
+    premium-% cost CONTEXT (the bleed), never mixed into the underlying-% compare.
+    covers=None when either input is missing (honest unknown)."""
+    be = (top or {}).get("be_move_pct")
+    spread = (top or {}).get("spread_pct")
+    theta = (top or {}).get("theta")
+    prem = (top or {}).get("ask") or (top or {}).get("mid")
+    theta_drag = (abs(theta) * _HOLD_DAYS / prem * 100.0
+                  if (theta is not None and prem) else None)
+    covers = None
+    if expected_move_pct is not None and be is not None:
+        covers = expected_move_pct >= be
+    return {
+        "expected_move_pct": expected_move_pct,
+        "breakeven_move_pct": be,
+        "theta_drag_pct": round(theta_drag, 1) if theta_drag is not None else None,
+        "spread_pct": spread,
+        "hold_days": _HOLD_DAYS,
+        "covers": covers,
+    }
+
+
 def build_tile4(ticker: str, ctx: dict) -> dict:
     """Assemble the contract-picker payload. ctx carries the reused Tiles 1-3
     outputs (spot, direction, flow_strikes, oi_building, call_wall, put_wall).
@@ -371,6 +398,7 @@ def build_tile4(ticker: str, ctx: dict) -> dict:
         "ticker": ticker, "direction": direction, "expiry": expiry,
         "gates": gates, "term_curve": term_curve, "expected_move_pct": expected_move_pct,
         "ranked": ranked, "top": ranked[0] if ranked else None,
+        "cost_check": _cost_check(ranked[0] if ranked else None, expected_move_pct),
     }
     if gates["stand_down"]:
         out["reason"] = gates["reason"]   # surfaced in the frontend STAND DOWN banner
