@@ -71,6 +71,10 @@ CONTRACTS: dict[str, dict] = {
         "note": "snapshot._aggregate_flow + _project_flow_alerts: Tile 1 + flow value; "
                 "all_opening_trades drives the opening-flow direction (Ge-Lin-Pearson)",
     },
+    "economic_calendar": {
+        "required": ["event", "time", "type"],
+        "note": "market_regime event veto: upcoming high-impact macro events (type incl 'fomc')",
+    },
 }
 
 

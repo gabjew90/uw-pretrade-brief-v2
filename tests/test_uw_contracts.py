@@ -124,3 +124,21 @@ def test_live_opening_flow_field_populates():
     frac = opening / len(rows)
     print(f"\n[opening-flow probe] {opening}/{len(rows)} alerts opening ({frac:.0%})")
     assert frac >= 0.0
+
+
+@pytest.mark.live
+def test_live_economic_calendar_shape():
+    import os
+    if not os.environ.get("UW_API_KEY"):
+        pytest.skip("UW_API_KEY not set")
+    from server import uw
+    try:
+        payload = uw.fetch_economic_calendar()
+    except uw.UWError as e:
+        pytest.skip(f"econ-calendar live fetch failed: {e}")
+    rows = payload.get("data") or []
+    if not rows:
+        pytest.skip("no econ rows this week")
+    from tests.contracts import check_payload
+    assert not check_payload("economic_calendar", payload)
+    print(f"\n[econ-calendar] {len(rows)} events; types={set(r.get('type') for r in rows[:20])}")
