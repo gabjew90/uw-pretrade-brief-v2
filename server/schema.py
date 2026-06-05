@@ -163,6 +163,7 @@ class Row(BaseModel):
     ticker: str
     spot: float
     direction: Literal["calls", "puts"]
+    direction_basis: Literal["opening_flow", "total_flow", "gamma_fallback"] = "gamma_fallback"
     is_synthetic: bool = False
     gates: Gates
     gate_method: GateMethod
