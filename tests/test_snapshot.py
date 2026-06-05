@@ -61,6 +61,8 @@ def stub_uw(monkeypatch):
                              "published_at": "2026-05-28T10:30:00Z"}]})
     monkeypatch.setattr(uw, "fetch_market_tide",
                         lambda date=None: {"data": [{"tide": 0.3}]})
+    monkeypatch.setattr(uw, "fetch_economic_calendar",
+                        lambda: {"data": [{"event": "Consumer sentiment", "time": "2030-01-01T15:00:00Z", "type": "report"}]})
     monkeypatch.setattr(uw, "fetch_sector_tide",
                         lambda sector, date=None: {"data": [{"tide": 0.25}]})
     monkeypatch.setattr(uw, "fetch_option_contracts",
@@ -468,3 +470,9 @@ async def test_build_row_direction_from_opening_flow(stub_uw, fresh_storage_stat
     assert row is not None
     assert row.direction == "puts"
     assert row.direction_basis == "opening_flow"
+
+
+async def test_snapshot_attaches_structured_regime(stub_uw, fresh_storage_state, tmp_data_dir):
+    snap = await snapshot.refresh_snapshot()
+    assert snap.regime.posture in ("Favorable", "Mixed", "Stand down")
+    assert snap.regime.headline   # non-empty plain-English headline

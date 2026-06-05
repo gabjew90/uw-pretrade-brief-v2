@@ -283,6 +283,12 @@ def fetch_option_contract_history(symbol: str) -> dict:
     return _get(f"/api/option-contract/{symbol}/historic")
 
 
+def fetch_economic_calendar() -> dict:
+    """Economic calendar for the current & next week (FOMC/CPI/jobs/etc.).
+    Rows: {event, time(ISO), type, forecast, prev, reported_period}."""
+    return _get("/api/market/economic-calendar")
+
+
 def fetch_seasonality_market() -> dict:
     """Market-level seasonality (calendar-weighted historical drift). Quasi-
     static — refresh once per day."""

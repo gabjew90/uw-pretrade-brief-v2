@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Any
 
-from server import gates, gex, insights, storage, uw, universe
+from server import gates, gex, insights, market_regime, storage, uw, universe
 from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, Insights,
                             NewsItem, OHLCBar, OI, OISessionBar, OIStrike, Regime,
                             Row, Snapshot, StrikeOIHistory, Tile2, Tile3, Tile3Strike)
@@ -39,6 +39,87 @@ def _in_ctx(loop, fn):
     pool. Returns the same awaitable as run_in_executor."""
     ctx = contextvars.copy_context()
     return loop.run_in_executor(_POOL, lambda: ctx.run(fn))
+
+
+def _regime_num(payload, *keys):
+    """First numeric value found under any of `keys` in payload['data'][0]."""
+    if isinstance(payload, storage.UWFailure) or not isinstance(payload, dict):
+        return None
+    rows = payload.get("data") or []
+    if not rows or not isinstance(rows[0], dict):
+        return None
+    for k in keys:
+        v = rows[0].get(k)
+        try:
+            if v is not None:
+                return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _regime_events(payload):
+    if isinstance(payload, storage.UWFailure) or not isinstance(payload, dict):
+        return []
+    return [e for e in (payload.get("data") or []) if isinstance(e, dict)]
+
+
+def _regime_tide_lean(payload):
+    net = _regime_num(payload, "net_call_premium", "net_premium", "tide", "net_flow")
+    if net is None:
+        return "neutral"
+    return "bull" if net > 0 else "bear" if net < 0 else "neutral"
+
+
+def _is_opex_week(d) -> bool:
+    """True during the week containing the 3rd Friday of the month (Mon-Fri)."""
+    import calendar
+    fridays = [day for week in calendar.monthcalendar(d.year, d.month)
+               for day in (week[calendar.FRIDAY],) if day]
+    if len(fridays) < 3:
+        return False
+    third = fridays[2]
+    from datetime import date
+    monday = third - date(d.year, d.month, third).weekday()
+    return monday <= d.day <= third
+
+
+async def _macro_event_within_hold(loop) -> bool:
+    econ = await _in_ctx(loop, partial(storage.fetch_economic_calendar))
+    return market_regime._next_event(_regime_events(econ), datetime.now(tz=timezone.utc)) is not None
+
+
+async def _build_market_regime(loop):
+    """Returns (Regime, event_within_hold). Honest-degrades: any missing input
+    yields a conservative regime, never a fabricated 'Favorable'."""
+    now = datetime.now(tz=timezone.utc)
+    spy_state = await _in_ctx(loop, partial(storage.fetch_stock_state, "SPY"))
+    spy_spot = uw.extract_spot(spy_state) or 0.0
+    gmin = round(spy_spot * 0.80) if spy_spot else None
+    gmax = round(spy_spot * 1.20) if spy_spot else None
+    spy_gex = await _in_ctx(loop, partial(storage.fetch_spot_exposures_strike, "SPY", True, gmin, gmax))
+    flip, _wu, _wd, sign, _agg, status = _extract_gex(spy_gex, spy_spot)
+    iv = _regime_num(await _in_ctx(loop, partial(storage.fetch_interpolated_iv, "SPY", True)),
+                     "implied_volatility", "iv", "iv_rank")
+    rv = _regime_num(await _in_ctx(loop, partial(storage.fetch_realized_vol, "SPY")),
+                     "realized", "realized_vol", "rv")
+    econ = await _in_ctx(loop, partial(storage.fetch_economic_calendar))
+    tide = await _in_ctx(loop, partial(storage.fetch_market_tide))
+    reg = market_regime.compute_market_regime(
+        gamma={"sign": sign, "flip_pct": flip, "status": status},
+        vol={"iv": iv, "rv": rv, "trend": None},
+        events=_regime_events(econ),
+        tide={"lean": _regime_tide_lean(tide)},
+        opex=_is_opex_week(now.date()),
+        now=now)
+    label = os.environ.get("REGIME", "normal").lower()
+    if label not in ("normal", "risk-off"):
+        label = "normal"
+    regime = Regime(label=label,
+                    headline=reg["headline"], posture=reg["posture"],
+                    event_line=reg["event"]["line"], vol_line=reg["vol"],
+                    tide_badge=reg["tide_badge"], opex=reg["opex"])
+    return regime, reg["event_within_hold"]
 
 
 async def refresh_snapshot() -> Snapshot:
@@ -80,11 +161,13 @@ async def refresh_snapshot() -> Snapshot:
     ], return_exceptions=True)
 
     # 4. Build dashboard rows from hot_15
+    regime_obj, event_flag = await _build_market_regime(loop)
     rows = []
     for ticker in hot_15:
         flow_info = flow_by_ticker.get(ticker, {"alerts": 0, "premium_usd": 0.0,
                                                  "rank_cross": 50, "spot": 0.0})
-        row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
+        row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop,
+                                         event_within_hold=event_flag)
         rows.append(row)
 
     # NOTE: an earlier rework pre-warmed the Tile 3-detail + Tile 4 picker for all
@@ -100,7 +183,7 @@ async def refresh_snapshot() -> Snapshot:
     # 6. Assemble + persist
     snap = Snapshot(
         fetched_at=now,
-        regime=_current_regime(),
+        regime=regime_obj,
         rows=rows,
     )
     storage.append_snapshot(snap.model_dump(mode="json"))
@@ -134,7 +217,9 @@ async def build_single_row(ticker: str) -> Row | None:
             await _in_ctx(loop, partial(backfill.backfill_oi_history, [ticker], 7))
         except Exception as e:
             log.warning("OI backfill for lookup %s failed (non-fatal): %s", ticker, e)
-    row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop)
+    event_flag = await _macro_event_within_hold(loop)
+    row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop,
+                                     event_within_hold=event_flag)
     row.insights = Insights(**insights.generate_insights(row.model_dump()))
     return row
 
@@ -152,7 +237,7 @@ async def _refresh_for_archive(ticker: str, *, is_hot: bool, loop):
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
+async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop, event_within_hold: bool = False) -> Row:
     is_hot = True
     # Prev-trading-day fetch for OI Δ% — use yesterday (calendar). UW typically
     # falls back to the last trading day if asked for a weekend, so this works
@@ -234,7 +319,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop) -> Row:
         "flow_rank_cross": flow_info.get("rank_cross", 50),
         "oi": {"strikes": oi},
     }
-    g = gates.compute_gates(raw_row, history=None)
+    g = gates.compute_gates(raw_row, history=None, event_within_hold=event_within_hold)
     gm = gates.compute_gate_method(raw_row, history=None)
     # When the structural read isn't trustworthy (no γ flip in range, or no
     # greek-exposure data), force the structural gate neutral — don't let a

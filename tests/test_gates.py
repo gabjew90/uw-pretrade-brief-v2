@@ -169,3 +169,25 @@ def test_structural_missing_gex_sign_behaves_as_before():
     row = _struct_row(flip_dist_pct=1.0)
     del row["gex_sign"]
     assert gates._structural_gate(row) == "green"
+
+
+# ---------- macro event-within-hold cost gate tests ----------
+
+def test_cost_gate_caps_to_red_on_macro_event():
+    row = {"ivr": 40, "days_to_earnings": 99}   # green on its own
+    assert gates._cost_gate(row, event_within_hold=False) == "green"
+    assert gates._cost_gate(row, event_within_hold=True) in ("yellow", "red")
+
+
+def test_cost_gate_default_no_event_unchanged():
+    row = {"ivr": 40, "days_to_earnings": 99}
+    assert gates._cost_gate(row) == "green"   # default arg = no event
+
+
+def test_compute_gates_threads_event_into_cost():
+    row = {"ivr": 40, "days_to_earnings": 99, "flow_rank_cross": 10,
+           "flip_dist_pct": 1.0, "direction": "calls",
+           "wall_up_dist_pct": 5.0, "wall_dn_dist_pct": 5.0, "gex_sign": "NEG",
+           "oi": {"strikes": []}}
+    g = gates.compute_gates(row, history=None, event_within_hold=True)
+    assert g["cost"] in ("yellow", "red")

@@ -130,7 +130,7 @@ _TTL_NEWS_SECONDS = 900        # 15min — news headlines
 _QUASI_STATIC_ENDPOINTS = {
     "earnings", "ticker_info", "max_pain",
     "seasonality_market", "seasonality_ticker",
-    "fda_calendar",
+    "fda_calendar", "economic_calendar",
 }
 _MEDIUM_ENDPOINTS = {
     "volatility_term_structure", "interpolated_iv",
@@ -570,6 +570,13 @@ def fetch_option_contract_history(symbol: str):
     on contract selection — not in the per-cycle snapshot fan-out."""
     return _through("option_contract_history", symbol, None, False,
                     lambda: uw.fetch_option_contract_history(symbol))
+
+
+def fetch_economic_calendar():
+    """Economic calendar (FOMC/CPI/jobs/etc.). Quasi-static (24h TTL) —
+    event list changes daily at most; stable within a day."""
+    return _through("economic_calendar", None, None, False,
+                    lambda: uw.fetch_economic_calendar())
 
 
 def fetch_seasonality_market():

@@ -26,12 +26,13 @@ Color = Literal["green", "yellow", "red"]
 Method = Literal["cross_sectional", "absolute", "percentile"]
 
 
-def compute_gates(row: dict, history: TickerHistory | None = None) -> dict[str, Color]:
+def compute_gates(row: dict, history: TickerHistory | None = None,
+                  event_within_hold: bool = False) -> dict[str, Color]:
     return {
         "flow":       _flow_gate(row, history),
         "oi":         _oi_gate(row, history),
         "structural": _structural_gate(row),
-        "cost":       _cost_gate(row),
+        "cost":       _cost_gate(row, event_within_hold),
     }
 
 
@@ -130,10 +131,14 @@ def _structural_gate(row: dict) -> Color:
     return color
 
 
-def _cost_gate(row: dict) -> Color:
+def _cost_gate(row: dict, event_within_hold: bool = False) -> Color:
     ivr = row.get("ivr", 100)
     days = row.get("days_to_earnings", 99)
     if days is not None and days < GATE_THRESHOLDS["earnings_days_min"]:
+        return "red"
+    # Macro event (FOMC/CPI/jobs) inside the hold window — don't buy premium into
+    # it, same logic as the per-ticker earnings gate (fed from the market regime).
+    if event_within_hold:
         return "red"
     if ivr <= GATE_THRESHOLDS["ivr_green_max"]:
         return "green"
