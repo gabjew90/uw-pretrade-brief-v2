@@ -684,18 +684,12 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     contaminated (covered calls, spread legs, protective puts) and severs the link
     to the bet we're following.
     """
-    # Side we're confirming. Opening read, per-strike premium, OI trend and the
-    # confirmation verdict are all measured on THIS side only.
+    # Side we're confirming. Per-strike premium, OI trend and the confirmation
+    # verdict are all measured on THIS side only. (Opening intensity lives where
+    # it's strongest: per-strike vol/OI in the drill-down, and the $-weighted,
+    # side-split "opening $" headline in Tile 1 — the count-based opening_pct was
+    # dropped as the redundant/misleading form.)
     flow_side = "put" if direction == "puts" else "call"
-
-    # ── Opening read (flow side only) ─────────────────────────────────────
-    # Opening intensity = volume_oi_ratio>1 (today's volume exceeded prior OI =
-    # net-new positioning). Measured on the flow side so contaminating other-side
-    # flow can't move it. (UW's all_opening_trades flag is ~always False on Basic.)
-    side_alerts = [a for a in flow_alerts if a.type == flow_side]
-    sa_n = len(side_alerts)
-    opening_n = sum(1 for a in side_alerts if a.volume_oi_ratio > 1)
-    opening_pct = (opening_n / sa_n * 100) if sa_n else 0.0
 
     # ── Per-strike premium (flow concentration) ───────────────────────────
     prem_by_strike: dict[float, float] = {}
@@ -840,7 +834,6 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         # Observed side this read confirmed — only when flow actually exists (else
         # the direction was a gamma guess, so there's no observed flow side).
         flow_side=(flow_side if flow_alerts else ""),
-        opening_pct=round(opening_pct, 1),
         near_dated_pct=near_dated_pct,
         oi_trend_5d_pct=oi_trend_5d_pct,
         confirmation=confirmation,

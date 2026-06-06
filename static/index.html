@@ -560,6 +560,8 @@
   .flow-balance .fb-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
   .flow-balance .fb-lead { font-family: var(--ff-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
   .flow-balance .fb-sub { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); }
+  .flow-balance .fb-sub .call { color: #9ECE6A; font-weight: 700; }
+  .flow-balance .fb-sub .put { color: #F7768E; font-weight: 700; }
   .flow-balance .fb-bar { display: flex; height: 18px; border-radius: 5px; overflow: hidden; background: var(--panel-3); }
   .flow-balance .fb-call, .flow-balance .fb-put {
     display: flex; align-items: center; justify-content: center;
@@ -1965,13 +1967,13 @@ function renderT1Balance(row) {
     <div class="flow-balance">
       <div class="fb-top">
         <span class="fb-lead" style="color:${leadCol}">${lead.toUpperCase()} lead</span>
-        <span class="fb-sub">${fmtP(tot)} ${isOpening ? "opening $" : "total $ (no opening prints)"}</span>
+        <span class="fb-sub"><span class="call">${fmtP(cP)}</span> calls vs <span class="put">${fmtP(pP)}</span> puts ${isOpening ? "(opening $)" : "(total $ — no opening)"}</span>
       </div>
       <div class="fb-bar">
         <div class="fb-call" style="width:${callPct}%">${callPct >= 12 ? callPct + "%" : ""}</div>
         <div class="fb-put" style="width:${putPct}%">${putPct >= 12 ? putPct + "%" : ""}</div>
       </div>
-      <div class="fb-legend"><span class="call">■</span> calls vs puts <span class="put">■</span> — net-opening premium balance (sets direction)</div>
+      <div class="fb-legend">net-opening premium (volume/OI&gt;1), $-weighted by side — sets the direction</div>
     </div>`;
 }
 
@@ -2343,7 +2345,8 @@ function renderFlowChart(row) {
     const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : null;
     const sideLbl = askPctAlert == null ? "ask/bid n/a"
                                          : `${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}`;
-    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${sideLbl}${a.has_sweep ? " · swept" : ""}${a.all_opening_trades ? " · opening" : ""}`;
+    const isOpening = a.all_opening_trades || (a.volume_oi_ratio || 0) > 1;   // vol/OI>1 proxy (real flag dead on Basic)
+    const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${sideLbl}${a.has_sweep ? " · swept" : ""}${isOpening ? " · opening" : ""}`;
     const dataHover = hover.replace(/"/g, "&quot;").replace(/&/g, "&amp;").replace(/</g, "&lt;");
     bubblesSvg += `${ring}<circle class="flow-bubble" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92" data-hover="${dataHover}"/>`;
   }
@@ -2396,7 +2399,6 @@ function renderTile2OI(row) {
 
   return `${head}
     ${renderT2ClusterCards(t2, viewSide)}
-    ${renderT2OpeningStat(t2)}
     <div class="t2-agg">
       <div class="t2-agg-title">${viewWord} cluster — aggregate OI · last ${sess} settled session${sess === 1 ? "" : "s"}</div>
       ${renderT2AggBars(aggSessions, viewConf)}
@@ -2473,19 +2475,6 @@ function _t2BarsSvg(sessions, col) {
       <div class="t2-bar t2-bar-big" style="height:${h}%;background:${col};border-color:${col};"></div>
       <span class="t2-bar-date">${d}</span></div>`;
   }).join("");
-}
-
-/* Opening-intensity on the flow side — labeled a PROXY (vol/OI>1), since the true
- * all-opening flag is dead on this tier (catches churn/round-trips, not only net-new). */
-function renderT2OpeningStat(t2) {
-  const side = t2.flow_side === "put" ? "puts" : "calls";
-  const pct = t2.opening_pct || 0;
-  const c = pct >= 60 ? "var(--ok)" : pct >= 30 ? "var(--warn)" : "var(--neg)";
-  return `<div class="t2-opening">
-    <span class="t2-op-lbl">Opening proxy (${side})</span>
-    <span class="t2-op-val" style="color:${c}">${pct.toFixed(0)}%</span>
-    <span class="t2-op-sub">net-new (vol/OI&gt;1)</span>
-  </div>`;
 }
 
 /* Per-strike drill-down for the VIEWED side: compact sparkline per strike that the

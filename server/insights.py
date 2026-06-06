@@ -53,7 +53,6 @@ def _positioning_facts(row: dict) -> dict:
         "flow_conf": flow_conf,
         "flow_trend": f"{trend:+.0f}",
         "other_conf": other_conf,
-        "opening_pct": f"{round(t2.get('opening_pct', 0) or 0)}",
         "near_dated_pct": f"{round(t2.get('near_dated_pct', 0) or 0)}",
         "sessions": int(t2.get("sessions_available", 0) or 0),
     }
@@ -157,8 +156,7 @@ def _cache_key(row: dict, kind: str) -> tuple:
     if kind == "positioning":
         f = _positioning_facts(row)
         return ("positioning", f["ticker"], f["flow_side"], f["flow_conf"],
-                f["other_conf"], f["sessions"],
-                round(int(f["opening_pct"]) / 10), round(int(f["near_dated_pct"]) / 10))
+                f["other_conf"], f["sessions"], round(int(f["near_dated_pct"]) / 10))
     if kind == "structural":
         return (
             "structural",
@@ -218,8 +216,8 @@ def _fallback(row: dict, kind: str) -> str:
         return (f"{f['flow_side'].capitalize()} flow strikes are <strong>{f['flow_conf']}</strong> "
                 f"(<strong>{f['flow_trend']}%</strong> over {f['sessions']} sessions) — {verdict}; "
                 f"the {f['other_side']} side is {f['other_conf']}. "
-                f"<strong>{f['opening_pct']}%</strong> net-new (proxy), <strong>{f['near_dated_pct']}%</strong> "
-                f"near-dated — probabilistic confirmation, not proof.")
+                f"<strong>{f['near_dated_pct']}%</strong> of the flow is near-dated — "
+                f"probabilistic confirmation, not proof.")
     if kind == "structural":
         flip = row.get("flip_dist_pct", 0.0)
         gate = row.get("gates", {}).get("structural", "yellow")

@@ -95,7 +95,6 @@ class Tile2(BaseModel):
     # the disagreement between them is the signal (never toggle it away). "" = no
     # flow observed (gamma-only direction).
     flow_side: Literal["call", "put", ""] = ""
-    opening_pct: float = 0.0            # % of flow-SIDE single-leg alerts with volume_oi_ratio>1 (net-new)
     near_dated_pct: float = 0.0         # % of flow $ in the hold window (≤45 DTE) — relevance check
     oi_trend_5d_pct: float = 0.0        # flow-side cluster OI change (first→last settled session)
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
