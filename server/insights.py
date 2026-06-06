@@ -35,8 +35,10 @@ def generate_insights(row: dict) -> dict[str, str | None]:
 
 
 def _flow_facts(row: dict) -> dict:
-    """Pull the OBSERVED flow story off the row for narration — anchored to the
-    flow-derived side (tile2.flow_side), never an operator toggle."""
+    """Pull the OBSERVED flow-tape story off the row for Tile 1 narration —
+    anchored to the flow-derived side (tile2.flow_side), never an operator toggle.
+    Tile 1 scope ONLY: side, concentration, premium, sweeps, ask/bid aggression.
+    Open interest / positioning confirmation is Tile 2's job — not narrated here."""
     t2 = row.get("tile2") or {}
     side = t2.get("flow_side") or ("put" if row.get("direction") == "puts" else "call")
     dominant = "puts" if side == "put" else "calls"
@@ -45,6 +47,8 @@ def _flow_facts(row: dict) -> dict:
     prem = float((row.get("flow") or {}).get("premium_usd", 0.0) or 0.0)
     prem_str = f"${prem / 1e6:.1f}M" if prem >= 1e6 else f"${round(prem / 1e3)}k"
     ask_pct = round(float(row.get("ask_side_pct", 0.0) or 0.0) * 100)
+    sweeps = sum(1 for a in (row.get("flow_alerts_detail") or [])
+                 if a.get("type") == side and a.get("has_sweep"))
     ts = top.get("strike")
     return {
         "ticker": row.get("ticker", "TICKER"),
@@ -52,12 +56,12 @@ def _flow_facts(row: dict) -> dict:
         "top_strike": f"${ts:g}" if ts else "the focus",
         "top_expiry": top.get("expiry") or "near-dated",
         "premium": prem_str,
-        "opening_pct": f"{round(t2.get('opening_pct', 0) or 0)}",
         "ask_pct": f"{ask_pct}",
         "ask_side": "mostly at the ask (lifting offers)" if ask_pct >= 55
                     else "mostly at the bid (hitting bids)" if ask_pct and ask_pct <= 45
                     else "mixed ask/bid",
-        "confirmation": t2.get("confirmation", "unconfirmed"),
+        "sweeps": sweeps,
+        "sweep_clause": f", incl. {sweeps} swept" if sweeps else "",
     }
 
 
@@ -120,10 +124,9 @@ def _cache_key(row: dict, kind: str) -> tuple:
     """Lossy: same key shared across small numeric jitter."""
     if kind == "flow":
         f = _flow_facts(row)
-        return ("flow", f["ticker"], f["dominant"], f["confirmation"],
-                round((row.get("tile2") or {}).get("opening_pct", 0) / 10),
+        return ("flow", f["ticker"], f["dominant"], f["top_strike"],
                 round(float(row.get("ask_side_pct", 0.0) or 0.0) * 10),
-                f["top_strike"])
+                f["sweeps"])
     if kind == "structural":
         return (
             "structural",
@@ -166,15 +169,11 @@ def _fallback(row: dict, kind: str) -> str:
         f = _flow_facts(row)
         if f["premium"] in ("$0k", "$0M") and f["top_strike"] == "the focus":
             return "No material single-leg flow on either side yet — nothing to narrate."
-        conf = f["confirmation"]
-        corrob = ("OI is <em>building</em> there — corroborates the read" if conf == "building"
-                  else "OI is <em>unwinding</em> there — undercuts it (looks like closing)" if conf == "unwinding"
-                  else "OI is <em>flat</em> there — neither confirms nor denies" if conf == "flat"
-                  else "OI history is still warming")
         return (f"<strong>{f['dominant'].capitalize()}</strong> led, heaviest at "
                 f"<strong>{f['top_strike']}</strong> ({f['top_expiry']}), "
-                f"<strong>{f['premium']}</strong> premium, {f['ask_side']}. "
-                f"<strong>{f['opening_pct']}%</strong> was net-new opening; {corrob}.")
+                f"<strong>{f['premium']}</strong> premium{f['sweep_clause']}. "
+                f"The tape printed {f['ask_side']} (<strong>{f['ask_pct']}%</strong> at ask) "
+                f"— <em>{'initiated buying' if int(f['ask_pct'] or 0) >= 55 else 'sold into' if int(f['ask_pct'] or 0) and int(f['ask_pct']) <= 45 else 'two-way'}</em>.")
     if kind == "structural":
         flip = row.get("flip_dist_pct", 0.0)
         gate = row.get("gates", {}).get("structural", "yellow")
