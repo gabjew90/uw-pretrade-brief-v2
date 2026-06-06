@@ -868,6 +868,13 @@ def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
     for r in rows:
         if not isinstance(r, dict):
             continue
+        # UW returns extended-hours candles too (market_time: r=regular,
+        # pr=pre-market, po=post-market). Keep ONLY regular-session bars so the
+        # last-78 window is a clean 9:30–16:00 ET session — otherwise pre/post
+        # bars eat the window and the price line covers only a sliver of the day
+        # (and an after-hours bar would wrongly anchor Tile 1's session axis).
+        if r.get("market_time", "r") != "r":
+            continue
         try:
             ts_raw = r.get("start_time") or r.get("t") or r.get("timestamp") or ""
             if isinstance(ts_raw, (int, float)):
