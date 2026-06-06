@@ -146,7 +146,13 @@ async def root():
     snapshot_json = ("null" if (snap is None or not snap.rows)
                      else json.dumps(snap.model_dump(mode="json"), default=str))
     hydration = f"<script>window.__SNAPSHOT__ = {snapshot_json};</script>"
-    return HTMLResponse(html.replace(_HYDRATION_MARKER, hydration))
+    # no-cache: the page embeds a fresh snapshot AND the inline JS every load —
+    # without this, phone browsers serve a stale cached bundle, so frontend fixes
+    # appear not to deploy. Forces revalidation; the body is cheap to rebuild.
+    return HTMLResponse(
+        html.replace(_HYDRATION_MARKER, hydration),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.get("/api/tile3/{ticker}")

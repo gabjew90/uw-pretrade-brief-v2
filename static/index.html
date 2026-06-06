@@ -1280,7 +1280,7 @@ const state = { regime: "normal", selected: null, nothingToday: false, contractP
   tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
   tile4Detail: {}, lookups: {},
   // Tile 1 flow-chart controls (per-view; reset on ticker select)
-  t1Side: "all", t1MinK: 0, t1WinH: 4,
+  t1Side: "all", t1MinK: 0, t1WinH: 24,   // default to the full last trading session
   // Tile 2 single-strike view: side (call/put) + selected strike (null = top by $)
   t2Side: null, t2Strike: null };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
@@ -1536,7 +1536,7 @@ function selectTicker(ticker) {
   state.selected = ticker;
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
-  state.t1Side = "all"; state.t1MinK = 0; state.t1WinH = 4;   // reset Tile 1 controls
+  state.t1Side = "all"; state.t1MinK = 0; state.t1WinH = 24;   // reset Tile 1 controls (Day = full session)
   state.t2Side = null; state.t2Strike = null;                  // reset Tile 2 single-strike view
   const row = ROWS.find(r => r.ticker === ticker);
   if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
@@ -1759,7 +1759,7 @@ function renderAllTiles(row) {
     : renderTile6Picker(row);
   return `
     ${renderVerdictPanel(row)}
-    <div class="tile">${renderTile1Flow(row)}</div>
+    <div class="tile" id="tile1-slot">${renderTile1Flow(row)}</div>
     <div class="tile" id="tile2-slot">${renderTile2OI(row)}</div>
     <div class="tile tile--wide">${tile3}</div>
     <div class="tile tile-picker">${picker}</div>
@@ -1865,6 +1865,21 @@ function _t1MaxK(row) {
 function _fmtK(k) {
   return k >= 1000 ? `$${(k / 1000).toFixed(k % 1000 ? 1 : 0)}M` : `$${k}k`;
 }
+// Epoch (sec) of 9:30 AM ET on the ET-calendar date of `epochSec`. DST-safe:
+// derives the ET↔UTC offset from the anchor itself rather than assuming -4/-5.
+function _etOffsetMs(ms) {
+  const d = new Date(ms);
+  const utc = new Date(d.toLocaleString("en-US", {timeZone: "UTC"}));
+  const et = new Date(d.toLocaleString("en-US", {timeZone: "America/New_York"}));
+  return et - utc;   // e.g. -4h in EDT, -5h in EST
+}
+function _sessionOpenEpoch(epochSec) {
+  const ms = epochSec * 1000;
+  const off = _etOffsetMs(ms);
+  const DAY = 86400000;
+  const etMidnight = Math.floor((ms + off) / DAY) * DAY - off;   // 00:00 ET as epoch ms
+  return Math.floor((etMidnight + (9 * 60 + 30) * 60000) / 1000);
+}
 function renderT1Controls(row) {
   const maxK = _t1MaxK(row);
   const seg = (val, cur, label, fn) =>
@@ -1880,16 +1895,24 @@ function renderT1Controls(row) {
                value="${Math.min(state.t1MinK, maxK)}" oninput="onT1Min(this.value)">
         <span class="t1-min-lbl" id="t1-min-lbl">${state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all"}</span></div>
       <div class="t3-grp"><span class="t3-grp-l">Window</span>
-        ${win(1, "1h")}${win(4, "4h")}${win(6.5, "Day")}${win(168, "Week")}</div>
+        ${win(1, "1h")}${win(4, "4h")}${win(24, "Day")}</div>
     </div>`;
+}
+// Re-render ONLY Tile 1's slot (controls + chart). Scoped so a sibling tile that
+// errors on incomplete data can't abort the whole deep-dive render — which made
+// the side toggle look dead (one throw in renderDeepDive killed the innerHTML set).
+function _t1RerenderTile() {
+  const row = ROWS.find(r => r.ticker === state.selected);
+  const slot = document.getElementById("tile1-slot");
+  if (row && slot) slot.innerHTML = renderTile1Flow(row);
 }
 function _t1Rerender() {
   const row = ROWS.find(r => r.ticker === state.selected);
   const slot = document.getElementById("t1-chart");
   if (row && slot) slot.innerHTML = renderFlowChart(row);
 }
-function setT1Side(s) { state.t1Side = s; renderDeepDive(); }     // full re-render so the segmented 'on' updates
-function setT1Win(h) { state.t1WinH = h; renderDeepDive(); }
+function setT1Side(s) { state.t1Side = s; _t1RerenderTile(); }   // slot-scoped: updates 'on' + bubbles
+function setT1Win(h) { state.t1WinH = h; _t1RerenderTile(); }
 function onT1Min(v) {
   state.t1MinK = +v;
   const lbl = document.getElementById("t1-min-lbl");
@@ -1938,7 +1961,13 @@ function renderFlowChart(row) {
   const ohlcEpochs = ohlc.map(b => b.t);
   const allT = [...alertEpochs, ...ohlcEpochs];
   const tMax = allT.length ? Math.max(...allT) : Math.floor(Date.now() / 1000);
-  const tMin = tMax - (state.t1WinH || 4) * 3600;
+  // Clamp the window to the last trading session — there's no flow when the
+  // market is closed, so a raw "tMax - Nh" would drag the axis into empty
+  // overnight/weekend space. "Day" (winH>=24) = the whole last session.
+  const winH = state.t1WinH || 4;
+  const sessOpen = _sessionOpenEpoch(tMax);
+  let tMin = winH >= 24 ? sessOpen : Math.max(tMax - winH * 3600, sessOpen);
+  if (tMin >= tMax) tMin = tMax - winH * 3600;   // guard: pre-open anchor
   const xForT = t => padL + innerW * Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
 
   // ---- Y domain: spans alert strikes + ohlc price range ----
@@ -1968,14 +1997,9 @@ function renderFlowChart(row) {
     yTicksSvg += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">$${fmt(p)}</text>`;
   }
 
-  // ---- X ticks: 5 time labels in ET (date-only for multi-day windows) ----
-  const longWin = (state.t1WinH || 4) > 24;
-  const fmtET = epoch => {
-    const d = new Date(epoch * 1000);
-    return longWin
-      ? d.toLocaleDateString("en-US", {timeZone: "America/New_York", month: "numeric", day: "numeric"})
-      : d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
-  };
+  // ---- X ticks: 5 time labels in ET (all windows are intraday, last session) ----
+  const fmtET = epoch =>
+    new Date(epoch * 1000).toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
   let xTicksSvg = "";
   for (let i = 0; i <= 4; i++) {
     const t = tMin + (tMax - tMin) * (i / 4);
@@ -2041,7 +2065,7 @@ function renderFlowChart(row) {
       ${spotLabel}
       ${bubblesSvg}
       ${xTicksSvg}
-      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="7">time (ET, last 4hr session)</text>
+      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="7">time (ET, last trading session)</text>
     </svg>
   `;
 }
@@ -2060,16 +2084,16 @@ function renderTile2OI(row) {
       <button class="help-icon" data-help="tile2">?</button>
     </h3>`;
 
-  // Low-conviction short-circuit (spec): scattered flow → no clear target.
-  if (t2.low_conviction) {
-    return `${head}
-      <div class="t2-lowconv">${t2.low_conviction_msg || "Flow scattered — no clear target."}</div>
-      ${renderExpiryDistribution(t2.expiry_distribution || [])}`;
-  }
+  // Scattered flow is a NON-BLOCKING warning now, not a short-circuit: the
+  // single-strike view already focuses the top-$ (strike, side), so we still
+  // show it — just flag that the flow lacks a single clear target above it.
+  const scatterBanner = t2.low_conviction
+    ? `<div class="t2-lowconv">${t2.low_conviction_msg || "Flow scattered — no single clear target. Showing the largest position."}</div>`
+    : "";
 
   const strikes = t2.strikes || [];   // each: {strike, side, expiry, premium_usd, sessions, ...}, sorted by $ desc
   if (strikes.length === 0) {
-    return `${head}
+    return `${head}${scatterBanner}
       <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
   }
 
@@ -2078,14 +2102,14 @@ function renderTile2OI(row) {
   let sideEntries = strikes.filter(s => s.side === state.t2Side);
   if (sideEntries.length === 0) {
     // toggled to a side with no flow-targeted strike — keep the toggle, say so
-    return `${head}
+    return `${head}${scatterBanner}
       ${renderT2Controls(strikes, null)}
       <div class="t2-empty">No ${state.t2Side} flow targeted a strike for ${row.ticker}.</div>`;
   }
   let selected = sideEntries.find(s => s.strike === state.t2Strike) || sideEntries[0];
   state.t2Strike = selected.strike;
 
-  return `${head}
+  return `${head}${scatterBanner}
     ${renderT2Controls(strikes, selected)}
     ${renderOiSingleStrike(selected)}
     ${renderT2StatusCards(t2)}
