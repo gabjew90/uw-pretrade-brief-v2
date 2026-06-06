@@ -477,3 +477,12 @@ async def test_snapshot_attaches_structured_regime(stub_uw, fresh_storage_state,
     snap = await snapshot.refresh_snapshot()
     assert snap.regime.posture in ("Favorable", "Mixed", "Stand down")
     assert snap.regime.headline   # non-empty plain-English headline
+
+
+async def test_build_single_row_sets_verdict(stub_uw, fresh_storage_state, tmp_data_dir):
+    from server import snapshot as snap
+    row = await snap.build_single_row("SPY")
+    assert row is not None
+    assert row.verdict is not None
+    assert row.verdict.overall in ("Favorable", "Mixed", "Stand down")
+    assert row.verdict.positioning in ("green", "yellow", "red")

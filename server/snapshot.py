@@ -19,9 +19,11 @@ from functools import partial
 from typing import Any
 
 from server import gates, gex, insights, market_regime, storage, uw, universe
+from server import verdict as verdict_mod
 from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, Insights,
                             NewsItem, OHLCBar, OI, OISessionBar, OIStrike, Regime,
-                            Row, Snapshot, StrikeOIHistory, Tile2, Tile3, Tile3Strike)
+                            Row, Snapshot, StrikeOIHistory, Tile2, Tile3, Tile3Strike,
+                            Verdict)
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +112,25 @@ def _is_opex_week(d) -> bool:
     from datetime import date
     monday = third - date(d.year, d.month, third).weekday()
     return monday <= d.day <= third
+
+
+def _skew_expiry(d) -> str:
+    """3rd-Friday monthly expiry >= ~25 DTE out — the ~30d skew horizon (less noisy
+    than the weekly wings). Monthlies exist for any liquid optionable name; a name
+    without it → greeks 404 → skew 'unavailable' (graceful)."""
+    import calendar
+    from datetime import date, timedelta
+
+    def third_friday(y, m):
+        first = date(y, m, 1)
+        offset = (calendar.FRIDAY - first.weekday()) % 7
+        return first + timedelta(days=offset + 14)
+
+    cand = third_friday(d.year, d.month)
+    if (cand - d).days < 25:
+        ny, nm = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+        cand = third_friday(ny, nm)
+    return cand.isoformat()
 
 
 async def _macro_event_within_hold(loop) -> bool:
@@ -361,6 +382,21 @@ async def build_single_row(ticker: str) -> Row | None:
     row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop,
                                      event_within_hold=event_flag)
     row.insights = Insights(**insights.generate_insights(row.model_dump()))
+    # Deep-dive 3-leg verdict (Plan 3). Skew is derived from ~30d greeks (its own
+    # expiry, ~1 extra call; cheap, deep-dive only). Sparse/missing greeks → skew
+    # 'unavailable'; the verdict still computes from positioning + structural + cost.
+    try:
+        gx = await _in_ctx(loop, partial(
+            storage.fetch_greeks, ticker, _skew_expiry(datetime.now(tz=timezone.utc).date())))
+        gx_rows = gx.get("data") if isinstance(gx, dict) else None
+        rr25 = verdict_mod.derive_rr25(gx_rows or [])
+    except Exception as e:
+        log.warning("verdict skew fetch failed for %s: %s", ticker, e)
+        rr25 = None
+    row.verdict = Verdict(**verdict_mod.compute_verdict(
+        direction=row.direction, direction_basis=row.direction_basis,
+        flow_gate=row.gates.flow, structural_gate=row.gates.structural,
+        oi_confirmation=row.tile2.confirmation, rr25=rr25, cost_gate=row.gates.cost))
     return row
 
 
