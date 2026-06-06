@@ -458,6 +458,29 @@
     padding: 8px 10px 6px;
   }
   .flow-chart-wrap svg { width: 100%; display: block; }
+  /* Top-5 flows table (tracks the side toggle) */
+  .t1-topflows { margin-top: 12px; }
+  .t1tf-head { font-family: var(--ff-mono); font-size: 10px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px; }
+  .t1tf-head .t1tf-sub { text-transform: none; letter-spacing: 0; color: var(--text-dim); }
+  .t1tf-table { width: 100%; border-collapse: collapse; font-family: var(--ff-mono); font-size: 10px; }
+  .t1tf-table td { padding: 4px 6px; border-bottom: 1px solid var(--grid); vertical-align: middle; white-space: nowrap; }
+  .t1tf-table tr:last-child td { border-bottom: none; }
+  .t1tf-t { color: var(--axis); }
+  .t1tf-side { font-weight: 700; }
+  .t1tf-side.call { color: #9ECE6A; }
+  .t1tf-side.put { color: #F7768E; }
+  .t1tf-exp { color: var(--text-dim); font-size: 9px; }
+  .t1tf-prem { color: var(--title); font-weight: 700; text-align: right; }
+  .t1tf-meta, .t1tf-tags { color: var(--text-dim); }
+  /* Gemini flow synthesis (observed read — does not toggle) */
+  .t1-synth {
+    margin-top: 12px; padding: 9px 11px; border-radius: 6px;
+    background: rgba(122,162,247,0.08); border: 1px solid rgba(122,162,247,0.28);
+    font-family: var(--ff-mono); font-size: 11px; line-height: 1.5; color: var(--text);
+  }
+  .t1-synth-tag { color: #7AA2F7; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
+  .t1-synth-body strong { color: var(--title); }
+  .t1-synth-body em { color: #7AA2F7; font-style: normal; }
   .flow-legend-row {
     display: flex; flex-wrap: wrap; gap: 6px 14px;
     font-family: var(--ff-mono); font-size: 10px;
@@ -1903,8 +1926,53 @@ function renderTile1Flow(row) {
     <div class="flow-chart-wrap" id="t1-chart">
       ${renderFlowChart(row)}
     </div>
-    <div class="flow-alert-detail" data-empty="true">Tap a bubble for trade detail</div>`}
+    <div class="flow-alert-detail" data-empty="true">Tap a bubble for trade detail</div>
+    ${renderT1TopFlows(row)}
+    ${renderT1Synthesis(row)}`}
   `;
+}
+
+/* Top 5 flows in the currently-shown pool (respects the side toggle + min-$ floor,
+ * so it tracks the chart). Biggest premium first — the trades actually moving the
+ * read. */
+function renderT1TopFlows(row) {
+  const { alerts } = _t1Resolve(row);
+  if (!alerts.length) return "";
+  const top = alerts.slice().sort((a, b) => b.total_premium - a.total_premium).slice(0, 5);
+  const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
+  const et = ts => new Date(ts).toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
+  const rows = top.map(a => {
+    const sum = (a.total_ask_side_prem || 0) + (a.total_bid_side_prem || 0);
+    const askp = sum > 0 ? Math.round((a.total_ask_side_prem || 0) / sum * 100) : null;
+    const tone = askp == null ? "" : askp >= 55 ? "at ask" : askp <= 45 ? "at bid" : "mixed";
+    const tags = `${a.has_sweep ? "swept · " : ""}${a.all_opening_trades || (a.volume_oi_ratio || 0) > 1 ? "opening" : "—"}`;
+    return `<tr>
+      <td class="t1tf-t">${et(a.created_at)}</td>
+      <td><span class="t1tf-side ${a.type}">$${(+a.strike).toLocaleString()} ${a.type === "call" ? "C" : "P"}</span> <span class="t1tf-exp">${a.expiry || ""}</span></td>
+      <td class="t1tf-prem">${fmtP(a.total_premium)}</td>
+      <td class="t1tf-meta">${a.total_size || 0}× · ${tone || "ask/bid n/a"}</td>
+      <td class="t1tf-tags">${tags}</td>
+    </tr>`;
+  }).join("");
+  const sideLbl = state.t1Side === "calls" ? "calls" : state.t1Side === "puts" ? "puts" : "all";
+  return `
+    <div class="t1-topflows">
+      <div class="t1tf-head">Top ${top.length} flows <span class="t1tf-sub">(${sideLbl}, by premium)</span></div>
+      <table class="t1tf-table">${rows}</table>
+    </div>`;
+}
+
+/* Gemini synthesis of the OBSERVED flow (row.insights.flow). Anchored to what the
+ * market did — does NOT follow the operator's direction toggle, so it stays an
+ * honest read of the chart rather than echoing your chosen side. */
+function renderT1Synthesis(row) {
+  const text = row.insights && row.insights.flow;
+  if (!text) return "";
+  return `
+    <div class="t1-synth">
+      <span class="t1-synth-tag">✦ flow read</span>
+      <span class="t1-synth-body">${text}</span>
+    </div>`;
 }
 
 /* Tile 1 interactive controls: side filter (All/Calls/Puts — actually filters the
@@ -1981,6 +2049,27 @@ function _sessionOpenEpoch(epochSec) {
   const DAY = 86400000;
   const etMidnight = Math.floor((ms + off) / DAY) * DAY - off;   // 00:00 ET as epoch ms
   return Math.floor((etMidnight + (9 * 60 + 30) * 60000) / 1000);
+}
+// "Nice" axis step: round 1/2/5×10ⁿ value giving ~`target` intervals over `range`,
+// so tick labels land on round numbers ($95, $100, $105) not arbitrary fractions.
+function _niceStep(range, target) {
+  if (!(range > 0)) return 1;
+  const raw = range / target;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  return (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+}
+// X-axis ticks on round ET clock hours within [tMin, tMax]. Step widens (1h→2h→3h)
+// as the visible span grows so labels stay readable.
+function _hourTicks(tMin, tMax) {
+  const hours = (tMax - tMin) / 3600;
+  const stepH = hours <= 5 ? 1 : hours <= 10 ? 2 : 3;
+  const stepS = stepH * 3600;
+  const off = _etOffsetMs(tMin * 1000) / 1000;       // ET wall = epoch + off (off<0)
+  const first = Math.ceil((tMin + off) / stepS) * stepS - off;   // first ET-hour boundary ≥ tMin
+  const out = [];
+  for (let t = first; t <= tMax; t += stepS) out.push(t);
+  return out;
 }
 // EXTENDED trading day [4:00, 20:00] ET around `epochSec` (pre-market through
 // after-hours). The chart confines to ONE such day so it never spans an
@@ -2075,23 +2164,23 @@ function renderFlowChart(row) {
     <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="var(--axis)" stroke-width="0.8"/>
   `;
 
-  // ---- Y ticks: 5 evenly-spaced price labels ----
+  // ---- Y ticks: ROUND price levels (nice step), not arbitrary fractions ----
   const fmt = p => p < 10 ? p.toFixed(2) : p < 100 ? p.toFixed(1) : Math.round(p).toString();
+  const yStep = _niceStep(yHi - yLo, 5);
   let yTicksSvg = "";
-  for (let i = 0; i <= 4; i++) {
-    const p = yLo + (yHi - yLo) * (i / 4);
+  for (let p = Math.ceil(yLo / yStep) * yStep; p <= yHi + 1e-9; p += yStep) {
     const y = yForP(p);
     yTicksSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + innerW}" y2="${y.toFixed(1)}" stroke="var(--grid)" stroke-width="0.4" opacity="0.5"/>`;
     yTicksSvg += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">$${fmt(p)}</text>`;
   }
 
-  // ---- X ticks: 5 time labels in ET (all windows are intraday, last session) ----
+  // ---- X ticks: on round ET clock hours (10:00, 11:00 …), not arbitrary slices ----
   const fmtET = epoch =>
     new Date(epoch * 1000).toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
   let xTicksSvg = "";
-  for (let i = 0; i <= 4; i++) {
-    const t = tMin + (tMax - tMin) * (i / 4);
+  for (const t of _hourTicks(tMin, tMax)) {
     const x = xForT(t);
+    xTicksSvg += `<line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT + innerH}" stroke="var(--grid)" stroke-width="0.4" opacity="0.35"/>`;
     xTicksSvg += `<text x="${x.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${fmtET(t)}</text>`;
   }
 

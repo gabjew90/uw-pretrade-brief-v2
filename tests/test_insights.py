@@ -45,7 +45,8 @@ def test_gemini_path_called_when_key_present(fresh_insight_cache, monkeypatch):
     out = insights.generate_insights(_row())
     assert out["structural"] == "MOCK_INSIGHT"
     assert out["curve"] == "MOCK_INSIGHT"
-    assert mock_client.generate.call_count == 2
+    assert out["flow"] == "MOCK_INSIGHT"
+    assert mock_client.generate.call_count == 3   # structural + curve + flow
 
 
 def test_cache_hit_within_5_min_skips_gemini(fresh_insight_cache, monkeypatch):
@@ -56,7 +57,7 @@ def test_cache_hit_within_5_min_skips_gemini(fresh_insight_cache, monkeypatch):
 
     insights.generate_insights(_row())
     insights.generate_insights(_row())
-    assert mock_client.generate.call_count == 2, "second call must hit cache, not Gemini"
+    assert mock_client.generate.call_count == 3, "second call must hit cache, not Gemini"
 
 
 def test_cache_key_quantizes_flip_pct_to_half_pct_buckets(fresh_insight_cache, monkeypatch):

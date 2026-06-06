@@ -23,12 +23,41 @@ _insight_cache = TTLCache()
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _STRUCTURAL_TEMPLATE = (_PROMPTS_DIR / "structural.txt").read_text(encoding="utf-8")
 _CURVE_TEMPLATE = (_PROMPTS_DIR / "curve.txt").read_text(encoding="utf-8")
+_FLOW_TEMPLATE = (_PROMPTS_DIR / "flow.txt").read_text(encoding="utf-8")
 
 
 def generate_insights(row: dict) -> dict[str, str | None]:
     return {
         "structural": _generate_or_cache(row, "structural"),
         "curve": _generate_or_cache(row, "curve"),
+        "flow": _generate_or_cache(row, "flow"),
+    }
+
+
+def _flow_facts(row: dict) -> dict:
+    """Pull the OBSERVED flow story off the row for narration — anchored to the
+    flow-derived side (tile2.flow_side), never an operator toggle."""
+    t2 = row.get("tile2") or {}
+    side = t2.get("flow_side") or ("put" if row.get("direction") == "puts" else "call")
+    dominant = "puts" if side == "put" else "calls"
+    strikes = [s for s in (t2.get("strikes") or []) if s.get("side") == side]
+    top = strikes[0] if strikes else {}
+    prem = float((row.get("flow") or {}).get("premium_usd", 0.0) or 0.0)
+    prem_str = f"${prem / 1e6:.1f}M" if prem >= 1e6 else f"${round(prem / 1e3)}k"
+    ask_pct = round(float(row.get("ask_side_pct", 0.0) or 0.0) * 100)
+    ts = top.get("strike")
+    return {
+        "ticker": row.get("ticker", "TICKER"),
+        "dominant": dominant,
+        "top_strike": f"${ts:g}" if ts else "the focus",
+        "top_expiry": top.get("expiry") or "near-dated",
+        "premium": prem_str,
+        "opening_pct": f"{round(t2.get('opening_pct', 0) or 0)}",
+        "ask_pct": f"{ask_pct}",
+        "ask_side": "mostly at the ask (lifting offers)" if ask_pct >= 55
+                    else "mostly at the bid (hitting bids)" if ask_pct and ask_pct <= 45
+                    else "mixed ask/bid",
+        "confirmation": t2.get("confirmation", "unconfirmed"),
     }
 
 
@@ -60,6 +89,8 @@ def _generate(row: dict, kind: str) -> str:
 
 
 def _render_prompt(row: dict, kind: str) -> str:
+    if kind == "flow":
+        return _FLOW_TEMPLATE.format(**_flow_facts(row))
     if kind == "structural":
         flip = row.get("flip_dist_pct", 0.0)
         return _STRUCTURAL_TEMPLATE.format(
@@ -87,6 +118,12 @@ def _render_prompt(row: dict, kind: str) -> str:
 
 def _cache_key(row: dict, kind: str) -> tuple:
     """Lossy: same key shared across small numeric jitter."""
+    if kind == "flow":
+        f = _flow_facts(row)
+        return ("flow", f["ticker"], f["dominant"], f["confirmation"],
+                round((row.get("tile2") or {}).get("opening_pct", 0) / 10),
+                round(float(row.get("ask_side_pct", 0.0) or 0.0) * 10),
+                f["top_strike"])
     if kind == "structural":
         return (
             "structural",
@@ -125,6 +162,19 @@ def _structural_status_msg(row: dict) -> str:
 
 def _fallback(row: dict, kind: str) -> str:
     """Deterministic rules-based insight (same logic the v1 prototype used)."""
+    if kind == "flow":
+        f = _flow_facts(row)
+        if f["premium"] in ("$0k", "$0M") and f["top_strike"] == "the focus":
+            return "No material single-leg flow on either side yet — nothing to narrate."
+        conf = f["confirmation"]
+        corrob = ("OI is <em>building</em> there — corroborates the read" if conf == "building"
+                  else "OI is <em>unwinding</em> there — undercuts it (looks like closing)" if conf == "unwinding"
+                  else "OI is <em>flat</em> there — neither confirms nor denies" if conf == "flat"
+                  else "OI history is still warming")
+        return (f"<strong>{f['dominant'].capitalize()}</strong> led, heaviest at "
+                f"<strong>{f['top_strike']}</strong> ({f['top_expiry']}), "
+                f"<strong>{f['premium']}</strong> premium, {f['ask_side']}. "
+                f"<strong>{f['opening_pct']}%</strong> was net-new opening; {corrob}.")
     if kind == "structural":
         flip = row.get("flip_dist_pct", 0.0)
         gate = row.get("gates", {}).get("structural", "yellow")

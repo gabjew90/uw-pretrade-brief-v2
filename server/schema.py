@@ -136,6 +136,7 @@ class NewsItem(BaseModel):
 class Insights(BaseModel):
     structural: str | None = None
     curve: str | None = None
+    flow: str | None = None       # Tile 1 narration of the OBSERVED flow (not the toggle)
 
 
 class FlowAlert(BaseModel):
