@@ -788,6 +788,11 @@
   .t3-tog.on { color: var(--title); background: var(--panel); border-color: var(--pos); box-shadow: inset 0 0 0 1px rgba(122,162,247,0.4); }
   .t3-tag { color: var(--axis); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 3px; }
   .t3-tog.on .t3-tag { color: var(--pos); }
+  /* Structure basis = fixed OI label; volume is a demoted freshness overlay */
+  .t3-basis { font-family: var(--ff-mono); font-size: 11px; color: var(--title); font-weight: 700; padding: 3px 8px; border: 1px solid var(--grid); border-radius: 5px; background: var(--panel); }
+  .t3-overlay { font-family: var(--ff-mono); font-size: 10px; color: var(--axis); background: transparent; border: 1px dashed var(--grid); border-radius: 5px; padding: 3px 7px; margin-left: 6px; cursor: pointer; }
+  .t3-overlay:hover { color: var(--text); border-color: var(--axis); }
+  .t3-overlay.on { color: var(--warn); border-color: var(--warn); border-style: solid; }
   /* Tile 1 flow controls (reuse .t3-grp / .t3-tog) + min-$ slider */
   .t1-controls { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 10px; }
   .t1-minwrap { min-width: 150px; }
@@ -1709,8 +1714,8 @@ function fetchTile3Detail(ticker) {
     .catch(() => { state.tile3Detail[ticker] = "error"; });
 }
 
-function setTile3Weighting(w) { state.tile3Weighting = w; renderDeepDive(); }
-function setTile3Expiry(e) { state.tile3Expiry = e; renderDeepDive(); }
+function setTile3Weighting(w) { state.tile3Weighting = w; _t3Rerender(); }   // slot-only recompute
+function setTile3Expiry(e) { state.tile3Expiry = e; _t3Rerender(); }         // all expiries already cached
 
 /* Direction toggle (CALLS ⇄ PUTS) in the deep-dive title. Mutates the in-memory
  * row so every tile re-frames, then re-fetches Tile 4 for the chosen side (its
@@ -1873,9 +1878,21 @@ function renderAllTiles(row) {
     ${renderVerdictPanel(row)}
     <div class="tile" id="tile1-slot">${renderTile1Flow(row)}</div>
     <div class="tile" id="tile2-slot">${renderTile2OI(row)}</div>
-    <div class="tile tile--wide">${tile3}</div>
+    <div class="tile tile--wide" id="tile3-slot">${tile3}</div>
     <div class="tile tile-picker">${picker}</div>
   `;
+}
+
+/* Re-render ONLY Tile 3's slot from cache (weighting/expiry toggles are pure
+ * client-side recompute — both already loaded in tile3Detail). Avoids nuking the
+ * whole deep-dive (which reset scroll + collapsed open state). */
+function _t3Rerender() {
+  const row = ROWS.find(r => r.ticker === state.selected);
+  const slot = document.getElementById("tile3-slot");
+  if (!row || !slot) return;
+  const detail = state.tile3Detail[row.ticker];
+  slot.innerHTML = (detail && detail.status === "ok")
+    ? renderTile3Rich(row, detail) : renderTile3Structural(row);
 }
 
 /* "You're fading the flow" — the single most useful contradiction on the screen.
@@ -2621,30 +2638,43 @@ function renderTile3Structural(row) {
   const flipMeta = status === "no_flip"
     ? `<span class="val">none within ±20%</span>`
     : `<span class="val">$${flipStrike.toFixed(2)} (${gex.flip_dist_pct >= 0 ? "+" : ""}${gex.flip_dist_pct.toFixed(1)}%)</span>`;
+  // HONESTY: only draw the per-strike γ ladder when we have REAL net-gamma rungs.
+  // No synthetic/fabricated bars — that would read as a real dealer-positioning map.
+  // Flip & walls below come from the OI ladder server-side and stay shown.
+  const realRungs = (row.tile3 && Array.isArray(row.tile3.strikes))
+    ? row.tile3.strikes.filter(s => spot > 0 && Math.abs(s.strike / spot - 1) <= 0.08) : [];
+  const ladderArea = realRungs.length >= 3
+    ? `<div class="ladder-wrap">
+        <svg viewBox="0 0 640 280" preserveAspectRatio="none" style="width:100%;height:280px;display:block;">
+          <defs>
+            <linearGradient id="ladderGradPos" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#7AA2F7" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="#7AA2F7" stop-opacity="1"/>
+            </linearGradient>
+            <linearGradient id="ladderGradNeg" x1="1" y1="0" x2="0" y2="0">
+              <stop offset="0%" stop-color="#F7768E" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="#F7768E" stop-opacity="1"/>
+            </linearGradient>
+            <filter id="ladderBarGlow" x="-10%" y="-30%" width="120%" height="160%">
+              <feGaussianBlur stdDeviation="1.5" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          ${ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike)}
+        </svg>
+      </div>`
+    : `<div class="ladder-wrap" style="display:flex;align-items:center;justify-content:center;height:280px;">
+        <div style="text-align:center;color:var(--axis);max-width:320px;">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Per-strike γ ladder warming</div>
+          <div style="font-size:11px;line-height:1.5;">The dealer-gamma bar map isn't loaded yet for <strong>${row.ticker}</strong>. Flip &amp; walls below are computed from the OI ladder; the full bar detail fills in on the rich load.</div>
+        </div>
+      </div>`;
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 3: Structural Setup</span>
       <button class="help-icon" data-help="tile3">?</button>
     </h3>
-    <div class="ladder-wrap">
-      <svg viewBox="0 0 640 280" preserveAspectRatio="none" style="width:100%;height:280px;display:block;">
-        <defs>
-          <linearGradient id="ladderGradPos" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stop-color="#7AA2F7" stop-opacity="0.6"/>
-            <stop offset="100%" stop-color="#7AA2F7" stop-opacity="1"/>
-          </linearGradient>
-          <linearGradient id="ladderGradNeg" x1="1" y1="0" x2="0" y2="0">
-            <stop offset="0%" stop-color="#F7768E" stop-opacity="0.6"/>
-            <stop offset="100%" stop-color="#F7768E" stop-opacity="1"/>
-          </linearGradient>
-          <filter id="ladderBarGlow" x="-10%" y="-30%" width="120%" height="160%">
-            <feGaussianBlur stdDeviation="1.5" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        ${ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike)}
-      </svg>
-    </div>
+    ${ladderArea}
     <div class="ladder-meta">
       <div class="m"><span class="lbl">Spot</span><span class="val">$${spot.toFixed(2)}</span></div>
       <div class="m"><span class="lbl">γ Flip</span>${flipMeta}</div>
@@ -2725,21 +2755,14 @@ function ladderSvg(row, gex, spot, flipStrike, callWallStrike, putWallStrike) {
     ? row.tile3.strikes.filter(s => s.strike >= minStrike && s.strike <= maxStrike)
                        .sort((a, b) => a.strike - b.strike)
     : [];
+  // Real net-gamma rungs ONLY — no synthetic fallback. The caller gates on this
+  // too; if we somehow get here without real data, render nothing fabricated.
   const realGamma = realRungs.length >= 3;
-  let strikes, gammaByStrike;
-  if (realGamma) {
-    strikes = realRungs.map(s => s.strike);
-    gammaByStrike = realRungs.map(s => s.net_gamma);
-  } else {
-    strikes = [];
-    for (let i = -3; i <= 3; i++) strikes.push(spot * (1 + i * 0.02));
-    gammaByStrike = strikes.map(s => {
-      const dist = (s - flipStrike) / spot;
-      return (row.direction === "calls" ? 1 : -1) * Math.sign(dist)
-           * (1 - Math.min(1, Math.abs(dist) * 30)) * 2
-           + seededRand(h + Math.round(s * 100), -0.3, 0.3);
-    });
+  if (!realGamma) {
+    return `<text x="320" y="140" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="12">per-strike γ ladder unavailable</text>`;
   }
+  const strikes = realRungs.map(s => s.strike);
+  const gammaByStrike = realRungs.map(s => s.net_gamma);
 
   // Per-view scaling: biggest |γ| in THIS view reaches ~90% of the half-track,
   // never clipping. Works for any magnitude (real γ runs to billions).
@@ -2887,7 +2910,15 @@ function renderTile3Rich(row, detail) {
     ? `Dealers are <strong>short γ</strong> here — breakouts have fuel. ${flipNear ? `γ flip ${view.flip_pct >= 0 ? "above" : "below"} spot at $${flipStrike.toFixed(0)}.` : "No γ flip in the near range."}`
     : `Dealers are <strong>long γ</strong> — moves get dampened, price pins. ${flipNear ? `Flip at $${flipStrike.toFixed(0)} (${view.flip_pct.toFixed(1)}%).` : "Flip is out of the near range."}`;
 
-  const wBtn = (val, label) => `<button class="t3-tog ${w === val ? "on" : ""}" onclick="setTile3Weighting('${val}')">${label}</button>`;
+  // VOL is NOT a co-equal basis — structure (flip/walls/regime) is always OI. Volume
+  // weighting is a same-day freshness overlay (where today's contracts traded), never
+  // a second way to read dealer structure. So: OI is the fixed basis label + a single
+  // secondary overlay toggle, not two peer buttons.
+  const overlayOn = w === "vol";
+  const wControl = `<span class="t3-basis">open interest</span>`
+    + `<button class="t3-overlay ${overlayOn ? "on" : ""}" onclick="setTile3Weighting('${overlayOn ? "oi" : "vol"}')"`
+    + ` title="Reweight the bars by TODAY'S volume — a freshness check when OI is stale (0DTE-heavy days), not a second structure read.">`
+    + `⊕ today's activity${overlayOn ? " ✓" : ""}</button>`;
   const expTabs = Object.entries(detail.views).map(([e, v]) =>
     `<button class="t3-tog ${e === expiry ? "on" : ""}" onclick="setTile3Expiry('${e}')">${v.label} <span class="t3-tag">${v.tag}</span></button>`).join("");
 
@@ -2920,7 +2951,7 @@ function renderTile3Rich(row, detail) {
       <div class="t3-banner-s">${sentence}</div>
     </div>
     <div class="t3-controls">
-      <div class="t3-grp"><span class="t3-grp-l">Weighting</span>${wBtn("oi", "Open interest")}${wBtn("vol", "Today's activity")}</div>
+      <div class="t3-grp"><span class="t3-grp-l">Structure</span>${wControl}</div>
       <div class="t3-grp t3-grp-exp"><span class="t3-grp-l">Expiry</span>${expTabs}</div>
     </div>
     <div class="t3-body">
