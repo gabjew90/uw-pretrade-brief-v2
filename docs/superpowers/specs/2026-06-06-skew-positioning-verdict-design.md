@@ -6,7 +6,7 @@
 **What changed since the 2026-06-04 design (and why this is a refresh, not a rewrite):**
 1. **Opening flow** is now `volume_oi_ratio>1`, not `all_opening_trades` (that flag is ~always False on Basic; fixed in commit 9e40fed). The Positioning leg uses the corrected proxy.
 2. **basic-platform shipped** (request-driven, light grid). The grid is now a flow-only triage; the full read happens on click. So the 3-leg verdict is **deep-dive only**, modeled **additively** (`row.verdict`) — the existing `Gates` and the light grid are left untouched (no rename ripple).
-3. **No risk-reversal endpoint exists** (probed 2026-06-06: `/api/stock/{t}/historical_risk_reversal_skew` and every candidate route 404). Skew is therefore **derived** from the `greeks` endpoint (which the deep-dive already fetches for Tile 4), which also makes the **sign known by construction** — eliminating the original spec's probe-gated sign TODO.
+3. **The risk-reversal endpoint EXISTS** — the earlier "404" was a path typo (underscores vs UW's hyphens; corrected to `/api/stock/{t}/historical-risk-reversal-skew`). Skew uses the **vendor** RR as primary (`extract_vendor_rr`, sign-corrected: vendor `risk_reversal` = put−call, NEGATED to the call−put convention — pinned by cross-check vs the greeks-derived RR for the same expiry), with the **greeks-derived `derive_rr25`** (sign known by construction) as the **fallback** when vendor is unavailable. [Correction committed in 4315ffa, after the initial greeks-only design.]
 
 **Not in scope:** changing the light grid / `Gates` schema; the realized_vol regime fix (separate, independent commit); the thin daily writer.
 
