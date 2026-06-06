@@ -71,7 +71,7 @@ class ExpirySegment(BaseModel):
 
 class Tile2(BaseModel):
     """Positioning Reality Check — is the flow real, building, where, still held?"""
-    opening_pct: float = 0.0            # % of single-leg alerts flagged all_opening_trades
+    opening_pct: float = 0.0            # % of single-leg alerts with volume_oi_ratio>1 (net-new positioning)
     avg_volume_oi_ratio: float = 0.0    # >1 = today's volume exceeds existing OI (opening intensity)
     oi_trend_5d_pct: float = 0.0        # aggregate OI change across available sessions
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"

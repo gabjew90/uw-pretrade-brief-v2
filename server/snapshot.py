@@ -645,8 +645,12 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
       - spot_data: per-strike net delta (greek-exposure)
     """
     # ── Opening read ──────────────────────────────────────────────────────
+    # Opening intensity = volume_oi_ratio>1 (today's volume exceeded prior OI =
+    # net-new positioning). UW's all_opening_trades flag is ~always False on
+    # Basic, so it kept opening_pct stuck at 0; use the same voi>1 proxy as
+    # gates.derive_direction and avg_volume_oi_ratio below.
     n = len(flow_alerts)
-    opening_n = sum(1 for a in flow_alerts if a.all_opening_trades)
+    opening_n = sum(1 for a in flow_alerts if a.volume_oi_ratio > 1)
     opening_pct = (opening_n / n * 100) if n else 0.0
     # Median, not mean — a single brand-new far-OTM strike (tiny prior OI) can
     # blow a mean vol/OI ratio into the hundreds and misrepresent the batch.
