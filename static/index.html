@@ -118,6 +118,12 @@
   .regime-posture.pos { color: var(--ok); border: 1px solid var(--ok); }
   .regime-posture.warn { color: var(--warn); border: 1px solid var(--warn); }
   .regime-posture.neg { color: var(--neg); border: 1px solid var(--neg); }
+  .flow-stale { color: var(--warn); font-weight: 700; }
+  .dd-asof { color: var(--text-dim); font-size: 11px; margin-left: 8px; font-weight: 400; }
+  .refresh-grid { font: inherit; font-size: 11px; color: var(--accent, var(--hot));
+    background: none; border: 1px solid var(--axis); border-radius: 4px;
+    padding: 1px 8px; cursor: pointer; }
+  .refresh-grid:hover { border-color: var(--hot); }
   .regime-text {
     color: var(--text-dim); letter-spacing: 0.01em;
     display: flex; flex-direction: column; gap: 2px;
@@ -1293,8 +1299,19 @@ function renderRegimeBanner() {
   ageEl.textContent = ageSec < 60 ? `${ageSec}s ago`
                     : ageSec < 3600 ? `${Math.floor(ageSec / 60)}m ago`
                     : `${Math.floor(ageSec / 3600)}h ago`;
-  detailEl.textContent = `${snap.rows.length} tickers · updates on reload/click`;
+  // Loud staleness past the flow window (no background refresh exists), plus a
+  // one-call "refresh flow" button. User-initiated only — never auto.
+  const STALE_S = 60;
+  const ageTxt = ageEl.textContent;
+  const hhmm = fetchedAt.toISOString().slice(11, 16);
+  const staleHtml = ageSec > STALE_S
+    ? `<span class="flow-stale">flow as of ${hhmm}Z · ${ageTxt}</span> · `
+    : "";
+  detailEl.innerHTML = `${snap.rows.length} tickers · ${staleHtml}`
+    + `<button id="refresh-grid-btn" class="refresh-grid" title="re-pull flow (1 call); won't disturb an open deep-dive">refresh flow</button>`;
   if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale');
+  const rbtn = document.getElementById("refresh-grid-btn");
+  if (rbtn) rbtn.onclick = refreshGrid;
 }
 /* V2-EDIT-6-END */
 
@@ -1426,6 +1443,27 @@ function visibleWatchlistRows() {
   const q = state.searchQuery.trim().toUpperCase();
   if (q) rows = rows.filter(r => r.ticker.startsWith(q));
   return rows;
+}
+
+/* Manual, user-initiated flow refresh (1 call). Re-pulls /snapshot.json?refresh=1
+ * and re-renders ONLY the grid + header — never the open deep-dive (operator rule:
+ * don't refresh under the cursor). Preserves searched + selected rows. */
+async function refreshGrid() {
+  try {
+    const r = await fetch('/snapshot.json?refresh=1');
+    if (!r.ok) return;
+    const snap = await r.json();
+    if (!snap.rows) return;
+    const preserved = ROWS.filter(row =>
+      !snap.rows.find(x => x.ticker === row.ticker) &&
+      (row.__lookedup || row.ticker === state.selected));
+    ROWS.length = 0;
+    ROWS.push(...snap.rows, ...preserved);
+    window.__SNAPSHOT__ = snap;
+    renderRegimeBanner();
+    renderWatchlist();
+    // intentionally NO renderDeepDive() — the open card stays put
+  } catch (e) { console.warn('refresh failed:', e); }
 }
 
 function selectTicker(ticker) {
@@ -1625,7 +1663,13 @@ function renderDeepDive() {
     : (_db && _db !== "opening_flow")
     ? `<span class="dir-basis" title="Side derived from a weaker basis than opening flow.">via ${_db === "total_flow" ? "total flow" : "gamma (weak)"}</span>`
     : "";
-  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${basisTag}${lu}`;
+  // Deep-dive carries its OWN as_of: a just-refreshed grid row can be newer than
+  // an open deep-dive (a prior full build) — show both ages honestly rather than
+  // letting one masquerade as the other.
+  const ddAsOf = row.as_of
+    ? ` <span class="dd-asof" title="deep-dive build age — independent of the grid">deep-dive as of ${new Date(row.as_of).toISOString().slice(11, 16)}Z</span>`
+    : "";
+  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${basisTag}${lu}${ddAsOf}`;
   c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
 }
 
