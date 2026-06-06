@@ -136,7 +136,8 @@ async def _build_market_regime(loop):
     regime = Regime(label=label,
                     headline=reg["headline"], posture=reg["posture"],
                     event_line=reg["event"]["line"], vol_line=reg["vol"],
-                    tide_badge=reg["tide_badge"], opex=reg["opex"])
+                    tide_badge=reg["tide_badge"], opex=reg["opex"],
+                    as_of=now.isoformat())
     return regime, reg["event_within_hold"]
 
 
@@ -258,6 +259,69 @@ async def build_light_snapshot() -> Snapshot:
         for t in hot_15
     ]
     return Snapshot(fetched_at=now, regime=_current_regime(), rows=rows)
+
+
+_RAM: dict = {"latest": None}
+_SNAPSHOT_MAX_AGE_S = int(os.environ.get("SNAPSHOT_MAX_AGE_S", "60"))   # flow grid TTL
+_REGIME_MAX_AGE_S = int(os.environ.get("REGIME_MAX_AGE_S", "600"))      # regime TTL
+
+
+def _age_s(iso_or_dt, now: datetime) -> float:
+    """Seconds between `iso_or_dt` (ISO string or datetime) and `now`. Treats
+    missing/unparseable as effectively infinite (forces a rebuild)."""
+    if iso_or_dt is None:
+        return 1e9
+    if isinstance(iso_or_dt, str):
+        try:
+            t = datetime.fromisoformat(iso_or_dt.replace("Z", "+00:00"))
+        except ValueError:
+            return 1e9
+    else:
+        t = iso_or_dt
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (now - t).total_seconds()
+
+
+async def get_or_build_snapshot(*, force_flow: bool = False) -> Snapshot:
+    """Cache-or-build front door (request-driven; no background loop). Per-namespace
+    freshness: rebuild the flow grid when older than SNAPSHOT_MAX_AGE_S (or when
+    force_flow), and recompute the regime only when older than REGIME_MAX_AGE_S —
+    otherwise carry the cached regime forward onto the rebuilt grid. Persists every
+    build (append-only). Never overwrites a good build with an empty one."""
+    now = datetime.now(tz=timezone.utc)
+    cached = _RAM.get("latest")
+    if cached is None:
+        raw = storage.read_last_snapshot()
+        if raw:
+            try:
+                cached = Snapshot.model_validate(raw)
+                _RAM["latest"] = cached
+            except Exception:
+                cached = None
+
+    flow_fresh = (not force_flow) and cached is not None and bool(cached.rows) and \
+        _age_s(cached.fetched_at, now) < _SNAPSHOT_MAX_AGE_S
+    if flow_fresh:
+        return cached
+
+    fresh = await build_light_snapshot()
+    if not fresh.rows and cached is not None and cached.rows:
+        return cached   # upstream flow failed — keep last good, don't blank
+
+    regime_fresh = cached is not None and getattr(cached.regime, "posture", "") and \
+        _age_s(getattr(cached.regime, "as_of", None), now) < _REGIME_MAX_AGE_S
+    if regime_fresh:
+        fresh.regime = cached.regime           # carry forward — 0 SPY calls
+    else:
+        loop = asyncio.get_running_loop()
+        regime_obj, _event = await _build_market_regime(loop)
+        if regime_obj is not None:
+            fresh.regime = regime_obj
+
+    _RAM["latest"] = fresh
+    storage.append_snapshot(fresh.model_dump(mode="json"))
+    return fresh
 
 
 async def build_single_row(ticker: str) -> Row | None:

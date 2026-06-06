@@ -210,6 +210,8 @@ class Regime(BaseModel):
     vol_line: str = ""
     tide_badge: str = ""
     opex: bool = False
+    as_of: str | None = None   # ISO time the regime was computed; lets the front
+                               # door age it independently of the flow grid.
 
 
 class Snapshot(BaseModel):
