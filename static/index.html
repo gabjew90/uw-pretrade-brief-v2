@@ -2316,7 +2316,7 @@ function renderTile3Rich(row, detail) {
       <div class="t3-banner-s">${sentence}</div>
     </div>
     <div class="t3-controls">
-      <div class="t3-grp"><span class="t3-grp-l">Weighting</span>${wBtn("oi", "Open interest")}${wBtn("vol", "Volume")}</div>
+      <div class="t3-grp"><span class="t3-grp-l">Weighting</span>${wBtn("oi", "Open interest")}${wBtn("vol", "Today's activity")}</div>
       <div class="t3-grp t3-grp-exp"><span class="t3-grp-l">Expiry</span>${expTabs}</div>
     </div>
     <div class="t3-body">
@@ -2327,7 +2327,7 @@ function renderTile3Rich(row, detail) {
       </div>
     </div>
     <div class="t3-howto">
-      Bars: <strong style="color:var(--pos)">right = call γ</strong> (resistance / ceiling) · <strong style="color:var(--neg)">left = put γ</strong> (support / floor). Taller = dealers defend it harder. The <span style="color:var(--hot)">flip</span> is where the regime switches. Flip to <strong>Volume</strong> for today's build; switch <strong>expiry</strong> — the regime can differ week to week.
+      Bars: <strong style="color:var(--pos)">right = call γ</strong> (resistance / ceiling) · <strong style="color:var(--neg)">left = put γ</strong> (support / floor). Taller = dealers defend it harder. The <span style="color:var(--hot)">flip</span> is where the regime switches. Structure — flip, walls, regime — is always from <strong>open interest</strong> (standing positions dealers must hedge). <strong>Today's activity</strong> reweights the bars by what traded today: a same-day freshness check when OI is stale (0DTE-heavy days), <em>not</em> a second way to read structure. Switch <strong>expiry</strong> — the regime can differ week to week.
       <div class="t3-prov">🔵 LIVE · spot-exposures/expiry-strike + greek-exposure/expiry · real-time structural snapshot, not a forecast.</div>
     </div>`;
 }
@@ -2858,7 +2858,7 @@ const TOOLTIPS = {
   tile3: {
     title: "Tile 3: Structural Setup",
     whatItIs: "Is the stock near a gamma flip in a position to break through it?",
-    whyHere: "Supply-side response — how dealers will react. The structural position (not the regime) is what matters: when spot is close to the flip and your trade direction is across it, dealer hedging is most likely to amplify the move.",
+    whyHere: "Supply-side response — how dealers will react. The structural position (not the regime) is what matters: when spot is close to the flip and your trade direction is across it, dealer hedging is most likely to amplify the move. Weighting: structure (flip, walls, regime) is always computed from open interest — standing dealer exposure. The 'Today's activity' toggle only reweights the displayed bars by today's volume; it's a freshness check (when OI is stale on 0DTE-heavy days), not a different structural read.",
     threshold: "Gate 3 passes when gamma flip is within 1.5% of spot AND on the trade-favorable side AND no opposing wall within 1% in trade direction.",
     provenance: "Endpoints used: /api/stock/{ticker}/spot-exposures/strike (60s) — per-strike call/put gamma → flip strike + call/put walls. NOTE: the per-strike bar chart bars are currently visually synthesized from the flip distance (lossy display) — the underlying anchor values (flip %, walls, spot, GEX sign) are LIVE. Gemini-generated chart explanation (row.insights.structural) is fetched but not yet rendered in this template.",
   },
