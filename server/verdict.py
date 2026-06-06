@@ -42,6 +42,25 @@ def derive_rr25(greeks_rows: list[dict], tol: float = _DELTA_TOL) -> float | Non
     return best_c[1] - best_p[1]
 
 
+def extract_vendor_rr(payload) -> float | None:
+    """Latest 25Δ risk reversal from UW's historical-risk-reversal-skew payload,
+    SIGN-CORRECTED to this module's convention. UW's `risk_reversal` is put_IV −
+    call_IV (positive = put-skew); skew_state expects positive = call-skew, so we
+    NEGATE. (Pinned by cross-check: vendor +0.051 ≈ −(derived call−put −0.060) for
+    SPY @ the same expiry.) None on empty/failure. Rows are date-ordered; take the
+    last (most recent)."""
+    if not isinstance(payload, dict):
+        return None
+    rows = [r for r in (payload.get("data") or []) if isinstance(r, dict)]
+    if not rows:
+        return None
+    v = rows[-1].get("risk_reversal")
+    try:
+        return -float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def skew_state(rr25: float | None, direction: str, *, thr: float = _SKEW_THR) -> str:
     """agree | oppose | neutral | unavailable. calls want RR>0 (call-skew); puts
     want RR<0 (put-skew). Asymmetric oppose-veto handled by the caller (agreement

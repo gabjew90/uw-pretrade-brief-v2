@@ -382,17 +382,24 @@ async def build_single_row(ticker: str) -> Row | None:
     row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop,
                                      event_within_hold=event_flag)
     row.insights = Insights(**insights.generate_insights(row.model_dump()))
-    # Deep-dive 3-leg verdict (Plan 3). Skew is derived from ~30d greeks (its own
-    # expiry, ~1 extra call; cheap, deep-dive only). Sparse/missing greeks → skew
-    # 'unavailable'; the verdict still computes from positioning + structural + cost.
+    # Deep-dive 3-leg verdict (Plan 3). Skew RR25 at a ~30d expiry: PRIMARY = UW's
+    # vendor historical-risk-reversal-skew (clean, sign-corrected in verdict_mod);
+    # FALLBACK = derived from greeks (call-25Δ IV − put-25Δ IV) when vendor is
+    # unavailable. Either missing → skew 'unavailable'; verdict still computes.
+    skew_exp = _skew_expiry(datetime.now(tz=timezone.utc).date())
+    rr25 = None
     try:
-        gx = await _in_ctx(loop, partial(
-            storage.fetch_greeks, ticker, _skew_expiry(datetime.now(tz=timezone.utc).date())))
-        gx_rows = gx.get("data") if isinstance(gx, dict) else None
-        rr25 = verdict_mod.derive_rr25(gx_rows or [])
+        rr_payload = await _in_ctx(loop, partial(storage.fetch_risk_reversal_skew, ticker, skew_exp, 25))
+        rr25 = verdict_mod.extract_vendor_rr(rr_payload)
     except Exception as e:
-        log.warning("verdict skew fetch failed for %s: %s", ticker, e)
-        rr25 = None
+        log.warning("verdict vendor-skew fetch failed for %s: %s", ticker, e)
+    if rr25 is None:
+        try:
+            gx = await _in_ctx(loop, partial(storage.fetch_greeks, ticker, skew_exp))
+            gx_rows = gx.get("data") if isinstance(gx, dict) else None
+            rr25 = verdict_mod.derive_rr25(gx_rows or [])
+        except Exception as e:
+            log.warning("verdict derived-skew fallback failed for %s: %s", ticker, e)
     row.verdict = Verdict(**verdict_mod.compute_verdict(
         direction=row.direction, direction_basis=row.direction_basis,
         flow_gate=row.gates.flow, structural_gate=row.gates.structural,

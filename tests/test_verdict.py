@@ -28,6 +28,24 @@ def test_derive_rr25_runs_on_real_greeks_payload():
     assert rr is None or isinstance(rr, float)   # real-shape smoke: no crash on live columns
 
 
+# ---------- vendor RR extraction (sign-corrected) ----------
+def test_extract_vendor_rr_negates_to_call_minus_put_convention():
+    # Vendor risk_reversal = put_IV - call_IV (positive = put-skew). skew_state
+    # expects positive = call-skew, so the extractor NEGATES the latest value.
+    payload = {"data": [
+        {"date": "2026-06-03", "delta": 25, "risk_reversal": "0.030", "ticker": "SPY"},
+        {"date": "2026-06-05", "delta": 25, "risk_reversal": "0.0514", "ticker": "SPY"},  # latest
+    ]}
+    rr = verdict.extract_vendor_rr(payload)
+    assert abs(rr - (-0.0514)) < 1e-9      # negated latest → call−put convention (put-skew)
+
+
+def test_extract_vendor_rr_none_on_empty_or_failure():
+    assert verdict.extract_vendor_rr({"data": []}) is None
+    assert verdict.extract_vendor_rr({}) is None
+    assert verdict.extract_vendor_rr(None) is None
+
+
 # ---------- skew_state ----------
 def test_skew_state_calls():
     assert verdict.skew_state(0.05, "calls") == "agree"

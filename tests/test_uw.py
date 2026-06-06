@@ -95,7 +95,7 @@ def test_tile4_endpoint_wrappers_paths_and_params(monkeypatch):
     by_path = {p: q for p, q in seen}
     assert by_path["/api/stock/SPY/greeks"]["expiry"] == "2026-06-05"
     assert by_path["/api/stock/SPY/atm-chains"]["expirations[]"] == ["2026-06-05"]
-    sk = by_path["/api/stock/SPY/historical_risk_reversal_skew"]
+    sk = by_path["/api/stock/SPY/historical-risk-reversal-skew"]   # UW uses hyphens; underscore 404'd
     assert sk["expiry"] == "2026-06-05" and sk.get("delta")
     assert "/api/stock/SPY/volatility/realized" in by_path
     assert "/api/stock/SPY/stock-state" in by_path

@@ -160,9 +160,11 @@ def fetch_atm_chains(ticker: str, expirations: list[str]) -> dict:
 
 
 def fetch_risk_reversal_skew(ticker: str, expiry: str, delta: int = 25) -> dict:
-    """25-delta risk-reversal skew for an expiry. Tile 4 Execution check.
-    `expiry` + `delta` required."""
-    return _get(f"/api/stock/{ticker}/historical_risk_reversal_skew",
+    """25-delta risk-reversal skew time series for an expiry. UW uses HYPHENATED
+    paths (flow-alerts, spot-exposures, …); the underscore spelling 404s — this had
+    been failing silently. Payload rows: {date, delta, risk_reversal, ticker} where
+    risk_reversal is put_IV − call_IV (positive = put-skew). `expiry` + `delta` req."""
+    return _get(f"/api/stock/{ticker}/historical-risk-reversal-skew",
                 params={"expiry": expiry, "delta": delta})
 
 
