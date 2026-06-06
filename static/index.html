@@ -572,6 +572,8 @@
   .flow-balance .fb-legend { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); margin-top: 4px; }
   .flow-balance .fb-legend .call { color: #639922; }
   .flow-balance .fb-legend .put { color: #E24B4A; }
+  .flow-asof { font-family: var(--ff-mono); font-size: 9px; color: var(--warn); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .flow-stat-scope { text-transform: none; letter-spacing: 0; color: var(--text-dim); font-size: 8px; }
   .flow-stats {
     display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px;
   }
@@ -655,9 +657,6 @@
   }
   .t2-today-lbl { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.04em; }
   .t2-today-val { font-family: var(--ff-mono); font-size: 10px; font-weight: 700; color: var(--pos); }
-  .t2-foot { margin-top: 10px; font-size: 9.5px; color: var(--axis); font-family: var(--ff-mono); line-height: 1.4; }
-  .t2-foot em { color: var(--text); font-style: normal; }
-  .t2-foot b { color: var(--warn); font-weight: 700; }
   /* Tile 2 both-side cluster headline */
   .t2-clusters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 10px; }
   .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 2px solid var(--grid); text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color 0.12s ease; }
@@ -1966,8 +1965,18 @@ function pill(kind) {
  * observed — NOT filtered by the side toggle. Falls back to total flow when no
  * opening (volume/OI>1) prints exist, labeled honestly. */
 function renderT1Balance(row) {
-  const single = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
+  let single = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
   if (!single.length) return "";
+  // Scope to the same last session as the chart (so "total flow" is the session
+  // total, not a multi-day pool) — keeps it consistent with the "last session"
+  // stamp. Both-sides, all sizes (direction must not shift with the min-$ slider).
+  const tOf = a => Math.floor(new Date(a.created_at).getTime() / 1000);
+  const epochs = [...single.map(tOf).filter(t => !isNaN(t)), ...(row.ohlc || []).map(b => b.t)];
+  if (epochs.length) {
+    const sess = _sessionBounds(Math.max(...epochs));
+    const inSess = single.filter(a => { const t = tOf(a); return t >= sess.open && t <= sess.close; });
+    if (inSess.length) single = inSess;
+  }
   const opn = single.filter(a => (a.volume_oi_ratio || 0) > 1);
   const isOpening = opn.length > 0;
   const base = isOpening ? opn : single;
@@ -1981,9 +1990,10 @@ function renderT1Balance(row) {
   const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
   const lead = callPct >= putPct ? "calls" : "puts";
   const leadCol = callPct >= putPct ? "var(--ok)" : "var(--neg)";
-  // "opening $" is the subset of total flow that's opening (vol/OI>1) — so it's
-  // ≤ the Total-premium stat below. Show the relationship so the gap isn't a mystery.
-  const ofTotal = isOpening ? ` · ${fmtP(tot)} opening of ${fmtP(totAll)} total flow` : "";
+  // "opening $" is the subset of the session's total flow that's opening (vol/OI>1).
+  // The stat box below shows the SHOWN (filtered) premium, a different scope — so
+  // spell out this denominator to avoid two unexplained "totals".
+  const ofTotal = isOpening ? ` · ${fmtP(tot)} opening of ${fmtP(totAll)} session flow` : "";
   return `
     <div class="flow-balance">
       <div class="fb-top">
@@ -1996,6 +2006,18 @@ function renderT1Balance(row) {
       </div>
       <div class="fb-legend">opening = volume/OI&gt;1 (net-new positions), $-weighted by side — sets direction${ofTotal}</div>
     </div>`;
+}
+
+/* Stamp the headline stats with the data's session date so they don't read as
+ * live on a weekend (the chart is labeled "last session"; the stat boxes weren't). */
+function _t1SessionStamp(row) {
+  const ts = [];
+  (row.flow_alerts_detail || []).forEach(a => { const t = new Date(a.created_at).getTime(); if (!isNaN(t)) ts.push(t); });
+  (row.ohlc || []).forEach(b => ts.push(b.t * 1000));
+  if (!ts.length) return "";
+  const d = new Date(Math.max(...ts));
+  const lbl = d.toLocaleDateString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric"});
+  return `as of ${lbl} · last session`;
 }
 
 function renderTile1Flow(row) {
@@ -2028,19 +2050,26 @@ function renderTile1Flow(row) {
         <span class="lbl">Ask-side %</span>
         <span class="val" style="color:${askColor}">${askPct.toFixed(0)}%</span>
       </div>` : "";
+  // Filtered/shown set respects the side + min-$ filters, so it's a DIFFERENT scope
+  // than the balance's "session flow" — label it "shown" to avoid two unlabeled totals.
+  const minK = row.is_light ? 0 : _t1EffMinK(row);
+  const shownNote = (!row.is_light && (minK > 0 || (state.t1Side && state.t1Side !== "all")))
+    ? ` <span class="flow-stat-scope">(${state.t1Side !== "all" ? state.t1Side + ", " : ""}${minK > 0 ? "≥" + _fmtK(minK) : "all sizes"})</span>` : "";
+  const stamp = _t1SessionStamp(row);
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 1: Flow Conviction</span>
       <button class="help-icon" data-help="tile1">?</button>
     </h3>
     ${renderT1Balance(row)}
+    ${stamp ? `<div class="flow-asof">${stamp}</div>` : ""}
     <div class="flow-stats">
       <div class="flow-stat">
-        <span class="lbl">Alerts</span>
+        <span class="lbl">Alerts (shown)</span>
         <span class="val">${nAlerts}</span>
       </div>
       <div class="flow-stat">
-        <span class="lbl">Total premium</span>
+        <span class="lbl">Shown $${shownNote}</span>
         <span class="val">${premLabel}</span>
       </div>
       ${askStat}
@@ -2430,11 +2459,7 @@ function renderTile2OI(row) {
       ${sel ? renderOiSingleStrike(sel) : ""}
     </div>
     ${renderT2ExpiryRelevance(t2)}
-    ${renderT2Synthesis(row)}
-    <div class="t2-foot">
-      OI from our archive ${pill("live")}, pooled across expiries (no per-expiry split);
-      today's OI is provisional until it settles ~9am next session.
-    </div>`;
+    ${renderT2Synthesis(row)}`;
 }
 
 /* Headline: BOTH side clusters, ALWAYS shown — the call-vs-put comparison IS the
