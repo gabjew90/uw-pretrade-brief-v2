@@ -172,14 +172,18 @@ def test_write_response_creates_partition_file(tmp_data_dir: Path):
     partitions = list(tmp_data_dir.rglob("*.parquet"))
     assert len(partitions) == 1
     p = partitions[0]
-    # Path: /data/raw/endpoint=spot_exposures_strike/dt=2026-05-27/ticker=NVDA/part-1400.parquet
+    # Path: /data/raw/endpoint=spot_exposures_strike/dt=2026-05-27/ticker=NVDA/part-141623-<hex>.parquet
     assert "endpoint=spot_exposures_strike" in p.parts
     assert "dt=2026-05-27" in p.parts
     assert "ticker=NVDA" in p.parts
-    assert p.name == "part-1400.parquet"
+    # Append-only: one immutable part file per write, named part-HHMMSS-<hex>.parquet
+    assert p.name.startswith("part-141623-") and p.name.endswith(".parquet")
 
 
-def test_write_response_appends_to_existing_hour_file(tmp_data_dir: Path):
+def test_write_response_one_part_file_per_write(tmp_data_dir: Path):
+    # Append-only writer: each write is its own immutable part file (no
+    # read-modify-write of a shared hour file), so concurrent writers can't
+    # clobber each other.
     for minute in (16, 30, 45):
         storage.write_response(
             endpoint="oi_per_strike",
@@ -191,9 +195,9 @@ def test_write_response_appends_to_existing_hour_file(tmp_data_dir: Path):
             fetched_at=datetime(2026, 5, 27, 14, minute, 0, tzinfo=timezone.utc),
         )
     parts = list(tmp_data_dir.rglob("*.parquet"))
-    assert len(parts) == 1, "all 3 writes in the 14:xx hour should land in one file"
-    table = pq.read_table(parts[0])
-    assert table.num_rows == 3
+    assert len(parts) == 3, "each write lands in its own part file"
+    total_rows = sum(pq.read_table(p).num_rows for p in parts)
+    assert total_rows == 3
 
 
 def test_write_response_no_ticker_uses_endpoint_only_partition(tmp_data_dir: Path):

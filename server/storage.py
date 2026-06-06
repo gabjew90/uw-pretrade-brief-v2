@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -57,14 +58,13 @@ def _data_dir() -> Path:
     return Path(os.environ.get("DATA_DIR", "/data"))
 
 
-def _partition_path(endpoint: str, ticker: str | None, fetched_at: datetime) -> Path:
-    """Build the parquet partition path for this (endpoint, ticker, hour)."""
-    dt = fetched_at.strftime("%Y-%m-%d")
-    hhmm = fetched_at.strftime("%H") + "00"  # bucket to the hour
-    parts = [_data_dir(), "raw", f"endpoint={endpoint}", f"dt={dt}"]
+def _partition_dir(endpoint: str, ticker: str | None, fetched_at: datetime) -> Path:
+    """Directory for this (endpoint, ticker, day). One immutable part file per
+    write lives here (see write_response)."""
+    dt_str = fetched_at.strftime("%Y-%m-%d")
+    parts = [_data_dir(), "raw", f"endpoint={endpoint}", f"dt={dt_str}"]
     if ticker:
         parts.append(f"ticker={ticker}")
-    parts.append(f"part-{hhmm}.parquet")
     return Path(*parts)
 
 
@@ -94,8 +94,8 @@ def write_response(
     Returns True on success, False on any I/O failure (logged, not raised).
     """
     try:
-        path = _partition_path(endpoint, ticker, fetched_at)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        d = _partition_dir(endpoint, ticker, fetched_at)
+        d.mkdir(parents=True, exist_ok=True)
         row = {
             "fetched_at": [fetched_at],
             # ticker omitted: encoded in the partition path (ticker=<TICKER>/)
@@ -105,10 +105,15 @@ def write_response(
             "response": [json.dumps(response, default=str)],
         }
         new_table = pa.table(row, schema=_record_schema())
-        if path.exists():
-            existing = pq.ParquetFile(path).read()
-            new_table = pa.concat_tables([existing, new_table])
-        pq.write_table(new_table, path, compression="zstd", use_dictionary=False)
+        # One immutable part file per write — append-only, atomic. Named so it
+        # sorts newest-last within the day; uuid suffix avoids collisions for
+        # same-second concurrent writes (light-build vs click-build). No
+        # read-modify-write, so concurrent writers can't clobber each other.
+        fname = f"part-{fetched_at.strftime('%H%M%S')}-{uuid.uuid4().hex[:8]}.parquet"
+        path = d / fname
+        tmp = path.with_suffix(".parquet.tmp")
+        pq.write_table(new_table, tmp, compression="zstd", use_dictionary=False)
+        os.replace(tmp, path)   # atomic publish
         return True
     except Exception as e:
         log.error("storage write failed: endpoint=%s ticker=%s err=%s", endpoint, ticker, e)
@@ -273,35 +278,44 @@ def read_oi_history(ticker: str, n_sessions: int = 5) -> list[dict]:
     for d in dt_dirs:
         date_str = d.name.replace("dt=", "")
         tdir = d / f"ticker={ticker}"
-        files = sorted(tdir.glob("part-*.parquet"), reverse=True)
-        strikes: dict[float, int] = {}
-        for path in files:
+        # Append-only writes fragment a day into many one-row part files, so the
+        # "latest {} snapshot for the day" must be chosen ACROSS all part files,
+        # not within the single newest file. Prefer no-date-param ({}) rows (the
+        # live today snapshot) by latest fetched_at; fall back to any row.
+        best_ts = best_resp = None        # latest {}-param row for the day
+        fb_ts = fb_resp = None            # fallback: latest any-param row
+        for path in tdir.glob("part-*.parquet"):
             try:
                 table = pq.read_table(path)
-                if table.num_rows == 0:
-                    continue
-                # Prefer the no-date-param row (the live today snapshot).
-                mask = pc.equal(table["params_json"], "{}")
-                filtered = table.filter(mask)
-                src = filtered if filtered.num_rows else table
-                latest_idx = pc.sort_indices(
-                    src.select(["fetched_at"]),
-                    sort_keys=[("fetched_at", "descending")],
-                )[0].as_py()
-                payload = json.loads(src["response"][latest_idx].as_py())
-                rows = payload.get("data") if isinstance(payload, dict) else payload
-                for r in (rows or []):
-                    try:
-                        k = float(r.get("strike") or 0)
-                        oi = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
-                        if k > 0:
-                            strikes[k] = oi
-                    except (TypeError, ValueError):
-                        continue
-                if strikes:
-                    break  # got this day's snapshot from the newest file
             except Exception as e:
                 log.warning("oi-history read failed %s @ %s: %s", ticker, path.name, e)
+                continue
+            for i in range(table.num_rows):
+                ts = table["fetched_at"][i].as_py()
+                params = table["params_json"][i].as_py()
+                resp = table["response"][i].as_py()
+                if params == "{}":
+                    if best_ts is None or ts > best_ts:
+                        best_ts, best_resp = ts, resp
+                else:
+                    if fb_ts is None or ts > fb_ts:
+                        fb_ts, fb_resp = ts, resp
+        chosen = best_resp if best_resp is not None else fb_resp
+        if chosen is None:
+            continue
+        try:
+            payload = json.loads(chosen)
+        except (TypeError, ValueError):
+            continue
+        rows = payload.get("data") if isinstance(payload, dict) else payload
+        strikes: dict[float, int] = {}
+        for r in (rows or []):
+            try:
+                k = float(r.get("strike") or 0)
+                oi = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
+                if k > 0:
+                    strikes[k] = oi
+            except (TypeError, ValueError):
                 continue
         if strikes:
             sessions.append({"date": date_str, "strikes": strikes})
@@ -608,13 +622,25 @@ def _sticky_path() -> Path:
     return _data_dir() / "sticky.json"
 
 
+_MAX_SNAPSHOT_LINES = 1000   # cap snapshots.jsonl; request-driven volume is low
+
+
 def append_snapshot(snapshot: dict) -> bool:
-    """Append one snapshot as a JSON line. Best-effort I/O."""
+    """Append one snapshot as a JSON line; trim to the last _MAX_SNAPSHOT_LINES.
+    Best-effort I/O."""
     try:
         path = _snapshots_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(snapshot, default=str) + "\n")
+        # Opportunistic cap: only rewrites when over the bound (infrequent).
+        with path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > _MAX_SNAPSHOT_LINES:
+            keep = lines[-_MAX_SNAPSHOT_LINES:]
+            tmp = path.with_suffix(".jsonl.tmp")
+            tmp.write_text("".join(keep), encoding="utf-8")
+            os.replace(tmp, path)
         return True
     except Exception as e:
         log.error("snapshot append failed: %s", e)
@@ -664,20 +690,35 @@ def read_last_snapshot() -> dict | None:
     path = _snapshots_path()
     if not path.exists():
         return None
+
+    def _scan(lines):
+        good = None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                snap = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(snap, dict) and snap.get("rows"):
+                good = snap
+        return good
+
     try:
-        last_good = None
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 65536))
+            tail = f.read().decode("utf-8", errors="ignore")
+        tail_lines = tail.splitlines()
+        # Drop a possibly-partial first line when we didn't start at byte 0.
+        hit = _scan(tail_lines[1:] if size > 65536 else tail_lines)
+        if hit is not None:
+            return hit
+        # Fallback: last good snapshot is older than the 64 KB tail window.
         with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    snap = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(snap, dict) and snap.get("rows"):
-                    last_good = snap   # keep the latest non-empty
-        return last_good
+            return _scan(f.readlines())
     except Exception as e:
         log.warning("read_last_snapshot failed: %s", e)
         return None

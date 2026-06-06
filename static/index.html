@@ -118,6 +118,12 @@
   .regime-posture.pos { color: var(--ok); border: 1px solid var(--ok); }
   .regime-posture.warn { color: var(--warn); border: 1px solid var(--warn); }
   .regime-posture.neg { color: var(--neg); border: 1px solid var(--neg); }
+  .flow-stale { color: var(--warn); font-weight: 700; }
+  .dd-asof { color: var(--text-dim); font-size: 11px; margin-left: 8px; font-weight: 400; }
+  .refresh-grid { font: inherit; font-size: 11px; color: var(--accent, var(--hot));
+    background: none; border: 1px solid var(--axis); border-radius: 4px;
+    padding: 1px 8px; cursor: pointer; }
+  .refresh-grid:hover { border-color: var(--hot); }
   .regime-text {
     color: var(--text-dim); letter-spacing: 0.01em;
     display: flex; flex-direction: column; gap: 2px;
@@ -295,6 +301,9 @@
   .row .dot.green  { background: var(--ok);   color: var(--ok-glow); }
   .row .dot.yellow { background: var(--warn); color: var(--warn-glow); }
   .row .dot.red    { background: var(--neg);  color: var(--neg-glow); }
+  .row .dot.gray   { background: var(--axis); opacity: 0.4; box-shadow: none; }
+  .row .direction.provisional { opacity: 0.6; font-style: italic; font-weight: 500; }
+  .row .direction.provisional em { font-size: 0.85em; opacity: 0.85; }
   .row .summary {
     color: var(--text); font-size: 11px; line-height: 1.4;
     min-width: 0;
@@ -1290,8 +1299,18 @@ function renderRegimeBanner() {
   ageEl.textContent = ageSec < 60 ? `${ageSec}s ago`
                     : ageSec < 3600 ? `${Math.floor(ageSec / 60)}m ago`
                     : `${Math.floor(ageSec / 3600)}h ago`;
-  detailEl.textContent = `${snap.rows.length} tickers · updates on reload/click`;
+  // Loud staleness past the flow window (no background refresh exists), plus a
+  // one-call "refresh flow" button. User-initiated only — never auto.
+  const STALE_S = 60;
+  const hhmm = fetchedAt.toISOString().slice(11, 16);
+  const staleHtml = ageSec > STALE_S
+    ? `<span class="flow-stale">flow as of ${hhmm}Z</span> · `
+    : "";
+  detailEl.innerHTML = `${snap.rows.length} tickers · ${staleHtml}`
+    + `<button id="refresh-grid-btn" class="refresh-grid" title="re-pull flow (1 call); won't disturb an open deep-dive">refresh flow</button>`;
   if (ageSec > 300) ageBanner.classList.add('stale'); else ageBanner.classList.remove('stale');
+  const rbtn = document.getElementById("refresh-grid-btn");
+  if (rbtn) rbtn.onclick = refreshGrid;
 }
 /* V2-EDIT-6-END */
 
@@ -1383,10 +1402,21 @@ function renderWatchlist() {
   for (const row of sorted) {
     const tr = document.createElement("div");
     tr.className = "row" + (state.selected === row.ticker ? " selected" : "");
-    const dirArrow = row.direction === "calls" ? "↑ Calls" : "↓ Puts";
-    const dots = ["flow", "oi", "structural", "cost"].map(g =>
-      `<span class="dot ${row.gates[g]}" title="Gate ${g}: ${row.gates[g]}"></span>`
-    ).join("");
+    const isLight = row.is_light;
+    // Light rows: show a provisional flow-derived side (opening/total flow) as
+    // unconfirmed; a gamma_fallback light row has no real read → "dir on click".
+    const dirProvisional = isLight &&
+      (row.direction_basis === "opening_flow" || row.direction_basis === "total_flow");
+    const dirArrow = (isLight && !dirProvisional) ? "· dir on click"
+                   : row.direction === "calls" ? "↑ Calls" : "↓ Puts";
+    const dirHtml = `<span class="direction ${row.direction}${dirProvisional ? " provisional" : ""}"`
+                  + `${dirProvisional ? ' title="flow-only — gamma confirmed on click"' : ""}>`
+                  + `${dirArrow}${dirProvisional ? " <em>(flow-only)</em>" : ""}</span>`;
+    const dots = ["flow", "oi", "structural", "cost"].map(g => {
+      const c = (isLight && g !== "flow") ? "gray" : row.gates[g];
+      const ttl = (isLight && g !== "flow") ? `Gate ${g}: click to evaluate` : `Gate ${g}: ${row.gates[g]}`;
+      return `<span class="dot ${c}" title="${ttl}"></span>`;
+    }).join("");
     const summary = gateSummaryText(row);
     let timestamp = "—";
     if (!row.is_synthetic) {
@@ -1397,7 +1427,7 @@ function renderWatchlist() {
     }
     tr.innerHTML = `
       <span class="ticker">${row.ticker}</span>
-      <span class="direction ${row.direction}">${dirArrow}</span>
+      ${dirHtml}
       <span class="dots">${dots}</span>
       <span class="summary">${summary}</span>
       <span class="timestamp">${timestamp}</span>
@@ -1414,10 +1444,40 @@ function visibleWatchlistRows() {
   return rows;
 }
 
+/* Manual, user-initiated flow refresh (1 call). Re-pulls /snapshot.json?refresh=1
+ * and re-renders ONLY the grid + header — never the open deep-dive (operator rule:
+ * don't refresh under the cursor). Preserves searched + selected rows. */
+async function refreshGrid() {
+  try {
+    const r = await fetch('/snapshot.json?refresh=1');
+    if (!r.ok) return;
+    const snap = await r.json();
+    if (!snap.rows) return;
+    const preserved = ROWS.filter(row =>
+      !snap.rows.find(x => x.ticker === row.ticker) &&
+      (row.__lookedup || row.ticker === state.selected));
+    ROWS.length = 0;
+    ROWS.push(...snap.rows, ...preserved);
+    window.__SNAPSHOT__ = snap;
+    renderRegimeBanner();
+    renderWatchlist();
+    // intentionally NO renderDeepDive() — the open card stays put
+  } catch (e) { console.warn('refresh failed:', e); }
+}
+
 function selectTicker(ticker) {
   state.selected = ticker;
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
+  const row = ROWS.find(r => r.ticker === ticker);
+  if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
+    // Flow-only grid row → build the full row on demand (same path as search);
+    // it replaces the light row and re-selects, then renders like a hot ticker.
+    lookupTicker(ticker);
+    renderWatchlist();
+    renderDeepDive();
+    return;
+  }
   fetchTile3Detail(ticker);          // async; re-renders Tile 3 when it lands
   fetchTile4Detail(ticker);          // async; re-renders Tile 4 picker when it lands
   renderWatchlist();
@@ -1540,8 +1600,14 @@ function lookupTicker(ticker) {
     .then(d => {
       if (d && d.status === "unavailable") { state.lookups[ticker] = "error"; }
       else if (d && d.ticker) {
-        d.__lookedup = true;                       // mark: not flow-surfaced
-        if (!ROWS.find(r => r.ticker === d.ticker)) ROWS.push(d);
+        const idx = ROWS.findIndex(r => r.ticker === d.ticker);
+        if (idx >= 0) {
+          d.__lookedup = ROWS[idx].__lookedup;   // preserve origin (hot light-row vs searched)
+          ROWS[idx] = d;                          // upgrade light row → full row in place
+        } else {
+          d.__lookedup = true;                    // genuinely searched (not flow-surfaced)
+          ROWS.push(d);
+        }
         state.lookups[ticker] = "ok";
       } else { state.lookups[ticker] = "error"; }
       if (state.selected === ticker) { selectTicker(ticker); }
@@ -1596,7 +1662,13 @@ function renderDeepDive() {
     : (_db && _db !== "opening_flow")
     ? `<span class="dir-basis" title="Side derived from a weaker basis than opening flow.">via ${_db === "total_flow" ? "total flow" : "gamma (weak)"}</span>`
     : "";
-  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${basisTag}${lu}`;
+  // Deep-dive carries its OWN as_of: a just-refreshed grid row can be newer than
+  // an open deep-dive (a prior full build) — show both ages honestly rather than
+  // letting one masquerade as the other.
+  const ddAsOf = row.as_of
+    ? ` <span class="dd-asof" title="deep-dive build age — independent of the grid">deep-dive as of ${new Date(row.as_of).toISOString().slice(11, 16)}Z</span>`
+    : "";
+  titleEl.innerHTML = `Deep-dive card — <span style="font-family:var(--ff-display);font-style:italic;font-weight:500;font-size:22px;letter-spacing:-0.02em;color:var(--title);text-transform:none;">${row.ticker}</span>${dirToggle}${basisTag}${lu}${ddAsOf}`;
   c.innerHTML = `<div class="deepdive-card">${renderAllTiles(row)}</div>`;
 }
 

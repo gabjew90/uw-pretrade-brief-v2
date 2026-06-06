@@ -18,9 +18,9 @@ Do **not** suggest Streamlit (this is the v2 specifically pivoting away). Do not
 
 FastAPI server + one static page (`static/index.html`) + parquet archive + pure decision modules.
 
-- **Two paths.** A background loop (every 120s in RTH; skipped under `REPLAY=1`) pulls flow-alerts → hot-15, refreshes ~6 endpoints/ticker into the archive, builds the SPY market regime, assembles the `Snapshot`, and persists `snapshots.jsonl`. `/` and `/snapshot.json` serve that cached snapshot. The heavy per-expiry/per-contract work (Tile 3 rich, Tile 4) is **on-demand** on ticker-click via `/api/tile3`, `/api/tile4`, `/api/lookup` — pre-warming all 15/cycle blew the daily cap and was reverted. Don't reintroduce loop-prewarming.
-- **`server/storage.py`** — read-through cache `_through()` (RAM TTLCache → parquet → live UW). TTL tiers: hot 60s / medium 300s / news 900s / quasi-static 24h. `cached_only()` contextvar blocks live calls (REPLAY + request path). Load-bearing; don't drop it.
-- **`server/budget.py`** — UW Basic is the binding constraint (120/min, ~15k/day). Prefers UW headers; soft-sheds at 90%; persists the meter to `uw_budget.json` (survives redeploys).
+- **Request-driven (NO background loop).** `/` and `/snapshot.json` call `snapshot.get_or_build_snapshot()`: serve the last persisted build when fresh, else build a **light grid** (one `flow_alerts` call → hot-15 + Flow gate + flow direction; other gates show "click to evaluate"). Per-namespace TTL: `SNAPSHOT_MAX_AGE_S` (flow, 60s) vs `REGIME_MAX_AGE_S` (regime, 600s, carried forward). Clicking a ticker builds the FULL row on demand via `/api/lookup`→`build_single_row`, then Tile 3-rich/Tile 4 via `/api/tile3`,`/api/tile4`. Every UW call traces to a load or click. `refresh_snapshot` (full all-rows build) is retained/tested but no longer loop-driven; **don't reintroduce a background loop or loop-prewarming** (it blew the daily cap, 2026-06-01).
+- **`server/storage.py`** — read-through cache `_through()` (RAM TTLCache → parquet → live UW). **Append-only writes**: one immutable `part-HHMMSS-<hex>.parquet` per write (atomic temp→`os.replace`); readers glob+dedupe. `snapshots.jsonl` is append-only too (tail-seeded, line-capped). TTL tiers: hot 60s / medium 300s / news 900s / quasi-static 24h. `cached_only()` contextvar blocks live calls (REPLAY + request path). Load-bearing; don't drop it.
+- **`server/budget.py`** — UW Basic is the binding constraint (120/min, ~15k/day). Prefers UW headers; `UW_BUDGET_SOFT_PCT` is a per-call guard; persists the meter to `uw_budget.json` (survives redeploys).
 - **`server/freshness.py`** — stamps each view with `as_of` (oldest field) + `data_provenance` (live/cache/archive, worst-case). Contextvar is propagated into the executor pool.
 - **`server/gates.py`** — single source of truth (no client recompute). `derive_direction` leads from OPENING flow → total flow → gamma (tagged `direction_basis`; `operator_override` on manual flip). Four gates: Flow / OI / Structural (capped at yellow when `gex_sign=="POS"`) / Cost (IV-rank + earnings + macro-`event_within_hold`).
 - **`server/market_regime.py`** — pure `compute_market_regime(...)`: SPY gamma headline (trend/chop), macro-event veto (hold window), buyer-framed vol, tide badge, OPEX → **Favorable/Mixed/Stand down**. A *regime* read, NEVER a direction call (enforced in tests). Wired in `snapshot._build_market_regime`; its `event_within_hold` also feeds every row's Cost gate.
@@ -49,11 +49,14 @@ DATA_DIR=./data REPLAY=1 .venv/Scripts/python -m uvicorn server.main:app --port 
 
 Then open http://localhost:8000 and click any ticker — all tiles, including the
 on-demand Tile 3 gamma map and Tile 4 contract picker, render from the archive.
-REPLAY=1 skips the background loop and forces the request path to `cached_only`
-(reads captured parquet, never calls UW); the boot-seed serves the archived
-snapshot. In cached-only mode the parquet TTL is ignored (replay reads aged
-data). The `/admin/export` endpoint (token-guarded by BACKFILL_TOKEN) streams a
-tar.gz of DATA_DIR for re-pulling a fresh archive.
+REPLAY=1 forces the request-driven build (and the on-demand tile routes) to
+`cached_only` (reads captured parquet, never calls UW); the boot-seed serves the
+last archived snapshot for instant first paint. In cached-only mode the parquet
+TTL is ignored (replay reads aged data). NOTE: `_read_latest_from_parquet` scans
+today+yesterday partitions, so replaying an archive more than ~1 day older than
+the system clock falls back to the seeded snapshot — pull a fresh archive (or it
+degrades gracefully to last-good). The `/admin/export` endpoint (token-guarded by
+BACKFILL_TOKEN) streams a tar.gz of DATA_DIR for re-pulling a fresh archive.
 
 ## Behavior — guardrails
 

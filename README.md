@@ -29,18 +29,19 @@ FastAPI server, one static HTML page, a parquet archive, and a thin set of pure-
 ### Data flow
 
 ```
-UW REST API ──> storage._through (read-through cache) ──> parquet archive ($DATA_DIR/raw/…)
+UW REST API ──> storage._through (read-through cache) ──> parquet archive ($DATA_DIR/raw/…, append-only)
                       │                                          │
-                  RAM TTLCache                            snapshots.jsonl (one per cycle)
+                  RAM TTLCache                            snapshots.jsonl (append-only, one per build)
                       │
-              background refresh loop  ──build──>  Snapshot (rows + regime)  ──serve──>  /  ·  /snapshot.json
+   get_or_build_snapshot (request-driven, per-namespace TTL) ──> Snapshot (light rows + regime) ──> / · /snapshot.json
                                                         ▲
-                          on-demand routes (/api/tile3, /api/tile4, /api/lookup) fetch live when a ticker is clicked
+                          on-demand routes (/api/tile3, /api/tile4, /api/lookup) build the FULL row when a ticker is clicked
 ```
 
-- **Background loop** (skipped in REPLAY): every **120 s** during market hours (300 s recheck when closed; gated by `server/market_hours.py`). Each cycle pulls flow-alerts → derives the **hot-15**, refreshes ~6 endpoints per hot ticker into the archive, builds the SPY-based market regime, assembles the `Snapshot`, generates Gemini insights, and persists to `snapshots.jsonl`. Roughly ~100 UW calls/cycle — sized to fit the Basic tier's 120/min budget. It never lets an empty/failed refresh overwrite a good snapshot.
-- **Request path is cheap.** `/` and `/snapshot.json` serve the cached snapshot the loop already built. The expensive per-expiry/per-contract work (Tile 3 rich, Tile 4) is **on-demand** — fetched only when you actually open a ticker (a human views 2–3 tickers/session, not 15). Pre-warming all 15 every cycle was tried and blew the daily cap (2026-06-01); it was reverted.
-- **Search any ticker:** `/api/lookup/{ticker}` builds a full dashboard row for any symbol on demand, caches it server-side, and injects it like a hot ticker.
+- **Request-driven — no background loop.** `/` and `/snapshot.json` call `snapshot.get_or_build_snapshot()`. It serves the last persisted build when fresh, else builds a **light grid** with a single `flow_alerts` call (hot-15 ranked + Flow gate + flow-derived direction; the other gates show "click to evaluate"). The regime is computed/carried on its own TTL. Two windows: `SNAPSHOT_MAX_AGE_S` (flow, default 60 s) and `REGIME_MAX_AGE_S` (default 600 s) — a reload past the flow window re-pulls flow (~1 call) but carries a still-fresh regime forward.
+- **Click = full build.** Clicking a (light) ticker builds the full row on demand via `/api/lookup` → `build_single_row` (all 4 gates + tile inputs), then Tile 3-rich / Tile 4 fetch on demand. Re-clicks are cache-cheap. Every UW call traces to a page-load or a click.
+- **Frozen-grid honesty.** With no loop and no auto-refresh, the grid is static between loads — staleness is shown loudly ("flow as of HH:MMz") with a one-call **"refresh flow"** button (re-pulls flow, never disturbs an open deep-dive). The deep-dive carries its own `as_of`.
+- **Search any ticker:** `/api/lookup/{ticker}` builds a full dashboard row for any symbol on demand, caches it server-side, and injects it like a hot ticker. (Same path a light hot-15 row uses on click.)
 
 ### Read-through cache & archive (`server/storage.py`)
 
@@ -58,7 +59,7 @@ The storage layer is **load-bearing** for the v0.2 percentile gates — it is no
 
 ### Budget meter (`server/budget.py`)
 
-UW Basic is the binding constraint (120/min, daily cap ~15 000). The meter prefers UW's authoritative response headers (`x-uw-token-req-limit`, `x-uw-daily-req-count`); falls back to `UW_DAILY_CAP`. At `UW_BUDGET_SOFT_PCT` (default 90%) the loop sheds every endpoint except flow-alerts. The count persists to `uw_budget.json` so a redeploy doesn't reset the meter to zero (a past cause of silently blowing the cap).
+UW Basic is the binding constraint (120/min, daily cap ~15 000). The meter prefers UW's authoritative response headers (`x-uw-token-req-limit`, `x-uw-daily-req-count`); falls back to `UW_DAILY_CAP`. `UW_BUDGET_SOFT_PCT` (default 90%) is a per-call guard. The count persists to `uw_budget.json` so a redeploy doesn't reset the meter to zero (a past cause of silently blowing the cap). With the background loop gone, steady-state spend is now driven by actual page-loads and clicks.
 
 ### Freshness envelope (`server/freshness.py`)
 
@@ -117,9 +118,9 @@ uv run uvicorn server.main:app --reload   # → http://localhost:8000
 | `BACKFILL_TOKEN` | Unlocks `/admin/backfill` + `/admin/export` | — (disabled) |
 | `TICKER_PIN_LIST` | Comma-separated tickers tracked forever | — |
 | `UW_DAILY_CAP` | Daily call cap fallback (if no UW header) | `15000` |
-| `UW_BUDGET_SOFT_PCT` | Soft cap; loop sheds non-flow endpoints above it | `0.9` |
-| `SNAPSHOT_PAUSED` | Kill-switch: pause loop UW calls | off |
-| `MARKET_GATE_DISABLED` | Disable market-hours gating | off |
+| `UW_BUDGET_SOFT_PCT` | Soft cap (per-call budget guard) | `0.9` |
+| `SNAPSHOT_MAX_AGE_S` | Flow-grid freshness window (reuse cached build under it) | `60` |
+| `REGIME_MAX_AGE_S` | Regime freshness window (carried forward under it) | `600` |
 | `REGIME` | Manual override for the regime label (`normal`/`risk-off`) | `normal` |
 
 > The old `REGIME_DETAIL_TEXT` static banner string is superseded by the computed market-regime header; `REGIME` is retained only as a manual label override / fallback.

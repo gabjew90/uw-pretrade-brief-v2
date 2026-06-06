@@ -136,7 +136,8 @@ async def _build_market_regime(loop):
     regime = Regime(label=label,
                     headline=reg["headline"], posture=reg["posture"],
                     event_line=reg["event"]["line"], vol_line=reg["vol"],
-                    tide_badge=reg["tide_badge"], opex=reg["opex"])
+                    tide_badge=reg["tide_badge"], opex=reg["opex"],
+                    as_of=now.isoformat())
     return regime, reg["event_within_hold"]
 
 
@@ -207,6 +208,120 @@ async def refresh_snapshot() -> Snapshot:
     storage.append_snapshot(snap.model_dump(mode="json"))
     log.info("snapshot built: hot=%d tracked=%d", len(hot_15), len(tracked))
     return snap
+
+
+def _light_row(ticker: str, flow_info: dict) -> Row:
+    """A flow-only grid row: flow gate + flow-derived direction, no per-ticker
+    gamma/OI/IV. The other three gates are placeholders (the frontend renders them
+    'click to evaluate' whenever is_light is set, so the stored value is unused).
+    direction/direction_basis come straight from derive_direction (schema-valid);
+    a light row with basis 'gamma_fallback' means flow was ambiguous AND we fetched
+    no gamma — the frontend shows that as a provisional 'dir on click', not a side."""
+    flow_alerts_detail = _project_flow_alerts(flow_info.get("raw_alerts", []))
+    direction, basis = gates.derive_direction(flow_alerts_detail, "", 0.0)
+    flow_gate = gates.compute_gates({"flow_rank_cross": flow_info.get("rank_cross", 50)},
+                                    history=None)["flow"]
+    return Row(
+        ticker=ticker,
+        spot=float(flow_info.get("spot") or 0.0),
+        direction=direction,
+        direction_basis=basis,
+        is_synthetic=True,
+        is_light=True,
+        gates={"flow": flow_gate, "oi": "yellow", "structural": "yellow", "cost": "yellow"},
+        gate_method={"flow": "cross_sectional", "oi": "absolute",
+                     "structural": "absolute", "cost": "percentile"},
+        flow=Flow(
+            alerts=int(flow_info.get("alerts", 0)),
+            premium_usd=float(flow_info.get("premium_usd", 0.0)),
+            rank_cross=int(flow_info.get("rank_cross", 50)),
+        ),
+        flow_alerts_detail=flow_alerts_detail,
+        ask_side_pct=float(flow_info.get("ask_side_pct", 0.0)),
+    )
+
+
+async def build_light_snapshot() -> Snapshot:
+    """Flow-only grid: one flow_alerts call → hot-15 ranked light rows. No
+    per-ticker heavy endpoints, no regime (the front door attaches that on its own
+    TTL). Used by get_or_build_snapshot for cheap page-load builds."""
+    loop = asyncio.get_running_loop()
+    now = datetime.now(tz=timezone.utc)
+    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 100))
+    if isinstance(flow_alerts, storage.UWFailure):
+        log.error("light build: flow-alerts failed: %s", flow_alerts.message)
+        return _empty_snapshot(now)
+    hot_15 = universe.top_15_unique_tickers(flow_alerts)
+    flow_by_ticker = _aggregate_flow_per_ticker(flow_alerts, hot_15)
+    rows = [
+        _light_row(t, flow_by_ticker.get(t, {"alerts": 0, "premium_usd": 0.0,
+                                             "rank_cross": 50, "spot": 0.0}))
+        for t in hot_15
+    ]
+    return Snapshot(fetched_at=now, regime=_current_regime(), rows=rows)
+
+
+_RAM: dict = {"latest": None}
+_SNAPSHOT_MAX_AGE_S = int(os.environ.get("SNAPSHOT_MAX_AGE_S", "60"))   # flow grid TTL
+_REGIME_MAX_AGE_S = int(os.environ.get("REGIME_MAX_AGE_S", "600"))      # regime TTL
+
+
+def _age_s(iso_or_dt, now: datetime) -> float:
+    """Seconds between `iso_or_dt` (ISO string or datetime) and `now`. Treats
+    missing/unparseable as effectively infinite (forces a rebuild)."""
+    if iso_or_dt is None:
+        return 1e9
+    if isinstance(iso_or_dt, str):
+        try:
+            t = datetime.fromisoformat(iso_or_dt.replace("Z", "+00:00"))
+        except ValueError:
+            return 1e9
+    else:
+        t = iso_or_dt
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (now - t).total_seconds()
+
+
+async def get_or_build_snapshot(*, force_flow: bool = False) -> Snapshot:
+    """Cache-or-build front door (request-driven; no background loop). Per-namespace
+    freshness: rebuild the flow grid when older than SNAPSHOT_MAX_AGE_S (or when
+    force_flow), and recompute the regime only when older than REGIME_MAX_AGE_S —
+    otherwise carry the cached regime forward onto the rebuilt grid. Persists every
+    build (append-only). Never overwrites a good build with an empty one."""
+    now = datetime.now(tz=timezone.utc)
+    cached = _RAM.get("latest")
+    if cached is None:
+        raw = storage.read_last_snapshot()
+        if raw:
+            try:
+                cached = Snapshot.model_validate(raw)
+                _RAM["latest"] = cached
+            except Exception:
+                cached = None
+
+    flow_fresh = (not force_flow) and cached is not None and bool(cached.rows) and \
+        _age_s(cached.fetched_at, now) < _SNAPSHOT_MAX_AGE_S
+    if flow_fresh:
+        return cached
+
+    fresh = await build_light_snapshot()
+    if not fresh.rows and cached is not None and cached.rows:
+        return cached   # upstream flow failed — keep last good, don't blank
+
+    regime_fresh = cached is not None and getattr(cached.regime, "posture", "") and \
+        _age_s(getattr(cached.regime, "as_of", None), now) < _REGIME_MAX_AGE_S
+    if regime_fresh:
+        fresh.regime = cached.regime           # carry forward — 0 SPY calls
+    else:
+        loop = asyncio.get_running_loop()
+        regime_obj, _event = await _build_market_regime(loop)
+        if regime_obj is not None:
+            fresh.regime = regime_obj
+
+    _RAM["latest"] = fresh
+    storage.append_snapshot(fresh.model_dump(mode="json"))
+    return fresh
 
 
 async def build_single_row(ticker: str) -> Row | None:
