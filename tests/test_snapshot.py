@@ -348,20 +348,6 @@ async def test_refresh_snapshot_rows_carry_tile3(stub_uw, fresh_storage_state, t
     assert snap.rows[0].tile3.strikes[0].net_gamma == 0.5
 
 
-def test_nearest_delta_matches_within_tolerance():
-    """Flow strikes rarely match the greek-exposure grid exactly; nearest
-    within tolerance should match, beyond tolerance should return 0."""
-    grid = {720.0: 1000.0, 725.0: 2000.0, 730.0: 3000.0}
-    # 729 is within 1.5% of 730 → matches 730
-    assert snapshot._nearest_delta(grid, 729.0) == 3000.0
-    # exact hit
-    assert snapshot._nearest_delta(grid, 725.0) == 2000.0
-    # 600 is far from any grid strike (>1.5%) → 0
-    assert snapshot._nearest_delta(grid, 600.0) == 0.0
-    # empty grid → 0
-    assert snapshot._nearest_delta({}, 725.0) == 0.0
-
-
 def test_median_robust_to_outlier():
     assert snapshot._median([0.3, 0.4, 0.5, 385.0]) == 0.45
     assert snapshot._median([1.0]) == 1.0

@@ -642,6 +642,9 @@
   .t2-agg { margin: 2px 0 12px; }
   .t2-agg-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
   .t2-mini-empty { font-family: var(--ff-mono); font-size: 10px; color: var(--axis); padding: 4px 0; }
+  /* Collapsed expiry relevance line (full breakdown lives in Tile 4) */
+  .t2-relevance { margin: 4px 0 10px; padding: 7px 10px; border-radius: 6px; background: var(--panel-3); font-family: var(--ff-mono); font-size: 10px; color: var(--text-dim); line-height: 1.4; }
+  .t2-relevance.scattered { background: rgba(224,175,104,0.10); border: 1px solid rgba(224,175,104,0.35); color: var(--warn); }
   .t2-cl-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .t2-cl-side { font-family: var(--ff-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
   .t2-cl-side.call { color: var(--ok); }
@@ -2336,7 +2339,7 @@ function renderTile2OI(row) {
       ${renderT2StrikeMinis(viewStrikes)}
       ${sel ? renderOiSingleStrike(sel) : ""}
     </div>
-    ${renderExpiryDistribution(t2.expiry_distribution || [])}
+    ${renderT2ExpiryRelevance(t2)}
     <div class="t2-foot">
       Confirms whether the directional flow actually <em>opened</em> — OI growth at the flow's
       strikes, by side, over settled sessions. "Opening" is a <b>proxy</b> (volume/OI&gt;1), not the
@@ -2413,12 +2416,10 @@ function renderT2OpeningStat(t2) {
   const side = t2.flow_side === "put" ? "puts" : "calls";
   const pct = t2.opening_pct || 0;
   const c = pct >= 60 ? "var(--ok)" : pct >= 30 ? "var(--warn)" : "var(--neg)";
-  const voi = t2.avg_volume_oi_ratio || 0;
-  const voiLbl = voi <= 0 ? "" : voi >= 10 ? " · vol/OI 10×+" : ` · vol/OI ${voi.toFixed(1)}×`;
   return `<div class="t2-opening">
     <span class="t2-op-lbl">Opening proxy (${side})</span>
     <span class="t2-op-val" style="color:${c}">${pct.toFixed(0)}%</span>
-    <span class="t2-op-sub">net-new (vol/OI&gt;1)${voiLbl}</span>
+    <span class="t2-op-sub">net-new (vol/OI&gt;1)</span>
   </div>`;
 }
 
@@ -2486,25 +2487,17 @@ function renderOiSingleStrike(s) {
     </div>`;
 }
 
-/* Horizontal expiry-distribution bar: where premium concentrates by expiry. */
-function renderExpiryDistribution(dist) {
-  if (!dist || dist.length === 0) return "";
-  const colors = ["#7AA2F7", "#BB9AF7", "#9ECE6A", "#E0AF68", "#F7768E", "#7DCFFF"];
-  const segs = dist.slice(0, 6).map((d, i) => {
-    const c = colors[i % colors.length];
-    return `<div class="t2-exp-seg" style="width:${d.pct}%;background:${c};"
-                 title="${d.expiry}: ${d.pct.toFixed(0)}% of flow premium"></div>`;
-  }).join("");
-  const legend = dist.slice(0, 6).map((d, i) => {
-    const c = colors[i % colors.length];
-    return `<span class="t2-exp-leg"><span class="sw" style="background:${c}"></span>${d.expiry} ${d.pct.toFixed(0)}%</span>`;
-  }).join("");
-  return `
-    <div class="t2-expiry">
-      <div class="t2-exp-title">Flow premium by expiry</div>
-      <div class="t2-exp-bar">${segs}</div>
-      <div class="t2-exp-legend">${legend}</div>
-    </div>`;
+/* Expiry RELEVANCE (collapsed) — Tile 2 only needs to know the flow is in the
+ * hold window vs parked far-dated, plus the scatter flag. The full premium-by-
+ * expiry breakdown belongs to Tile 4 (where you pick the expiry), not here. */
+function renderT2ExpiryRelevance(t2) {
+  if (t2.low_conviction) {
+    return `<div class="t2-relevance scattered">⚠ ${t2.low_conviction_msg || "Flow spread across many expirations — no clear target."}</div>`;
+  }
+  const pct = t2.near_dated_pct || 0;
+  const c = pct >= 60 ? "var(--ok)" : pct >= 30 ? "var(--warn)" : "var(--neg)";
+  return `<div class="t2-relevance">
+    <span style="color:${c};font-weight:700">${pct.toFixed(0)}%</span> of flow $ is near-dated (≤45d) — ${pct >= 60 ? "in your hold window" : pct >= 30 ? "partly in window" : "mostly parked far-dated"}.</div>`;
 }
 
 /* ============================================================

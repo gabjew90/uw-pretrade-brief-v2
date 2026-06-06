@@ -75,7 +75,6 @@ class StrikeOIHistory(BaseModel):
     expiry: str = ""                            # top expiry by $ for this strike+side (label)
     sessions: list[OISessionBar] = Field(default_factory=list)  # oldest→newest (SETTLED days only)
     delta_oi: int = 0           # newest-settled vs prior settled session OI change
-    net_delta: float = 0.0      # per-strike net delta from greek-exposure (call+put delta_oi)
     premium_usd: float = 0.0    # flow premium at this (strike, side) — the "money" ranking
     trend: Literal["building", "flat", "unwinding"] = "flat"
     today_vol_oi: float = 0.0   # today's volume/OI ratio at this strike — live, "confirms ~9am"
@@ -97,7 +96,7 @@ class Tile2(BaseModel):
     # flow observed (gamma-only direction).
     flow_side: Literal["call", "put", ""] = ""
     opening_pct: float = 0.0            # % of flow-SIDE single-leg alerts with volume_oi_ratio>1 (net-new)
-    avg_volume_oi_ratio: float = 0.0    # >1 = today's volume exceeds existing OI (opening intensity)
+    near_dated_pct: float = 0.0         # % of flow $ in the hold window (≤45 DTE) — relevance check
     oi_trend_5d_pct: float = 0.0        # flow-side cluster OI change (first→last settled session)
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
     # BOTH clusters always — the call-vs-put comparison IS the signal, shown

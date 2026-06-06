@@ -15,13 +15,13 @@ def _fa(voi):
 def test_tile2_opening_pct_from_volume_oi_ratio():
     # 3 of 4 alerts are net-new (voi>1) → 75% opening, despite all_opening_trades=False.
     alerts = [_fa(2.0), _fa(1.5), _fa(3.0), _fa(0.5)]
-    t2 = _build_tile2(alerts, [], None, 100.0)
+    t2 = _build_tile2(alerts, [], "calls")
     assert round(t2.opening_pct) == 75
 
 
 def test_tile2_opening_pct_zero_when_no_net_new():
     alerts = [_fa(0.3), _fa(0.9)]   # all closing-ish (voi<=1)
-    t2 = _build_tile2(alerts, [], None, 100.0)
+    t2 = _build_tile2(alerts, [], "calls")
     assert t2.opening_pct == 0.0
 
 
@@ -35,7 +35,7 @@ def test_tile2_opening_pct_is_flow_side_only():
                          total_bid_side_prem=0.0, volume_oi_ratio=voi)
     # call side: 1 of 2 opening (50%); put side: both opening (would be 75% if pooled)
     alerts = [fa("call", 2.0), fa("call", 0.5), fa("put", 3.0), fa("put", 3.0)]
-    t2 = _build_tile2(alerts, [], None, 100.0, direction="calls")
+    t2 = _build_tile2(alerts, [], direction="calls")
     assert round(t2.opening_pct) == 50
 
 
@@ -58,7 +58,7 @@ def test_tile2_confirmation_anchors_to_flow_side_not_aggregate():
         {"date": "2020-01-02", "strikes": {105.0: 9800, 95.0: 9000},
          "call": {105.0: 800}, "put": {95.0: 9000}},
     ]
-    t2 = _build_tile2(alerts, oi_history, None, 100.0, direction="calls")
+    t2 = _build_tile2(alerts, oi_history, direction="calls")
     assert t2.confirmation == "unwinding"        # follows the call side, not the aggregate
     assert t2.oi_trend_5d_pct < 0
     assert t2.flow_side == "call"                 # observed side recorded for the frontend anchor
@@ -67,7 +67,7 @@ def test_tile2_confirmation_anchors_to_flow_side_not_aggregate():
 def test_tile2_flow_side_empty_when_no_flow():
     """No flow alerts → direction was a gamma guess, so there's no observed flow
     side; flow_side must be "" so the frontend doesn't imply a confirmed side."""
-    t2 = _build_tile2([], [], None, 100.0, direction="calls")
+    t2 = _build_tile2([], [], direction="calls")
     assert t2.flow_side == ""
 
 
@@ -88,7 +88,7 @@ def test_tile2_computes_both_side_clusters():
         {"date": "2020-01-02", "strikes": {105.0: 2000, 95.0: 1000},
          "call": {105.0: 1200}, "put": {95.0: 800}},
     ]
-    t2 = _build_tile2(alerts, oi_history, None, 100.0, direction="calls")
+    t2 = _build_tile2(alerts, oi_history, direction="calls")
     assert t2.call_confirmation == "building" and t2.call_oi_trend_pct == 20.0
     assert t2.put_confirmation == "unwinding" and t2.put_oi_trend_pct == -20.0
     # flow_side is calls → top-level confirmation mirrors the call cluster
@@ -112,7 +112,7 @@ def test_tile2_strikes_per_side_with_top_expiry_and_premium():
         fa("call", 105.0, 500_000, "2026-06-19"),   # same (strike,side), smaller, other expiry
         fa("put", 95.0, 900_000, "2026-06-12"),
     ]
-    t2 = _build_tile2(alerts, [], None, 100.0)
+    t2 = _build_tile2(alerts, [], "calls")
     by = {(s.strike, s.side): s for s in t2.strikes}
     assert (105.0, "call") in by and (95.0, "put") in by
     c105 = by[(105.0, "call")]

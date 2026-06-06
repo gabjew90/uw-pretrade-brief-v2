@@ -493,7 +493,7 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop, event_with
     # Fetch 6 sessions so that, after dropping today (provisional, not settled),
     # up to 5 SETTLED sessions remain to bar.
     oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 6))
-    tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot, direction)
+    tile2 = _build_tile2(flow_alerts_detail, oi_history, direction)
     # Tile 3: real per-strike net dealer gamma for the structural ladder, from
     # the spot-exposures payload already fetched above (no extra UW call).
     tile3 = _build_tile3(spot_data, spot)
@@ -660,37 +660,6 @@ def _project_flow_alerts(raw_alerts: list[dict]) -> list[FlowAlert]:
     return out
 
 
-def _per_strike_net_delta(spot_data: Any) -> dict[float, float]:
-    """Map strike → net delta (call_delta_oi + put_delta_oi) from the
-    greek-exposure (spot-exposures/strike) payload. Spec: delta sourced from
-    greek-exposure endpoint ONLY."""
-    out: dict[float, float] = {}
-    if isinstance(spot_data, storage.UWFailure) or not isinstance(spot_data, dict):
-        return out
-    for r in (spot_data.get("data") or []):
-        try:
-            k = float(r.get("strike") or 0)
-            if k <= 0:
-                continue
-            cd = float(r.get("call_delta_oi") or 0)
-            pd = float(r.get("put_delta_oi") or 0)
-            out[k] = cd + pd
-        except (TypeError, ValueError):
-            continue
-    return out
-
-
-def _nearest_delta(delta_by_strike: dict[float, float], k: float, tol_pct: float = 1.5) -> float:
-    """Greek-exposure strikes are gridded (e.g. $5 spacing) and rarely match a
-    flow strike exactly. Match to the nearest greek strike within tol_pct of k."""
-    if not delta_by_strike or k <= 0:
-        return 0.0
-    if k in delta_by_strike:
-        return delta_by_strike[k]
-    best = min(delta_by_strike, key=lambda x: abs(x - k))
-    return delta_by_strike[best] if abs(best - k) / k * 100 <= tol_pct else 0.0
-
-
 def _median(xs: list[float]) -> float:
     if not xs:
         return 0.0
@@ -705,11 +674,10 @@ _HOLD_WINDOW_DAYS = 45   # "near-dated" for Tile 2 confirmation: weeklies + fron
 
 
 def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
-                 spot_data: Any, spot: float, direction: str = "calls") -> Tile2:
+                 direction: str = "calls") -> Tile2:
     """Assemble Tile 2's positioning-reality model from:
       - flow_alerts: opening read (volume_oi_ratio) + per-strike premium + expiry
       - oi_history: oldest→newest daily OI snapshots from our parquet archive
-      - spot_data: per-strike net delta (greek-exposure)
       - direction: the headline side this tile must CONFIRM ("calls"/"puts")
 
     Tile 2 confirms the specific opening flow that set the direction: did OI grow
@@ -730,19 +698,12 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     sa_n = len(side_alerts)
     opening_n = sum(1 for a in side_alerts if a.volume_oi_ratio > 1)
     opening_pct = (opening_n / sa_n * 100) if sa_n else 0.0
-    # Median, not mean — a single brand-new far-OTM strike (tiny prior OI) can
-    # blow a mean vol/OI ratio into the hundreds and misrepresent the batch.
-    vois = [a.volume_oi_ratio for a in side_alerts if a.volume_oi_ratio > 0]
-    med_voi = _median(vois)
 
-    # ── Per-strike premium (flow concentration) + today vol/OI ────────────
+    # ── Per-strike premium (flow concentration) ───────────────────────────
     prem_by_strike: dict[float, float] = {}
-    voi_by_strike: dict[float, list] = {}
     for a in flow_alerts:
         if a.strike > 0:
             prem_by_strike[a.strike] = prem_by_strike.get(a.strike, 0.0) + a.total_premium
-            if a.volume_oi_ratio > 0:
-                voi_by_strike.setdefault(a.strike, []).append(a.volume_oi_ratio)
 
     # ── Expiry distribution (premium grouped by expiry) ───────────────────
     prem_by_expiry: dict[str, float] = {}
@@ -757,11 +718,8 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     ]
 
     # ── Per-(strike, side) OI history (from parquet archive) ──────────────
-    # Tile 2 shows ONE (strike, side) at a time — the one with the most flow $ for
-    # the toggled side. Aggregate flow premium by (strike, side) and track the top
-    # expiry by $ for each, so the toggle can pick "the strike+expiry with the most
-    # call (or put) money" and show that strike's side-specific 5-day OI.
-    delta_by_strike = _per_strike_net_delta(spot_data)
+    # Aggregate flow premium by (strike, side) and track the top expiry by $ for
+    # each, so each side's flow-hit cluster + its per-strike drill-down can be built.
     prem_ks: dict[tuple, float] = {}            # (strike, side) -> premium
     exp_ks: dict[tuple, dict] = {}              # (strike, side) -> {expiry: premium}
     voi_ks: dict[tuple, list] = {}              # (strike, side) -> [voi]
@@ -811,7 +769,6 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
             expiry=top_exp,
             sessions=bars,
             delta_oi=delta_oi,
-            net_delta=_nearest_delta(delta_by_strike, k),
             premium_usd=prem_ks.get((k, side), 0.0),
             trend=trend,
             today_vol_oi=round(_median(voi_ks.get((k, side), [])), 2),
@@ -836,6 +793,12 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
             return (_date.fromisoformat(e) - today).days
         except (TypeError, ValueError):
             return -9999
+
+    # Near-dated relevance: share of flow $ in the hold window (this/next week-ish).
+    # Far-dated flow is parked where it can't matter for a weekly. Replaces the full
+    # expiry table in Tile 2 — the detailed breakdown belongs to Tile 4 (expiry choice).
+    near_prem = sum(p for e, p in prem_by_expiry.items() if 0 <= _dte(e) <= _HOLD_WINDOW_DAYS)
+    near_dated_pct = round(near_prem / total_prem * 100, 1) if total_prem else 0.0
 
     n_settled = len(settled)
 
@@ -880,7 +843,7 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         # the direction was a gamma guess, so there's no observed flow side).
         flow_side=(flow_side if flow_alerts else ""),
         opening_pct=round(opening_pct, 1),
-        avg_volume_oi_ratio=round(med_voi, 2),
+        near_dated_pct=near_dated_pct,
         oi_trend_5d_pct=oi_trend_5d_pct,
         confirmation=confirmation,
         call_confirmation=call_confirmation,
