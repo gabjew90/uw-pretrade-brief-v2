@@ -107,6 +107,13 @@
     border-left: 3px solid var(--ok);
     box-shadow: inset 0 -1px 0 rgba(154,206,106,0.10);
   }
+  header.regime-banner.mixed {
+    background:
+      linear-gradient(90deg, rgba(224,175,104,0.11), rgba(224,175,104,0.02) 60%, transparent),
+      rgba(11,13,18,0.85);
+    border-left: 3px solid var(--warn);
+    box-shadow: inset 0 -1px 0 rgba(224,175,104,0.11);
+  }
   header.regime-banner.risk-off {
     background:
       linear-gradient(90deg, rgba(247,118,142,0.12), rgba(247,118,142,0.02) 60%, transparent),
@@ -548,10 +555,26 @@
   .flow-strike-summary .chip .meta { color: var(--axis); font-size: 10px; margin-left: 4px; }
   .flow-legend { font-size: 10px; color: var(--axis); font-family: var(--ff-mono); margin-top: 6px; }
   .flow-legend strong { color: var(--warn); }
+  /* Opening call/put balance — Tile 1's headline conviction read */
+  .flow-balance { margin-top: 12px; }
+  .flow-balance .fb-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
+  .flow-balance .fb-lead { font-family: var(--ff-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .flow-balance .fb-sub { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); }
+  .flow-balance .fb-bar { display: flex; height: 18px; border-radius: 5px; overflow: hidden; background: var(--panel-3); }
+  .flow-balance .fb-call, .flow-balance .fb-put {
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--ff-mono); font-size: 10px; font-weight: 700; color: #0b0d12; min-width: 0;
+  }
+  .flow-balance .fb-call { background: #639922; }
+  .flow-balance .fb-put { background: #E24B4A; }
+  .flow-balance .fb-legend { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); margin-top: 4px; }
+  .flow-balance .fb-legend .call { color: #639922; }
+  .flow-balance .fb-legend .put { color: #E24B4A; }
   .flow-stats {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px;
+    display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px;
   }
   .flow-stat {
+    flex: 1 1 0; min-width: 90px;
     font-family: var(--ff-mono);
     background: rgba(255,255,255,0.02);
     border: 1px solid var(--grid);
@@ -1422,10 +1445,13 @@ function renderRegimeBanner() {
     detailEl.textContent = 'Server warming up; updates on reload';
     return;
   }
-  const regime = snap.regime || { label: 'normal', detail: '', vix: 0 };
-  banner.className = 'regime-banner ' + (regime.label === 'risk-off' ? 'risk-off' : 'normal');
+  const regime = snap.regime || {};
   if (regime.posture) {
-    // Live market-regime read (posture + plain-English headline + vol/tide/event/opex).
+    // Banner color is driven by the LIVE posture (not a stale env-var label):
+    // Favorable→normal(green), Mixed→mixed(amber), Stand down→risk-off(red).
+    const bannerCls = regime.posture === 'Favorable' ? 'normal'
+                    : regime.posture === 'Stand down' ? 'risk-off' : 'mixed';
+    banner.className = 'regime-banner ' + bannerCls;
     const postureCls = regime.posture === 'Favorable' ? 'pos'
                      : regime.posture === 'Stand down' ? 'neg' : 'warn';
     const ev = regime.event_line ? ` · ⚠ ${regime.event_line}` : '';
@@ -1436,10 +1462,9 @@ function renderRegimeBanner() {
     detail.innerHTML = `${regime.vol_line} · ${regime.tide_badge}${ev}${opex}`
                      + `<div class="regime-evidence">${regimeEvidence(regime)}</div>`;
   } else {
-    label.textContent = regime.label === 'risk-off'
-      ? 'Macro risk elevated — fade conviction'
-      : 'Markets normal — green light';
-    detail.textContent = regime.detail || `VIX ${(regime.vix || 0).toFixed(1)}`;
+    banner.className = 'regime-banner normal';
+    label.textContent = 'Regime warming…';
+    detail.textContent = 'Updates on reload';
   }
 
   const fetchedAt = new Date(snap.fetched_at);
@@ -1913,6 +1938,40 @@ function pill(kind) {
  * Task 9: Tile 1 — Flow Conviction (SVG chart + 3-stat row)
  * ============================================================ */
 
+/* Tile 1's HEADLINE conviction read: the opening call-vs-put premium balance —
+ * the same net-opening signal that sets the verdict's direction (derive_direction),
+ * and one that actually populates on the Basic tier (unlike ask-side). Both-sides,
+ * observed — NOT filtered by the side toggle. Falls back to total flow when no
+ * opening (volume/OI>1) prints exist, labeled honestly. */
+function renderT1Balance(row) {
+  const single = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
+  if (!single.length) return "";
+  const opn = single.filter(a => (a.volume_oi_ratio || 0) > 1);
+  const isOpening = opn.length > 0;
+  const base = isOpening ? opn : single;
+  const cP = base.filter(a => a.type === "call").reduce((s, a) => s + (a.total_premium || 0), 0);
+  const pP = base.filter(a => a.type === "put").reduce((s, a) => s + (a.total_premium || 0), 0);
+  const tot = cP + pP;
+  if (tot <= 0) return "";
+  const callPct = Math.round(cP / tot * 100);
+  const putPct = 100 - callPct;
+  const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
+  const lead = callPct >= putPct ? "calls" : "puts";
+  const leadCol = callPct >= putPct ? "var(--ok)" : "var(--neg)";
+  return `
+    <div class="flow-balance">
+      <div class="fb-top">
+        <span class="fb-lead" style="color:${leadCol}">${lead.toUpperCase()} lead</span>
+        <span class="fb-sub">${fmtP(tot)} ${isOpening ? "opening $" : "total $ (no opening prints)"}</span>
+      </div>
+      <div class="fb-bar">
+        <div class="fb-call" style="width:${callPct}%">${callPct >= 12 ? callPct + "%" : ""}</div>
+        <div class="fb-put" style="width:${putPct}%">${putPct >= 12 ? putPct + "%" : ""}</div>
+      </div>
+      <div class="fb-legend"><span class="call">■</span> calls vs puts <span class="put">■</span> — net-opening premium balance (sets direction)</div>
+    </div>`;
+}
+
 function renderTile1Flow(row) {
   const g = row.gates.flow;
   // Stats reflect what's VISIBLE: on a full row, derive from the filtered set
@@ -1931,16 +1990,24 @@ function renderTile1Flow(row) {
     const bid = vis.alerts.reduce((s, a) => s + (a.total_bid_side_prem || 0), 0);
     askPct = (ask + bid) > 0 ? ask / (ask + bid) * 100 : 0;
   }
-  const askColor = askPct >= 75 ? "var(--ok)" : "var(--text)";
   const premLabel = totalPrem >= 1e6
     ? `$${(totalPrem / 1e6).toFixed(1)}M`
     : `$${Math.round(totalPrem / 1e3)}k`;
-  const askKnown = row.is_light || nAlerts > 0;   // distinguish "0%" from "no ask/bid data"
+  // Ask-side % is tier-unreliable (execution_side often empty on Basic) — show it
+  // only WHEN populated, demoted to a small "if it's there" stat, not the headline.
+  const askPopulated = askPct > 0 && nAlerts > 0;
+  const askColor = askPct >= 75 ? "var(--ok)" : "var(--text)";
+  const askStat = askPopulated ? `
+      <div class="flow-stat">
+        <span class="lbl">Ask-side %</span>
+        <span class="val" style="color:${askColor}">${askPct.toFixed(0)}%</span>
+      </div>` : "";
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 1: Flow Conviction</span>
       <button class="help-icon" data-help="tile1">?</button>
     </h3>
+    ${renderT1Balance(row)}
     <div class="flow-stats">
       <div class="flow-stat">
         <span class="lbl">Alerts</span>
@@ -1950,10 +2017,7 @@ function renderTile1Flow(row) {
         <span class="lbl">Total premium</span>
         <span class="val">${premLabel}</span>
       </div>
-      <div class="flow-stat">
-        <span class="lbl">Ask-side %</span>
-        <span class="val" style="color:${askColor}">${askKnown ? askPct.toFixed(0) + "%" : "—"}</span>
-      </div>
+      ${askStat}
     </div>
     <div class="flow-legend-row">
       <span class="legend-item"><span class="legend-swatch call"></span>call bought</span>

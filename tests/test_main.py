@@ -27,7 +27,7 @@ def client(tmp_data_dir, tmp_path, monkeypatch):
         from server.schema import Snapshot, Regime
         from datetime import datetime, timezone
         return Snapshot(fetched_at=datetime.now(timezone.utc),
-                        regime=Regime(label="normal"), rows=[])
+                        regime=Regime(), rows=[])
     monkeypatch.setattr(snapshot_mod, "get_or_build_snapshot", noop_build)
 
     # Use a temp static dir with a minimal stub, so the test doesn't clobber
@@ -51,7 +51,7 @@ def test_seed_cache_from_disk_loads_last_good_snapshot(tmp_data_dir, monkeypatch
     main_mod._snapshot_cache["latest"] = None
     storage.append_snapshot({
         "fetched_at": "2026-06-01T20:00:00+00:00",
-        "regime": {"label": "normal", "detail": "", "vix": 0.0},
+        "regime": {"posture": "Mixed", "headline": "seeded"},
         "rows": [{"ticker": "AAA", "spot": 1.0, "direction": "calls",
                   "gates": {"flow": "green", "oi": "green", "structural": "green", "cost": "green"},
                   "gate_method": {"flow": "absolute", "oi": "absolute",
@@ -217,7 +217,7 @@ def _seed_rows(*tickers):
     from datetime import datetime, timezone
     from server.schema import Snapshot, Regime
     snap = Snapshot.model_construct(
-        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
+        fetched_at=datetime.now(timezone.utc), regime=Regime(),
         rows=[SimpleNamespace(ticker=t) for t in tickers], stale_since=None)
     main._snapshot_cache["latest"] = snap
 
@@ -245,7 +245,7 @@ def test_tile3_detail_route_returns_payload(client, monkeypatch):
     from server.schema import Snapshot, Regime
     from server import tile3_detail
     main._snapshot_cache["latest"] = Snapshot.model_construct(
-        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
+        fetched_at=datetime.now(timezone.utc), regime=Regime(),
         rows=[SimpleNamespace(ticker="SPY", spot=756.0, direction="calls")], stale_since=None)
     seen = {}
     monkeypatch.setattr(tile3_detail, "build_tile3_detail",
@@ -276,7 +276,7 @@ def test_tile4_route_builds_ctx_from_snapshot_row(client, monkeypatch):
     from server.schema import Snapshot, Regime
     from server import tile4
     main._snapshot_cache["latest"] = Snapshot.model_construct(
-        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"),
+        fetched_at=datetime.now(timezone.utc), regime=Regime(),
         rows=[SimpleNamespace(ticker="SPY", spot=756.0, direction="calls",
               flow_alerts_detail=[SimpleNamespace(strike=760.0, total_premium=1_250_000.0)],
               tile2=None, wall_up_dist_pct=1.0, wall_dn_dist_pct=2.0)], stale_since=None)
@@ -388,7 +388,7 @@ def _seed_one_row(main_mod, ticker="SPY"):
               gate_method=GateMethod(flow="absolute", oi="absolute",
                                      structural="absolute", cost="absolute"))
     main_mod._snapshot_cache["latest"] = Snapshot(
-        fetched_at=datetime.now(timezone.utc), regime=Regime(label="normal"), rows=[row])
+        fetched_at=datetime.now(timezone.utc), regime=Regime(), rows=[row])
 
 
 def test_tile4_replay_route_stamps_as_of(client, monkeypatch):

@@ -159,12 +159,8 @@ async def _build_market_regime(loop):
         tide={"lean": _regime_tide_lean(tide)},
         opex=_is_opex_week(now.date()),
         now=now)
-    label = os.environ.get("REGIME", "normal").lower()
-    if label not in ("normal", "risk-off"):
-        label = "normal"
     gamma_ok = status == "ok" and sign in ("POS", "NEG")
-    regime = Regime(label=label,
-                    headline=reg["headline"], posture=reg["posture"],
+    regime = Regime(headline=reg["headline"], posture=reg["posture"],
                     event_line=reg["event"]["line"], vol_line=reg["vol"],
                     tide_badge=reg["tide_badge"], opex=reg["opex"],
                     as_of=now.isoformat(),
@@ -293,7 +289,9 @@ async def build_light_snapshot() -> Snapshot:
                                              "rank_cross": 50, "spot": 0.0}))
         for t in hot_15
     ]
-    return Snapshot(fetched_at=now, regime=_current_regime(), rows=rows)
+    # Placeholder regime — the real posture is computed by _build_market_regime and
+    # carried forward (REGIME_MAX_AGE_S) by get_or_build_snapshot.
+    return Snapshot(fetched_at=now, regime=Regime(), rows=rows)
 
 
 _RAM: dict = {"latest": None}
@@ -1114,19 +1112,7 @@ def _extract_sector_tide_value(data: Any) -> float:
         return 0.0
 
 
-def _current_regime() -> Regime:
-    label = os.environ.get("REGIME", "normal").lower()
-    if label not in ("normal", "risk-off"):
-        label = "normal"
-    detail = os.environ.get("REGIME_DETAIL_TEXT", "")
-    vix = 0.0
-    if "VIX" in detail.upper():
-        try:
-            vix = float(detail.split("VIX")[1].split()[0])
-        except (ValueError, IndexError):
-            pass
-    return Regime(label=label, detail=detail, vix=vix)
-
-
 def _empty_snapshot(now: datetime) -> Snapshot:
-    return Snapshot(fetched_at=now, regime=_current_regime(), rows=[])
+    # Degenerate fallback (no rows yet) — empty regime renders as "warming" until a
+    # real build sets posture.
+    return Snapshot(fetched_at=now, regime=Regime(), rows=[])

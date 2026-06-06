@@ -20,12 +20,12 @@ def test_minimal_row_validates():
 def test_snapshot_serializes_to_dict_with_iso_timestamps():
     snap = Snapshot(
         fetched_at=datetime(2026, 5, 27, 14, 16, tzinfo=timezone.utc),
-        regime=Regime(label="normal", detail="VIX 18.4", vix=18.4),
+        regime=Regime(headline="Trend regime", posture="Favorable"),
         rows=[],
     )
     d = snap.model_dump(mode="json")
     assert d["fetched_at"].startswith("2026-05-27T14:16")
-    assert d["regime"]["label"] == "normal"
+    assert d["regime"]["posture"] == "Favorable"
 
 
 def test_row_accepts_optional_failures_list():
@@ -75,11 +75,10 @@ def test_row_is_light_defaults_false():
 
 def test_regime_has_structured_market_fields():
     from server.schema import Regime
-    r = Regime(label="normal", headline="Trend regime — extends", posture="Favorable")
+    r = Regime(headline="Trend regime — extends", posture="Favorable")
     assert r.posture == "Favorable"
     assert r.headline.startswith("Trend")
     assert r.event_line is None and r.opex is False        # honest defaults
-    assert r.vix == 0.0 and r.detail == ""                 # back-compat fields intact
 
 
 def test_regime_evidence_fields_default_none():

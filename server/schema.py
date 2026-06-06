@@ -238,9 +238,9 @@ class Row(BaseModel):
 
 
 class Regime(BaseModel):
-    label: Literal["normal", "risk-off"] = "normal"
-    detail: str = ""
-    vix: float = 0.0
+    # NOTE: the pre-data-driven stubs (label/detail/vix) were removed — posture +
+    # headline + vol_line/event_line/tide_badge are the live read, and the banner
+    # color is driven by `posture`, not an env-var `label`.
     headline: str = ""
     posture: Literal["Favorable", "Mixed", "Stand down", ""] = ""
     event_line: str | None = None
