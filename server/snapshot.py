@@ -209,6 +209,57 @@ async def refresh_snapshot() -> Snapshot:
     return snap
 
 
+def _light_row(ticker: str, flow_info: dict) -> Row:
+    """A flow-only grid row: flow gate + flow-derived direction, no per-ticker
+    gamma/OI/IV. The other three gates are placeholders (the frontend renders them
+    'click to evaluate' whenever is_light is set, so the stored value is unused).
+    direction/direction_basis come straight from derive_direction (schema-valid);
+    a light row with basis 'gamma_fallback' means flow was ambiguous AND we fetched
+    no gamma — the frontend shows that as a provisional 'dir on click', not a side."""
+    flow_alerts_detail = _project_flow_alerts(flow_info.get("raw_alerts", []))
+    direction, basis = gates.derive_direction(flow_alerts_detail, "", 0.0)
+    flow_gate = gates.compute_gates({"flow_rank_cross": flow_info.get("rank_cross", 50)},
+                                    history=None)["flow"]
+    return Row(
+        ticker=ticker,
+        spot=float(flow_info.get("spot") or 0.0),
+        direction=direction,
+        direction_basis=basis,
+        is_synthetic=True,
+        is_light=True,
+        gates={"flow": flow_gate, "oi": "yellow", "structural": "yellow", "cost": "yellow"},
+        gate_method={"flow": "cross_sectional", "oi": "absolute",
+                     "structural": "absolute", "cost": "percentile"},
+        flow=Flow(
+            alerts=int(flow_info.get("alerts", 0)),
+            premium_usd=float(flow_info.get("premium_usd", 0.0)),
+            rank_cross=int(flow_info.get("rank_cross", 50)),
+        ),
+        flow_alerts_detail=flow_alerts_detail,
+        ask_side_pct=float(flow_info.get("ask_side_pct", 0.0)),
+    )
+
+
+async def build_light_snapshot() -> Snapshot:
+    """Flow-only grid: one flow_alerts call → hot-15 ranked light rows. No
+    per-ticker heavy endpoints, no regime (the front door attaches that on its own
+    TTL). Used by get_or_build_snapshot for cheap page-load builds."""
+    loop = asyncio.get_running_loop()
+    now = datetime.now(tz=timezone.utc)
+    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 100))
+    if isinstance(flow_alerts, storage.UWFailure):
+        log.error("light build: flow-alerts failed: %s", flow_alerts.message)
+        return _empty_snapshot(now)
+    hot_15 = universe.top_15_unique_tickers(flow_alerts)
+    flow_by_ticker = _aggregate_flow_per_ticker(flow_alerts, hot_15)
+    rows = [
+        _light_row(t, flow_by_ticker.get(t, {"alerts": 0, "premium_usd": 0.0,
+                                             "rank_cross": 50, "spot": 0.0}))
+        for t in hot_15
+    ]
+    return Snapshot(fetched_at=now, regime=_current_regime(), rows=rows)
+
+
 async def build_single_row(ticker: str) -> Row | None:
     """Build a full dashboard row for ANY ticker on demand (search-any-ticker).
     Reuses _build_dashboard_row — the same row the hot-15 get. Fetches the
