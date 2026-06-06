@@ -120,6 +120,16 @@
   .regime-posture.neg { color: var(--neg); border: 1px solid var(--neg); }
   .flow-stale { color: var(--warn); font-weight: 700; }
   .dd-asof { color: var(--text-dim); font-size: 11px; margin-left: 8px; font-weight: 400; }
+  .verdict-panel { grid-column: 1 / -1; border: 1px solid var(--axis); border-radius: 8px; padding: 10px 12px; margin-bottom: 4px; }
+  .vd-action { font-family: var(--ff-display); font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  .vd-action.ok { color: var(--ok); } .vd-action.warn { color: var(--warn); } .vd-action.neg { color: var(--neg); }
+  .vd-action .vd-overall { color: var(--text-dim); font-weight: 400; font-size: 12px; }
+  .vd-legs { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-dim); }
+  .vd-legs .dot { width: 9px; height: 9px; display: inline-block; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .vd-legs .dot.green { background: var(--ok); } .vd-legs .dot.yellow { background: var(--warn); } .vd-legs .dot.red { background: var(--neg); }
+  .vd-skew { opacity: 0.65; font-size: 11px; }      /* subordinate — never a peer green */
+  .vd-guard { opacity: 0.8; }
+  .vd-conflict { color: var(--warn); font-weight: 700; margin-top: 6px; font-size: 12px; }
   .refresh-grid { font: inherit; font-size: 11px; color: var(--accent, var(--hot));
     background: none; border: 1px solid var(--axis); border-radius: 4px;
     padding: 1px 8px; cursor: pointer; }
@@ -1689,11 +1699,37 @@ function renderAllTiles(row) {
     ? renderTile4Picker(row, t4)
     : renderTile6Picker(row);
   return `
+    ${renderVerdictPanel(row)}
     <div class="tile">${renderTile1Flow(row)}</div>
     <div class="tile">${renderTile2OI(row)}</div>
     <div class="tile tile--wide">${tile3}</div>
     <div class="tile tile-picker">${picker}</div>
   `;
+}
+
+/* Deep-dive 3-leg verdict (Plan 3). Positioning + Structural directional legs,
+ * Skew visually SUBORDINATE (asymmetric oppose-veto — never a peer green), Cost as
+ * a guard, a loud conflict banner, and an ACTION headline (the do-this). Light/grid
+ * rows have no verdict → renders nothing. */
+function renderVerdictPanel(row) {
+  const v = row.verdict;
+  if (!v) return "";
+  const dot = c => `<span class="dot ${c}"></span>`;
+  const conflict = v.signal_conflict
+    ? `<div class="vd-conflict">⚠ Signals disagree (${(v.conflict_legs||[]).join(", ")}) — positioning says ${row.direction}</div>`
+    : "";
+  const actCls = v.overall === "Favorable" ? "ok" : v.overall === "Stand down" ? "neg" : "warn";
+  return `
+    <div class="verdict-panel">
+      <div class="vd-action ${actCls}">${v.action} <span class="vd-overall">(${v.overall})</span></div>
+      <div class="vd-legs">
+        <span class="vd-leg">${dot(v.positioning)} Positioning</span>
+        <span class="vd-leg">${dot(v.structural)} Structural</span>
+        <span class="vd-leg vd-skew" title="25Δ risk-reversal (derived from ~30d greeks) — corroboration only, never a peer signal"><em>${v.skew}</em> skew</span>
+        <span class="vd-leg vd-guard">cost: ${v.cost_guard}</span>
+      </div>
+      ${conflict}
+    </div>`;
 }
 
 /* ============================================================
