@@ -622,13 +622,25 @@ def _sticky_path() -> Path:
     return _data_dir() / "sticky.json"
 
 
+_MAX_SNAPSHOT_LINES = 1000   # cap snapshots.jsonl; request-driven volume is low
+
+
 def append_snapshot(snapshot: dict) -> bool:
-    """Append one snapshot as a JSON line. Best-effort I/O."""
+    """Append one snapshot as a JSON line; trim to the last _MAX_SNAPSHOT_LINES.
+    Best-effort I/O."""
     try:
         path = _snapshots_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(snapshot, default=str) + "\n")
+        # Opportunistic cap: only rewrites when over the bound (infrequent).
+        with path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > _MAX_SNAPSHOT_LINES:
+            keep = lines[-_MAX_SNAPSHOT_LINES:]
+            tmp = path.with_suffix(".jsonl.tmp")
+            tmp.write_text("".join(keep), encoding="utf-8")
+            os.replace(tmp, path)
         return True
     except Exception as e:
         log.error("snapshot append failed: %s", e)
@@ -678,20 +690,35 @@ def read_last_snapshot() -> dict | None:
     path = _snapshots_path()
     if not path.exists():
         return None
+
+    def _scan(lines):
+        good = None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                snap = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(snap, dict) and snap.get("rows"):
+                good = snap
+        return good
+
     try:
-        last_good = None
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 65536))
+            tail = f.read().decode("utf-8", errors="ignore")
+        tail_lines = tail.splitlines()
+        # Drop a possibly-partial first line when we didn't start at byte 0.
+        hit = _scan(tail_lines[1:] if size > 65536 else tail_lines)
+        if hit is not None:
+            return hit
+        # Fallback: last good snapshot is older than the 64 KB tail window.
         with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    snap = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(snap, dict) and snap.get("rows"):
-                    last_good = snap   # keep the latest non-empty
-        return last_good
+            return _scan(f.readlines())
     except Exception as e:
         log.warning("read_last_snapshot failed: %s", e)
         return None
