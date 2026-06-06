@@ -1280,7 +1280,7 @@ const state = { regime: "normal", selected: null, nothingToday: false, contractP
   tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
   tile4Detail: {}, lookups: {},
   // Tile 1 flow-chart controls (per-view; reset on ticker select)
-  t1Side: "all", t1MinK: 0,   // Tile 1 chart: side filter + min-$ (axis is fixed to the session)
+  t1Side: "all", t1MinK: null,   // Tile 1: side filter + min-$ (null = auto per-ticker floor; 0 = show all)
   // Tile 2 single-strike view: side (call/put) + selected strike (null = top by $)
   t2Side: null, t2Strike: null };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
@@ -1536,7 +1536,7 @@ function selectTicker(ticker) {
   state.selected = ticker;
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
-  state.t1Side = "all"; state.t1MinK = 0;   // reset Tile 1 controls
+  state.t1Side = "all"; state.t1MinK = null;   // reset Tile 1 controls (null = auto floor)
   state.t2Side = null; state.t2Strike = null;                  // reset Tile 2 single-strike view
   const row = ROWS.find(r => r.ticker === ticker);
   if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
@@ -1844,11 +1844,15 @@ function renderTile1Flow(row) {
       <span class="legend-item">◯ ring = swept</span>
       <span class="legend-item">bigger = more $</span>
     </div>
+    ${row.is_light ? `
+    <div class="flow-chart-wrap" id="t1-chart">
+      <div class="flow-empty">Building full flow + price chart…</div>
+    </div>` : `
     ${renderT1Controls(row)}
     <div class="flow-chart-wrap" id="t1-chart">
       ${renderFlowChart(row)}
     </div>
-    <div class="flow-alert-detail" data-empty="true">Tap a bubble for trade detail</div>
+    <div class="flow-alert-detail" data-empty="true">Tap a bubble for trade detail</div>`}
   `;
 }
 
@@ -1865,6 +1869,23 @@ function _t1MaxK(row) {
 function _fmtK(k) {
   return k >= 1000 ? `$${(k / 1000).toFixed(k % 1000 ? 1 : 0)}M` : `$${k}k`;
 }
+// Per-ticker relative noise floor for Tile 1: hide the small-alert tail so a
+// heavily-traded name doesn't spam tiny prints, while a quiet name still shows
+// everything. Uses the 40th percentile of THIS ticker's own single-leg alert
+// premiums (so it scales per ticker, not an absolute $). Only kicks in when the
+// flow is actually busy (≥12 alerts); otherwise show all. Returns $k (slider step).
+function _t1AutoMinK(row) {
+  const prem = (row.flow_alerts_detail || [])
+    .filter(a => a.has_singleleg && !a.has_multileg)
+    .map(a => a.total_premium || 0).sort((a, b) => a - b);
+  if (prem.length < 12) return 0;
+  const p = prem[Math.floor(prem.length * 0.40)];
+  return Math.round(p / 1000 / 50) * 50;
+}
+// Effective floor: explicit user value if set (incl. 0 = show all), else auto.
+function _t1EffMinK(row) {
+  return state.t1MinK == null ? _t1AutoMinK(row) : state.t1MinK;
+}
 // Epoch (sec) of 9:30 AM ET on the ET-calendar date of `epochSec`. DST-safe:
 // derives the ET↔UTC offset from the anchor itself rather than assuming -4/-5.
 function _etOffsetMs(ms) {
@@ -1880,12 +1901,13 @@ function _sessionOpenEpoch(epochSec) {
   const etMidnight = Math.floor((ms + off) / DAY) * DAY - off;   // 00:00 ET as epoch ms
   return Math.floor((etMidnight + (9 * 60 + 30) * 60000) / 1000);
 }
-// Regular trading session [9:30, 16:00] ET around `epochSec`. The chart axis is
-// fixed to this — there's no flow when the market is closed, so no zoom/window
-// controls; pre-market / after-hours data is filtered out before plotting.
+// EXTENDED trading day [4:00, 20:00] ET around `epochSec` (pre-market through
+// after-hours). The chart confines to ONE such day so it never spans an
+// overnight gap; the visible axis then tightens to the data actually present.
 function _sessionBounds(epochSec) {
-  const open = _sessionOpenEpoch(epochSec);
-  return {open, close: open + Math.round(6.5 * 3600)};   // 9:30 + 6h30m = 16:00 ET
+  const open = _sessionOpenEpoch(epochSec);              // 9:30 ET
+  return {open: open - Math.round(5.5 * 3600),           // 04:00 ET (pre-market open)
+          close: open + Math.round(10.5 * 3600)};        // 20:00 ET (after-hours close)
 }
 function renderT1Controls(row) {
   const maxK = _t1MaxK(row);
@@ -1897,9 +1919,16 @@ function renderT1Controls(row) {
         ${seg("all", state.t1Side, "All", "setT1Side")}${seg("calls", state.t1Side, "Calls", "setT1Side")}${seg("puts", state.t1Side, "Puts", "setT1Side")}</div>
       <div class="t3-grp t1-minwrap"><span class="t3-grp-l">Min&nbsp;$</span>
         <input type="range" id="t1-min" class="t1-slider" min="0" max="${maxK}" step="50"
-               value="${Math.min(state.t1MinK, maxK)}" oninput="onT1Min(this.value)">
-        <span class="t1-min-lbl" id="t1-min-lbl">${state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all"}</span></div>
+               value="${Math.min(_t1EffMinK(row), maxK)}" oninput="onT1Min(this.value)">
+        <span class="t1-min-lbl" id="t1-min-lbl">${_t1MinLabel(row)}</span></div>
     </div>`;
+}
+// Label for the Min-$ slider: "auto · ≥ $Xk" when on the per-ticker floor,
+// "all" when at 0, explicit "≥ $Xk" once the user drags it.
+function _t1MinLabel(row) {
+  const eff = _t1EffMinK(row);
+  if (!eff) return "all";
+  return (state.t1MinK == null ? "auto · ≥ " : "≥ ") + _fmtK(eff);
 }
 // Re-render ONLY Tile 1's slot (controls + chart). Scoped so a sibling tile that
 // errors on incomplete data can't abort the whole deep-dive render — which made
@@ -1924,7 +1953,7 @@ function onT1Min(v) {
 
 /* Tile 1 chart per the build spec: scatter of single-leg alert bubbles plotted
  * over the underlying OHLC price line.
- *   x = time (ET, last 4hr session)
+ *   x = time (ET, last extended trading day: pre-market → after-hours)
  *   y = price ($, padded to fit lowest put strike and highest call strike + line)
  *   bubble area ∝ sqrt(total_premium / 600), capped at r=22
  *   color = type (call=green / put=red)
@@ -1942,9 +1971,10 @@ function renderFlowChart(row) {
   const innerH = H - padT - padB;
   const spot = row.spot || 0;
 
-  // Tile 1 controls: side filter (All/Calls/Puts) + min-$ premium. No time
-  // window — the x-axis is fixed to the trading session (below).
-  const minPrem = (state.t1MinK || 0) * 1000;
+  // Tile 1 controls: side filter (All/Calls/Puts) + min-$ premium (auto
+  // per-ticker floor unless the user set it). No time window — the x-axis spans
+  // the last extended trading day (below).
+  const minPrem = _t1EffMinK(row) * 1000;
   const sideF = state.t1Side || "all";
   const sideWant = sideF === "puts" ? "put" : sideF === "calls" ? "call" : null;
   const ohlcAll = row.ohlc || [];
@@ -1957,26 +1987,21 @@ function renderFlowChart(row) {
     return `<div class="flow-empty">No live alerts or OHLC for this ticker yet — first cycle still warming.</div>`;
   }
 
-  // ---- X domain: FIXED to the regular trading session [9:30, 16:00] ET ----
-  // Pick the session from the newest data point, then drop anything outside RTH
-  // (the OHLC feed includes pre-market/after-hours bars; left unfiltered they
-  // pile up against the left edge and flatten the price line). The axis spans
-  // the whole session so it doesn't move as data arrives.
+  // ---- X domain: the newest EXTENDED trading day (pre→post), tightened to the
+  // data actually present. Confine to one extended day from the newest data
+  // point so the axis never spans an overnight/weekend gap; then set the visible
+  // range to [first, last] of the in-day data so there's no dead empty space.
   const tOf = a => Math.floor(new Date(a.created_at).getTime() / 1000);
   const rawT = [...alertsAll.map(tOf).filter(t => !isNaN(t)), ...ohlcAll.map(b => b.t)];
   const anchor = rawT.length ? Math.max(...rawT) : Math.floor(Date.now() / 1000);
   const sess = _sessionBounds(anchor);
-  let tMin = sess.open, tMax = sess.close;
-  const inSess = t => t >= tMin && t <= tMax;
+  const inSess = t => t >= sess.open && t <= sess.close;
   let alerts = alertsAll.filter(a => inSess(tOf(a)));
   let ohlc = ohlcAll.filter(b => inSess(b.t));
-  if (alerts.length === 0 && ohlc.length === 0) {
-    // All data is outside RTH (e.g. pre-market view) — fall back to its own span
-    // so the chart isn't blank.
-    alerts = alertsAll; ohlc = ohlcAll;
-    tMin = Math.min(...rawT); tMax = Math.max(...rawT);
-    if (!(tMax > tMin)) { tMin = anchor - 3600; tMax = anchor; }
-  }
+  let spanT = [...alerts.map(tOf), ...ohlc.map(b => b.t)];
+  if (spanT.length === 0) { alerts = alertsAll; ohlc = ohlcAll; spanT = rawT; }   // safety
+  let tMin = Math.min(...spanT), tMax = Math.max(...spanT);
+  if (!(tMax > tMin)) { tMin = anchor - 3600; tMax = anchor; }
   const xForT = t => padL + innerW * Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
 
   // ---- Y domain: spans alert strikes + ohlc price range ----
@@ -2078,7 +2103,7 @@ function renderFlowChart(row) {
       ${spotLabel}
       ${bubblesSvg}
       ${xTicksSvg}
-      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="7">time (ET, last trading session)</text>
+      <text x="${(padL + innerW / 2).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="7">time (ET, last session incl. pre/post)</text>
     </svg>
   `;
 }

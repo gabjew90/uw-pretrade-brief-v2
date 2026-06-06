@@ -488,21 +488,16 @@ async def test_build_single_row_sets_verdict(stub_uw, fresh_storage_state, tmp_d
     assert row.verdict.positioning in ("green", "yellow", "red")
 
 
-def test_extract_ohlc_keeps_only_regular_hours():
-    """UW OHLC carries pre/post-market candles (market_time pr/po). Tile 1's
-    price line must use ONLY regular-session bars (r) so the last-78 window is a
-    clean 9:30–16:00 ET session — pre/post bars otherwise eat the window and an
-    after-hours bar wrongly anchors the chart axis. Bars without the field are
-    kept (older payloads / other tiers)."""
+def test_extract_ohlc_keeps_extended_hours():
+    """Tile 1 includes pre- and post-market candles (market_time pr/po) — the
+    chart spans the whole extended trading day, not just 9:30–16:00. Every bar
+    with a valid timestamp is kept regardless of market_time."""
     payload = {"data": [
         {"start_time": "2026-06-05T12:00:00Z", "open": "1", "high": "1", "low": "1", "close": "1", "volume": 1, "market_time": "pr"},
         {"start_time": "2026-06-05T14:00:00Z", "open": "2", "high": "2", "low": "2", "close": "2", "volume": 1, "market_time": "r"},
-        {"start_time": "2026-06-05T19:30:00Z", "open": "3", "high": "3", "low": "3", "close": "3", "volume": 1, "market_time": "r"},
         {"start_time": "2026-06-05T21:00:00Z", "open": "4", "high": "4", "low": "4", "close": "4", "volume": 1, "market_time": "po"},
-        {"start_time": "2026-06-05T15:00:00Z", "open": "5", "high": "5", "low": "5", "close": "5", "volume": 1},  # no field → kept
+        {"start_time": "2026-06-05T15:00:00Z", "open": "5", "high": "5", "low": "5", "close": "5", "volume": 1},  # no field
     ]}
     bars = snapshot._extract_ohlc(payload)
     closes = {b.c for b in bars}
-    assert 1.0 not in closes        # pre-market dropped
-    assert 4.0 not in closes        # post-market dropped
-    assert {2.0, 3.0, 5.0} <= closes  # regular + field-less kept
+    assert {1.0, 2.0, 4.0, 5.0} <= closes   # pre, regular, post, field-less all kept

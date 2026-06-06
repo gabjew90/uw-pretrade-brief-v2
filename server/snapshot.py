@@ -868,13 +868,9 @@ def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
     for r in rows:
         if not isinstance(r, dict):
             continue
-        # UW returns extended-hours candles too (market_time: r=regular,
-        # pr=pre-market, po=post-market). Keep ONLY regular-session bars so the
-        # last-78 window is a clean 9:30–16:00 ET session — otherwise pre/post
-        # bars eat the window and the price line covers only a sliver of the day
-        # (and an after-hours bar would wrongly anchor Tile 1's session axis).
-        if r.get("market_time", "r") != "r":
-            continue
+        # Keep extended-hours candles too (market_time r/pr/po) — the operator
+        # wants pre- and post-market action in Tile 1. The chart spans the whole
+        # extended trading day (pre-market through after-hours) of the newest bar.
         try:
             ts_raw = r.get("start_time") or r.get("t") or r.get("timestamp") or ""
             if isinstance(ts_raw, (int, float)):
@@ -892,11 +888,11 @@ def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
             ))
         except (TypeError, ValueError):
             continue
-    # Trim to one full regular session: 6.5h / 5m = 78 candles. Tile 1's axis is
-    # fixed to the session, so this lets the price line span the whole 9:30–16:00
-    # ET window (the chart filters out any pre-market/after-hours bars itself).
+    # Keep enough bars for a full EXTENDED trading day (pre 4:00 → post 20:00 ET,
+    # 16h / 5m = 192 candles). The chart filters to the newest bar's extended day,
+    # so this guarantees the whole day is available even when fetched mid-session.
     bars.sort(key=lambda b: b.t)
-    return bars[-78:]
+    return bars[-200:]
 
 
 def _extract_oi(today_data: Any, prev_data: Any) -> list[dict]:
