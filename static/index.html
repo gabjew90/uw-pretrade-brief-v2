@@ -118,6 +118,7 @@
   .regime-posture.pos { color: var(--ok); border: 1px solid var(--ok); }
   .regime-posture.warn { color: var(--warn); border: 1px solid var(--warn); }
   .regime-posture.neg { color: var(--neg); border: 1px solid var(--neg); }
+  .regime-evidence { font-family: var(--ff-mono); font-size: 10px; color: var(--axis); margin-top: 2px; letter-spacing: 0; }
   .flow-stale { color: var(--warn); font-weight: 700; }
   .dd-asof { color: var(--text-dim); font-size: 11px; margin-left: 8px; font-weight: 400; }
   .verdict-panel { grid-column: 1 / -1; border: 1px solid var(--axis); border-radius: 8px; padding: 10px 12px; margin-bottom: 4px; }
@@ -1271,6 +1272,32 @@ const state = { regime: "normal", selected: null, nothingToday: false, contractP
 /* V2-EDIT-4-END */
 
 /* V2-EDIT-6-BEGIN — regime + snapshot-age driven by __SNAPSHOT__ */
+/* The raw numbers behind the regime posture — dealer-γ sign + flip, IV vs RV,
+ * tide $ — so the verdict is sanity-checkable. Each datum honest-degrades to n/a. */
+function regimeEvidence(r) {
+  const pct = x => `${Math.round(x * 100)}%`;
+  const usd = v => {
+    const a = Math.abs(v), s = v < 0 ? '-' : '+';
+    if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(1)}B`;
+    if (a >= 1e6) return `${s}$${Math.round(a / 1e6)}M`;
+    return `${s}$${Math.round(a)}`;
+  };
+  const parts = [];
+  parts.push(r.spy_spot ? `SPY ${Math.round(r.spy_spot)}` : 'SPY n/a');
+  if (r.gex_sign && r.spy_spot != null && r.flip_pct != null) {
+    const strike = Math.round(r.spy_spot * (1 + r.flip_pct / 100));
+    const sgn = r.flip_pct >= 0 ? '+' : '';
+    parts.push(`dealer γ ${r.gex_sign}, flip ${strike} (${sgn}${r.flip_pct.toFixed(1)}%)`);
+  } else {
+    parts.push('dealer γ n/a');
+  }
+  parts.push(r.iv != null
+    ? `IV ${pct(r.iv)}${r.rv != null ? ` vs RV ${pct(r.rv)}` : ''}`
+    : 'IV n/a');
+  if (r.tide_value != null) parts.push(`tide ${usd(r.tide_value)}`);
+  return parts.join(' · ');
+}
+
 function renderRegimeBanner() {
   const banner = document.getElementById('regime-banner');
   const label = document.getElementById('regime-label');
@@ -1296,7 +1323,10 @@ function renderRegimeBanner() {
     const ev = regime.event_line ? ` · ⚠ ${regime.event_line}` : '';
     const opex = regime.opex ? ' · OPEX week (pinning intensifies)' : '';
     label.innerHTML = `<span class="regime-posture ${postureCls}">${regime.posture}</span> — ${regime.headline}`;
-    detail.textContent = `${regime.vol_line} · ${regime.tide_badge}${ev}${opex}`;
+    // Conclusions line + the raw EVIDENCE line beneath it (so the verdict is
+    // sanity-checkable, not just asserted). Each datum honest-degrades to n/a.
+    detail.innerHTML = `${regime.vol_line} · ${regime.tide_badge}${ev}${opex}`
+                     + `<div class="regime-evidence">${regimeEvidence(regime)}</div>`;
   } else {
     label.textContent = regime.label === 'risk-off'
       ? 'Macro risk elevated — fade conviction'

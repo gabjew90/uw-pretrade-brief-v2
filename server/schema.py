@@ -226,6 +226,14 @@ class Regime(BaseModel):
     opex: bool = False
     as_of: str | None = None   # ISO time the regime was computed; lets the front
                                # door age it independently of the flow grid.
+    # Raw evidence behind the posture (so the verdict is sanity-checkable, not just
+    # asserted). All honest-None when the underlying input was unavailable.
+    spy_spot: float | None = None
+    flip_pct: float | None = None              # γ-flip distance from spot, %; strike = spot*(1+flip_pct/100)
+    gex_sign: Literal["POS", "NEG", ""] = ""   # dealer-gamma sign (only when the read is trustworthy)
+    iv: float | None = None                    # SPY implied vol, decimal annualized
+    rv: float | None = None                    # SPY realized vol, decimal annualized
+    tide_value: float | None = None            # market-tide net premium, $
 
 
 class Snapshot(BaseModel):

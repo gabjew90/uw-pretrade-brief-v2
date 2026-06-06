@@ -80,3 +80,13 @@ def test_regime_has_structured_market_fields():
     assert r.headline.startswith("Trend")
     assert r.event_line is None and r.opex is False        # honest defaults
     assert r.vix == 0.0 and r.detail == ""                 # back-compat fields intact
+
+
+def test_regime_evidence_fields_default_none():
+    from server.schema import Regime
+    r = Regime()
+    # raw evidence behind the posture — all honest-None until populated
+    assert r.spy_spot is None and r.flip_pct is None and r.gex_sign == ""
+    assert r.iv is None and r.rv is None and r.tide_value is None
+    r2 = Regime(spy_spot=737.5, flip_pct=-2.1, gex_sign="POS", iv=0.164, rv=0.103, tide_value=1.2e9)
+    assert r2.gex_sign == "POS" and r2.iv == 0.164

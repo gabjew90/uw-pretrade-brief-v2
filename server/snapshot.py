@@ -151,6 +151,7 @@ async def _build_market_regime(loop):
     iv, rv = _regime_vol(await _in_ctx(loop, partial(storage.fetch_realized_vol, "SPY")))
     econ = await _in_ctx(loop, partial(storage.fetch_economic_calendar))
     tide = await _in_ctx(loop, partial(storage.fetch_market_tide))
+    tide_val = _regime_num(tide, "net_call_premium", "net_premium", "tide", "net_flow")
     reg = market_regime.compute_market_regime(
         gamma={"sign": sign, "flip_pct": flip, "status": status},
         vol={"iv": iv, "rv": rv, "trend": None},
@@ -161,11 +162,17 @@ async def _build_market_regime(loop):
     label = os.environ.get("REGIME", "normal").lower()
     if label not in ("normal", "risk-off"):
         label = "normal"
+    gamma_ok = status == "ok" and sign in ("POS", "NEG")
     regime = Regime(label=label,
                     headline=reg["headline"], posture=reg["posture"],
                     event_line=reg["event"]["line"], vol_line=reg["vol"],
                     tide_badge=reg["tide_badge"], opex=reg["opex"],
-                    as_of=now.isoformat())
+                    as_of=now.isoformat(),
+                    # evidence behind the posture (only the trustworthy reads)
+                    spy_spot=spy_spot or None,
+                    flip_pct=flip if gamma_ok else None,
+                    gex_sign=sign if gamma_ok else "",
+                    iv=iv, rv=rv, tide_value=tide_val)
     return regime, reg["event_within_hold"]
 
 
