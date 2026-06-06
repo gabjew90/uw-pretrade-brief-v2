@@ -27,6 +27,19 @@ class GateMethod(BaseModel):
     cost: Literal["cross_sectional", "absolute", "percentile"]
 
 
+class Verdict(BaseModel):
+    """Deep-dive 3-leg verdict (Plan 3). None on light/grid rows. See server/verdict.py."""
+    positioning: Literal["green", "yellow", "red"]
+    structural: Literal["green", "yellow", "red"]
+    skew: Literal["agree", "oppose", "neutral", "unavailable"]
+    cost_guard: Literal["ok", "caution", "block"]
+    signal_conflict: bool = False
+    conflict_legs: list[str] = Field(default_factory=list)
+    overall: Literal["Favorable", "Mixed", "Stand down"]
+    action: str
+    rr25: float | None = None
+
+
 class Flow(BaseModel):
     alerts: int = 0
     premium_usd: float = 0.0
@@ -167,6 +180,7 @@ class Row(BaseModel):
     is_synthetic: bool = False
     is_light: bool = False   # True = flow-only grid row (no per-ticker gamma/OI/cost);
                              # full gates + tiles fill in on click. See basic-platform spec.
+    verdict: Verdict | None = None   # deep-dive 3-leg verdict; None on light/grid rows
     gates: Gates
     gate_method: GateMethod
     flow: Flow = Field(default_factory=Flow)

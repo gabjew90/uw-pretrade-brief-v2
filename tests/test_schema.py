@@ -53,6 +53,17 @@ def test_row_has_direction_basis_default():
     assert row2.direction_basis == "opening_flow"
 
 
+def test_verdict_model_and_row_field_default_none():
+    from server.schema import Verdict, Row, Gates, GateMethod
+    v = Verdict(positioning="green", structural="green", skew="agree",
+                cost_guard="ok", overall="Favorable", action="Worth acting on")
+    assert v.signal_conflict is False and v.conflict_legs == [] and v.rr25 is None
+    r = Row(ticker="AAPL", spot=1.0, direction="calls",
+            gates=Gates(flow="green", oi="green", structural="green", cost="green"),
+            gate_method=GateMethod(flow="absolute", oi="absolute", structural="absolute", cost="absolute"))
+    assert r.verdict is None
+
+
 def test_row_is_light_defaults_false():
     from server.schema import Row, Gates, GateMethod
     r = Row(ticker="AAPL", spot=1.0, direction="calls",
