@@ -608,6 +608,20 @@
   .t2-today-lbl { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.04em; }
   .t2-today-val { font-family: var(--ff-mono); font-size: 10px; font-weight: 700; color: var(--pos); }
   .t2-foot { margin-top: 10px; font-size: 9.5px; color: var(--axis); font-family: var(--ff-mono); line-height: 1.4; }
+  /* Tile 2 single (strike, side) view */
+  .t2-single { margin: 6px 0 10px; }
+  .t2-single-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .t2-strike-big { font-family: var(--ff-mono); font-size: 17px; font-weight: 700; color: var(--title); }
+  .t2-side { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+  .t2-side.call { color: var(--ok); border: 1px solid var(--ok); }
+  .t2-side.put { color: var(--neg); border: 1px solid var(--neg); }
+  .t2-exp { font-family: var(--ff-mono); font-size: 11px; color: var(--text-dim); }
+  .t2-trend { font-family: var(--ff-mono); font-size: 11px; font-weight: 700; margin-left: auto; }
+  .t2-bars-single { height: 120px; gap: 8px; }
+  .t2-bar-big { max-width: 48px; margin: 0 auto; }
+  .t2-bar-oi { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); white-space: nowrap; }
+  .t2-single-foot { display: flex; justify-content: space-between; margin-top: 8px;
+    font-family: var(--ff-mono); font-size: 11px; color: var(--text-dim); }
   .t2-empty, .t2-lowconv {
     padding: 22px 14px; text-align: center; color: var(--axis);
     font-family: var(--ff-mono); font-size: 11px; line-height: 1.5;
@@ -1266,7 +1280,9 @@ const state = { regime: "normal", selected: null, nothingToday: false, contractP
   tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
   tile4Detail: {}, lookups: {},
   // Tile 1 flow-chart controls (per-view; reset on ticker select)
-  t1Side: "all", t1MinK: 0, t1WinH: 4 };
+  t1Side: "all", t1MinK: 0, t1WinH: 4,
+  // Tile 2 single-strike view: side (call/put) + selected strike (null = top by $)
+  t2Side: null, t2Strike: null };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
 (function setupDeepLink() {
   const urlT = new URLSearchParams(location.search).get('t');
@@ -1521,6 +1537,7 @@ function selectTicker(ticker) {
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
   state.t1Side = "all"; state.t1MinK = 0; state.t1WinH = 4;   // reset Tile 1 controls
+  state.t2Side = null; state.t2Strike = null;                  // reset Tile 2 single-strike view
   const row = ROWS.find(r => r.ticker === ticker);
   if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
     // Flow-only grid row → build the full row on demand (same path as search);
@@ -1743,7 +1760,7 @@ function renderAllTiles(row) {
   return `
     ${renderVerdictPanel(row)}
     <div class="tile">${renderTile1Flow(row)}</div>
-    <div class="tile">${renderTile2OI(row)}</div>
+    <div class="tile" id="tile2-slot">${renderTile2OI(row)}</div>
     <div class="tile tile--wide">${tile3}</div>
     <div class="tile tile-picker">${picker}</div>
   `;
@@ -2050,19 +2067,106 @@ function renderTile2OI(row) {
       ${renderExpiryDistribution(t2.expiry_distribution || [])}`;
   }
 
-  const strikes = t2.strikes || [];
+  const strikes = t2.strikes || [];   // each: {strike, side, expiry, premium_usd, sessions, ...}, sorted by $ desc
   if (strikes.length === 0) {
     return `${head}
       <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
   }
 
+  // Default to the highest-$ (strike, side) overall; the toggle switches side.
+  if (!state.t2Side) state.t2Side = strikes[0].side || "call";
+  let sideEntries = strikes.filter(s => s.side === state.t2Side);
+  if (sideEntries.length === 0) {
+    // toggled to a side with no flow-targeted strike — keep the toggle, say so
+    return `${head}
+      ${renderT2Controls(strikes, null)}
+      <div class="t2-empty">No ${state.t2Side} flow targeted a strike for ${row.ticker}.</div>`;
+  }
+  let selected = sideEntries.find(s => s.strike === state.t2Strike) || sideEntries[0];
+  state.t2Strike = selected.strike;
+
   return `${head}
+    ${renderT2Controls(strikes, selected)}
+    ${renderOiSingleStrike(selected)}
     ${renderT2StatusCards(t2)}
-    ${renderOiSessionChart(t2)}
     ${renderExpiryDistribution(t2.expiry_distribution || [])}
     <div class="t2-foot">
       OI history from our own archive ${pill("live")} · delta from greek-exposure ${pill("live")}
-      · today's OI provisional until settle (~9am next session).
+      · today's OI provisional until settle (~9am next session). OI is per strike+side
+      (pooled across expiries — UW oi-per-strike carries no expiry).
+    </div>`;
+}
+
+/* Tile 2 controls: [Calls·Puts] side toggle + a strike selector (that side's
+ * flow-targeted strikes, by $ desc). Switching side jumps to that side's top-$ strike. */
+function renderT2Controls(strikes, selected) {
+  const nCall = strikes.filter(s => s.side === "call").length;
+  const nPut = strikes.filter(s => s.side === "put").length;
+  const sideBtn = (sd, n, label) =>
+    `<button class="t3-tog ${state.t2Side === sd ? "on" : ""}" ${n ? "" : "disabled style=\"opacity:.4;cursor:default\""}
+             onclick="${n ? `setT2Side('${sd}')` : ""}">${label} <span class="t3-tag">${n}</span></button>`;
+  const sideEntries = strikes.filter(s => s.side === state.t2Side);
+  const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
+  const strikeBtns = sideEntries.slice(0, 6).map(s =>
+    `<button class="t3-tog ${selected && s.strike === selected.strike ? "on" : ""}" onclick="setT2Strike(${s.strike})">
+       $${s.strike} <span class="t3-tag">${fmtPrem(s.premium_usd)}</span></button>`).join("");
+  return `
+    <div class="t1-controls">
+      <div class="t3-grp"><span class="t3-grp-l">Side</span>${sideBtn("call", nCall, "Calls")}${sideBtn("put", nPut, "Puts")}</div>
+      <div class="t3-grp"><span class="t3-grp-l">Strike</span>${strikeBtns}</div>
+    </div>`;
+}
+
+function _t2Rerender() {
+  const row = ROWS.find(r => r.ticker === state.selected);
+  const slot = document.getElementById("tile2-slot");
+  if (row && slot) slot.innerHTML = renderTile2OI(row);   // Tile 2 only — robust to other tiles
+}
+function setT2Side(sd) {
+  if (state.t2Side === sd) return;
+  state.t2Side = sd; state.t2Strike = null;   // jump to that side's top-$ strike
+  _t2Rerender();
+}
+function setT2Strike(k) { state.t2Strike = k; _t2Rerender(); }
+
+/* One (strike, side) at a time: headline ($strike SIDE · exp · $flow) + its 5-day
+ * settled OI bars + ΔOI / net-delta / today vol-OI. */
+function renderOiSingleStrike(s) {
+  const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B`
+                  : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+  const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
+  const col = s.trend === "building" ? "#9ECE6A" : s.trend === "unwinding" ? "#F7768E" : "#5a6378";
+  const sideCls = s.side === "call" ? "call" : "put";
+  const sessions = s.sessions || [];
+  const maxOi = Math.max(...sessions.map(b => b.oi), 1);
+  const bars = sessions.length
+    ? sessions.map(b => {
+        const hPct = Math.max(2, (b.oi / maxOi) * 100);
+        const dateLbl = (b.date || "").slice(5);
+        return `<div class="t2-bar-wrap" title="${dateLbl}: ${b.oi.toLocaleString()} ${s.side} OI (settled)">
+          <span class="t2-bar-oi">${fmtK(b.oi)}</span>
+          <div class="t2-bar t2-bar-big" style="height:${hPct}%;background:${col};border-color:${col};"></div>
+          <span class="t2-bar-date">${dateLbl}</span></div>`;
+      }).join("")
+    : `<div class="t2-bars-warming">settled bars build over the week (archive warming)</div>`;
+  const voi = s.today_vol_oi || 0;
+  const voiTxt = voi <= 0 ? "—" : voi >= 10 ? "10×+" : `${voi.toFixed(1)}×`;
+  const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";
+  const deltaColor = s.delta_oi > 0 ? "var(--ok)" : s.delta_oi < 0 ? "var(--neg)" : "var(--axis)";
+  const trendBadge = s.trend === "building" ? "↑ building" : s.trend === "unwinding" ? "↓ unwinding" : "→ flat";
+  return `
+    <div class="t2-single">
+      <div class="t2-single-head">
+        <span class="t2-strike-big">$${s.strike} <span class="t2-side ${sideCls}">${s.side.toUpperCase()}</span></span>
+        <span class="t2-exp">${s.expiry ? "exp " + s.expiry : ""}</span>
+        <span class="t2-prem">${s.premium_usd > 0 ? fmtPrem(s.premium_usd) + " flow" : ""}</span>
+        <span class="t2-trend" style="color:${col}">${trendBadge}</span>
+      </div>
+      <div class="t2-bars t2-bars-single">${bars}</div>
+      <div class="t2-single-foot">
+        <span style="color:${deltaColor}">ΔOI ${deltaLbl}</span>
+        <span class="t2-today" title="today's volume/OI ratio — OI confirms ~9am next session">today vol/OI ${voiTxt}</span>
+      </div>
     </div>`;
 }
 
@@ -2101,63 +2205,6 @@ function renderT2StatusCards(t2) {
         <span class="sub">positioning</span>
       </div>
     </div>`;
-}
-
-/* Grouped bar chart: per focus-strike, one bar per archived session.
- * Scale is per-strike-group (NOT global) per spec. Today's bar is hollow
- * (provisional). Bar color: green building / gray flat / red unwinding. */
-function renderOiSessionChart(t2) {
-  const strikes = t2.strikes || [];
-  const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T`
-                  : n >= 1e9  ? `${(n / 1e9).toFixed(1)}B`
-                  : n >= 1e6  ? `${(n / 1e6).toFixed(1)}M`
-                  : n >= 1e3  ? `${Math.round(n / 1e3)}k` : `${n}`;
-  const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
-  const trendColor = t => t === "building" ? "#9ECE6A" : t === "unwinding" ? "#F7768E" : "#5a6378";
-
-  const groups = strikes.map(s => {
-    const sessions = s.sessions || [];          // SETTLED days only
-    const maxOi = Math.max(...sessions.map(b => b.oi), 1);  // per-group scale
-    const col = trendColor(s.trend);
-    const bars = sessions.length
-      ? sessions.map(b => {
-          const hPct = Math.max(2, (b.oi / maxOi) * 100);
-          const dateLbl = (b.date || "").slice(5);  // MM-DD
-          return `<div class="t2-bar-wrap" title="${dateLbl}: ${b.oi.toLocaleString()} OI (settled)">
-            <div class="t2-bar" style="height:${hPct}%;background:${col};border-color:${col};"></div>
-            <span class="t2-bar-date">${dateLbl}</span>
-          </div>`;
-        }).join("")
-      : `<div class="t2-bars-warming">settled bars build over the week</div>`;
-    // Today = live vol/OI ratio (NOT a settled bar) — spec hard rule.
-    const voi = s.today_vol_oi || 0;
-    const voiTxt = voi <= 0 ? "" : voi >= 10 ? "10×+" : `${voi.toFixed(1)}×`;
-    const todayCell = voiTxt
-      ? `<div class="t2-today" title="Today's volume/OI ratio — OI confirms ~9am next session">
-           <span class="t2-today-lbl">today</span>
-           <span class="t2-today-val">${voiTxt}</span>
-         </div>`
-      : "";
-    const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";
-    const deltaColor = s.delta_oi > 0 ? "var(--ok)" : s.delta_oi < 0 ? "var(--neg)" : "var(--axis)";
-    const premLbl = s.premium_usd > 0 ? fmtPrem(s.premium_usd) : "";
-    const hasDelta = Math.abs(s.net_delta) >= 1;
-    const deltaSign = s.net_delta >= 0 ? "+" : "−";
-    return `
-      <div class="t2-group">
-        <div class="t2-group-head">
-          <span class="t2-strike">$${s.strike}</span>
-          ${premLbl ? `<span class="t2-prem">${premLbl} flow</span>` : ""}
-        </div>
-        <div class="t2-bars">${bars}</div>
-        ${todayCell}
-        <div class="t2-group-foot">
-          <span style="color:${deltaColor}">ΔOI ${deltaLbl}</span>
-          <span class="t2-netdelta">${hasDelta ? `δ ${deltaSign}${fmtK(Math.abs(Math.round(s.net_delta)))}` : "δ —"}</span>
-        </div>
-      </div>`;
-  }).join("");
-  return `<div class="t2-chart">${groups}</div>`;
 }
 
 /* Horizontal expiry-distribution bar: where premium concentrates by expiry. */

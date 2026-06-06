@@ -735,18 +735,35 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         for e, p in sorted(prem_by_expiry.items(), key=lambda kv: -kv[1])
     ]
 
-    # ── Per-strike OI history (from parquet archive) ──────────────────────
+    # ── Per-(strike, side) OI history (from parquet archive) ──────────────
+    # Tile 2 shows ONE (strike, side) at a time — the one with the most flow $ for
+    # the toggled side. Aggregate flow premium by (strike, side) and track the top
+    # expiry by $ for each, so the toggle can pick "the strike+expiry with the most
+    # call (or put) money" and show that strike's side-specific 5-day OI.
     delta_by_strike = _per_strike_net_delta(spot_data)
-    # Focus on the strikes the flow actually targets (top 6 by premium), so the
-    # chart isn't cluttered with deep-OTM index OI. Fall back to most-recent-
-    # session top-OI strikes when flow carries no strike premium.
-    if prem_by_strike:
-        focus = sorted(prem_by_strike, key=lambda k: -prem_by_strike[k])[:6]
+    prem_ks: dict[tuple, float] = {}            # (strike, side) -> premium
+    exp_ks: dict[tuple, dict] = {}              # (strike, side) -> {expiry: premium}
+    voi_ks: dict[tuple, list] = {}              # (strike, side) -> [voi]
+    for a in flow_alerts:
+        if a.strike > 0 and a.type in ("call", "put"):
+            key = (a.strike, a.type)
+            prem_ks[key] = prem_ks.get(key, 0.0) + a.total_premium
+            if a.expiry:
+                ed = exp_ks.setdefault(key, {})
+                ed[a.expiry] = ed.get(a.expiry, 0.0) + a.total_premium
+            if a.volume_oi_ratio > 0:
+                voi_ks.setdefault(key, []).append(a.volume_oi_ratio)
+
+    # Focus: top (strike, side) pairs by side premium. Fall back to top-OI strikes
+    # (both sides) when flow carries no strike premium.
+    if prem_ks:
+        focus_ks = sorted(prem_ks, key=lambda key: -prem_ks[key])[:8]
     elif oi_history:
         latest = oi_history[-1]["strikes"]
-        focus = sorted(latest, key=lambda k: -latest[k])[:6]
+        focus_ks = [(k, side) for k in sorted(latest, key=lambda x: -latest[x])[:4]
+                    for side in ("call", "put")]
     else:
-        focus = []
+        focus_ks = []
 
     # Spec: today's OI is NOT settled until ~9am next session, so it is shown
     # as a live vol/OI ratio — never as a settled bar. Treat the most-recent
@@ -756,28 +773,30 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     settled_dates = [s["date"] for s in settled]
 
     strike_hist: list[StrikeOIHistory] = []
-    for k in sorted(focus):
-        bars = [OISessionBar(date=s["date"], oi=int(s["strikes"].get(k, 0)),
+    for (k, side) in focus_ks:
+        bars = [OISessionBar(date=s["date"], oi=int((s.get(side) or {}).get(k, 0)),
                              provisional=False)
                 for s in settled]
-        # delta_oi = newest settled vs prior settled
         delta_oi = 0
+        trend = "flat"
         if len(bars) >= 2 and bars[-2].oi > 0:
             delta_oi = bars[-1].oi - bars[-2].oi
             ratio = delta_oi / bars[-2].oi
             trend = "building" if ratio >= 0.05 else "unwinding" if ratio <= -0.05 else "flat"
-        else:
-            trend = "flat"
-        voi_list = voi_by_strike.get(k, [])
+        top_exp = max(exp_ks.get((k, side), {}), key=lambda e: exp_ks[(k, side)][e], default="")
         strike_hist.append(StrikeOIHistory(
             strike=k,
+            side=side,
+            expiry=top_exp,
             sessions=bars,
             delta_oi=delta_oi,
             net_delta=_nearest_delta(delta_by_strike, k),
-            premium_usd=prem_by_strike.get(k, 0.0),
+            premium_usd=prem_ks.get((k, side), 0.0),
             trend=trend,
-            today_vol_oi=round(_median(voi_list), 2),
+            today_vol_oi=round(_median(voi_ks.get((k, side), [])), 2),
         ))
+    # Highest-$ first so the frontend defaults to the top (strike, side).
+    strike_hist.sort(key=lambda s: -s.premium_usd)
 
     # ── Aggregate OI trend across focus strikes (settled days only) ───────
     n_settled = len(settled)

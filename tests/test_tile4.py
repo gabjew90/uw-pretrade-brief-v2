@@ -154,9 +154,13 @@ import pytest
 from server import storage
 
 
-def _chain(expiry="2026-06-05"):
+def _chain(expiry=None):
+    # OCC expiry must be in the FUTURE or build_tile4 filters it out (_dte>=0).
+    # Use a relative date so this fixture doesn't rot when the calendar rolls over.
+    from datetime import date, timedelta
+    ymd = (date.today() + timedelta(days=7)).strftime("%y%m%d")
     def occ(k):
-        return f"SPY260605C{int(k * 1000):08d}"
+        return f"SPY{ymd}C{int(k * 1000):08d}"
     return {"data": [
         {"option_symbol": occ(103), "nbbo_bid": "1.51", "nbbo_ask": "1.55",
          "implied_volatility": "0.31", "volume": "1000", "open_interest": "5000"},

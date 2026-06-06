@@ -308,17 +308,22 @@ def read_oi_history(ticker: str, n_sessions: int = 5) -> list[dict]:
         except (TypeError, ValueError):
             continue
         rows = payload.get("data") if isinstance(payload, dict) else payload
-        strikes: dict[float, int] = {}
+        strikes: dict[float, int] = {}          # total (call+put) — back-compat
+        calls: dict[float, int] = {}            # call OI per strike
+        puts: dict[float, int] = {}             # put OI per strike
         for r in (rows or []):
             try:
                 k = float(r.get("strike") or 0)
-                oi = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
+                c = int(r.get("call_oi") or 0)
+                p = int(r.get("put_oi") or 0)
                 if k > 0:
-                    strikes[k] = oi
+                    strikes[k] = c + p
+                    calls[k] = c
+                    puts[k] = p
             except (TypeError, ValueError):
                 continue
         if strikes:
-            sessions.append({"date": date_str, "strikes": strikes})
+            sessions.append({"date": date_str, "strikes": strikes, "call": calls, "put": puts})
     sessions.reverse()  # oldest → newest
     return sessions
 

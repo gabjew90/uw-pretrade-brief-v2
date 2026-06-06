@@ -65,12 +65,18 @@ class OISessionBar(BaseModel):
 
 
 class StrikeOIHistory(BaseModel):
-    """5-session OI progression for one strike + its positioning reads."""
+    """5-session OI progression for one (strike, side) + its positioning reads.
+    Tile 2 shows ONE of these at a time — the (strike, side) with the most flow
+    premium for the toggled side. `expiry` is the top expiry by $ at this strike+side
+    (the OI bars themselves are that strike's call/put OI pooled across expiries —
+    UW's oi-per-strike carries no expiry)."""
     strike: float
+    side: Literal["call", "put", ""] = ""       # which side's OI these bars are
+    expiry: str = ""                            # top expiry by $ for this strike+side (label)
     sessions: list[OISessionBar] = Field(default_factory=list)  # oldest→newest (SETTLED days only)
     delta_oi: int = 0           # newest-settled vs prior settled session OI change
     net_delta: float = 0.0      # per-strike net delta from greek-exposure (call+put delta_oi)
-    premium_usd: float = 0.0    # flow premium concentrated at this strike (preferred $ label)
+    premium_usd: float = 0.0    # flow premium at this (strike, side) — the "money" ranking
     trend: Literal["building", "flat", "unwinding"] = "flat"
     today_vol_oi: float = 0.0   # today's volume/OI ratio at this strike — live, "confirms ~9am"
 
