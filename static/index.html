@@ -1844,6 +1844,10 @@ function renderFlowChart(row) {
 
   const alerts = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
   const ohlc = row.ohlc || [];
+  // The CALLS/PUTS toggle emphasizes the chosen side: same-side bubbles stay
+  // bright, opposite-side dimmed (NOT hidden — opposing flow can be a real
+  // contrarian signal you shouldn't lose).
+  const chosenSide = row.direction === "puts" ? "put" : "call";
 
   if (alerts.length === 0 && ohlc.length === 0) {
     return `<div class="flow-empty">No live alerts or OHLC for this ticker yet — first cycle still warming.</div>`;
@@ -1937,7 +1941,8 @@ function renderFlowChart(row) {
     const askDom = askBidSum > 0 ? (a.total_ask_side_prem / askBidSum) >= 0.5 : true;
     const fill = askBidPopulated ? (askDom ? color : "none") : color;
     const strokeW = a.has_sweep ? 2.5 : 1.4;
-    const ring = a.has_sweep ? `<circle class="flow-bubble-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="0.55"/>` : "";
+    const op = a.type === chosenSide ? 0.92 : 0.16;   // dim the opposite side (toggle emphasis)
+    const ring = a.has_sweep ? `<circle class="flow-bubble-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="${(op * 0.6).toFixed(2)}"/>` : "";
     const tET = fmtET(epoch);
     const premLbl = a.total_premium >= 1e6 ? `$${(a.total_premium / 1e6).toFixed(1)}M` : `$${Math.round(a.total_premium / 1e3)}k`;
     const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : null;
@@ -1945,7 +1950,7 @@ function renderFlowChart(row) {
                                          : `${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}`;
     const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${sideLbl}${a.has_sweep ? " · swept" : ""}${a.all_opening_trades ? " · opening" : ""}`;
     const dataHover = hover.replace(/"/g, "&quot;").replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    bubblesSvg += `${ring}<circle class="flow-bubble" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92" data-hover="${dataHover}"/>`;
+    bubblesSvg += `${ring}<circle class="flow-bubble" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="${op}" data-hover="${dataHover}"/>`;
   }
 
   return `
