@@ -1956,13 +1956,17 @@ function renderT1Balance(row) {
   const base = isOpening ? opn : single;
   const cP = base.filter(a => a.type === "call").reduce((s, a) => s + (a.total_premium || 0), 0);
   const pP = base.filter(a => a.type === "put").reduce((s, a) => s + (a.total_premium || 0), 0);
-  const tot = cP + pP;
+  const tot = cP + pP;                                          // OPENING premium (vol/OI>1)
+  const totAll = single.reduce((s, a) => s + (a.total_premium || 0), 0);   // all flow incl. closing
   if (tot <= 0) return "";
   const callPct = Math.round(cP / tot * 100);
   const putPct = 100 - callPct;
   const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
   const lead = callPct >= putPct ? "calls" : "puts";
   const leadCol = callPct >= putPct ? "var(--ok)" : "var(--neg)";
+  // "opening $" is the subset of total flow that's opening (vol/OI>1) — so it's
+  // ≤ the Total-premium stat below. Show the relationship so the gap isn't a mystery.
+  const ofTotal = isOpening ? ` · ${fmtP(tot)} opening of ${fmtP(totAll)} total flow` : "";
   return `
     <div class="flow-balance">
       <div class="fb-top">
@@ -1973,7 +1977,7 @@ function renderT1Balance(row) {
         <div class="fb-call" style="width:${callPct}%">${callPct >= 12 ? callPct + "%" : ""}</div>
         <div class="fb-put" style="width:${putPct}%">${putPct >= 12 ? putPct + "%" : ""}</div>
       </div>
-      <div class="fb-legend">net-opening premium (volume/OI&gt;1), $-weighted by side — sets the direction</div>
+      <div class="fb-legend">opening = volume/OI&gt;1 (net-new positions), $-weighted by side — sets direction${ofTotal}</div>
     </div>`;
 }
 
@@ -2411,8 +2415,8 @@ function renderTile2OI(row) {
     ${renderT2ExpiryRelevance(t2)}
     ${renderT2Synthesis(row)}
     <div class="t2-foot">
-      OI from our archive ${pill("live")}, pooled across expiries; today provisional until ~9am settle.
-      "Opening" is a volume/OI&gt;1 <b>proxy</b>; OI building is <b>probabilistic confirmation, not proof</b>.
+      OI from our archive ${pill("live")}, pooled across expiries (no per-expiry split);
+      today's OI is provisional until it settles ~9am next session.
     </div>`;
 }
 
@@ -2460,15 +2464,24 @@ function renderT2AggBars(sessions, conf) {
   const col = conf === "building" ? "#9ECE6A" : conf === "unwinding" ? "#F7768E" : "#5a6378";
   return `<div class="t2-bars t2-bars-single">${_t2BarsSvg(sessions, col)}</div>`;
 }
+/* Bar height that AMPLIFIES the day-to-day spread: OI over a week is often within a
+ * narrow band (e.g. 900–1100), so a raw oi/max makes every bar look ~full. Scale to
+ * the visible min→max range instead — shortest day ≈ 22%, tallest = 100% — so the
+ * trend is obvious. Falls back to full height when all days are equal. */
+function _t2BarH(oi, lo, hi) {
+  if (hi <= lo) return 100;
+  return 22 + (oi - lo) / (hi - lo) * 78;
+}
 /* Shared 5-bar OI markup (settled sessions, oldest→newest) used by the aggregate
  * and the per-strike drill-down. */
 function _t2BarsSvg(sessions, col) {
   const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B`
                   : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
   if (!sessions.length) return `<div class="t2-bars-warming">settled bars build over the week (archive warming)</div>`;
-  const max = Math.max(...sessions.map(b => b.oi), 1);
+  const ois = sessions.map(b => b.oi);
+  const lo = Math.min(...ois), hi = Math.max(...ois);
   return sessions.map(b => {
-    const h = Math.max(2, (b.oi / max) * 100);
+    const h = _t2BarH(b.oi, lo, hi);
     const d = (b.date || "").slice(5);
     return `<div class="t2-bar-wrap" title="${d}: ${(b.oi || 0).toLocaleString()} OI (settled)">
       <span class="t2-bar-oi">${fmtK(b.oi)}</span>
@@ -2484,9 +2497,10 @@ function renderT2StrikeMinis(strikes) {
   if (!strikes.length) return `<div class="t2-mini-empty">no flow-hit strikes on this side</div>`;
   const mini = (s) => {
     const sessions = s.sessions || [];
-    const max = Math.max(...sessions.map(b => b.oi), 1);
+    const ois = sessions.map(b => b.oi);
+    const lo = Math.min(...ois), hi = Math.max(...ois);
     const bars = sessions.length
-      ? sessions.map(b => `<span class="t2-mini-bar" style="height:${Math.max(12, (b.oi / max) * 100)}%"></span>`).join("")
+      ? sessions.map(b => `<span class="t2-mini-bar" style="height:${_t2BarH(b.oi, lo, hi)}%"></span>`).join("")
       : `<span class="t2-mini-warm">—</span>`;
     const arrow = s.trend === "building" ? "↑" : s.trend === "unwinding" ? "↓" : "→";
     const aCol = s.trend === "building" ? "var(--ok)" : s.trend === "unwinding" ? "var(--neg)" : "var(--axis)";
@@ -2541,17 +2555,20 @@ function renderOiSingleStrike(s) {
     </div>`;
 }
 
-/* Expiry RELEVANCE (collapsed): is the flow in the hold window or parked far-dated?
- * The full premium-by-expiry breakdown belongs to Tile 4 (where you pick the expiry). */
+/* Expiry RELEVANCE (collapsed): is the flow in tradeable near-dated expiries or
+ * parked far out? The full premium-by-expiry breakdown belongs to Tile 4. */
 function renderT2ExpiryRelevance(t2) {
   const pct = t2.near_dated_pct || 0;
   const c = pct >= 60 ? "var(--ok)" : pct >= 30 ? "var(--warn)" : "var(--neg)";
+  const tail = pct >= 60 ? "most flow is in near expiries you'd actually trade"
+             : pct >= 30 ? "partly near-term, partly parked further out"
+             : "mostly parked in far-dated expiries — won't move on a short-term trade";
   return `<div class="t2-relevance">
-    <span style="color:${c};font-weight:700">${pct.toFixed(0)}%</span> of flow $ is near-dated (≤45d) — ${pct >= 60 ? "in your hold window" : pct >= 30 ? "partly in window" : "mostly parked far-dated"}.</div>`;
+    <span style="color:${c};font-weight:700">${pct.toFixed(0)}%</span> of flow $ expires within ~45 days — ${tail}.</div>`;
 }
 
 /* Gemini synthesis of the POSITIONING reality (row.insights.positioning) — narrates
- * whether the flow opened: cluster confirmation by side, opening proxy, near-dated.
+ * whether the flow opened: cluster confirmation by side + near-dated relevance.
  * Observed read; does NOT follow the operator's toggle. */
 function renderT2Synthesis(row) {
   const text = row.insights && row.insights.positioning;
