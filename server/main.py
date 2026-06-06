@@ -200,14 +200,24 @@ _STATIC_DIR = Path(__file__).parent.parent / "static"
 _HYDRATION_MARKER = "<!-- HYDRATION_TARGET -->"
 
 
+async def _build_snapshot(force_flow: bool = False) -> Snapshot:
+    """Request-driven build. In REPLAY, build under cached_only so the page renders
+    from the captured archive instead of calling UW."""
+    if _replay_enabled():
+        with storage.cached_only():
+            snap = await snapshot_mod.get_or_build_snapshot(force_flow=force_flow)
+    else:
+        snap = await snapshot_mod.get_or_build_snapshot(force_flow=force_flow)
+    _snapshot_cache["latest"] = snap   # keep _resolve_row (tile3/tile4) in sync
+    return snap
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    snap = _snapshot_cache.get("latest")
-    if snap is None:
-        snapshot_json = "null"
-    else:
-        snapshot_json = json.dumps(snap.model_dump(mode="json"), default=str)
+    snap = await _build_snapshot()
+    snapshot_json = ("null" if (snap is None or not snap.rows)
+                     else json.dumps(snap.model_dump(mode="json"), default=str))
     hydration = f"<script>window.__SNAPSHOT__ = {snapshot_json};</script>"
     return HTMLResponse(html.replace(_HYDRATION_MARKER, hydration))
 
@@ -328,9 +338,9 @@ async def lookup_route(ticker: str):
 
 
 @app.get("/snapshot.json")
-async def snapshot_json():
-    snap = _snapshot_cache.get("latest")
-    if snap is None:
+async def snapshot_json(refresh: int = 0):
+    snap = await _build_snapshot(force_flow=bool(refresh))
+    if snap is None or not snap.rows:
         return JSONResponse({"status": "warming", "rows": []}, status_code=200)
     return JSONResponse(snap.model_dump(mode="json"))
 
