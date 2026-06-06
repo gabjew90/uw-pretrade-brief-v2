@@ -112,11 +112,17 @@ def fetch_oi_strike(ticker: str, date: str | None = None) -> dict:
     return _get(f"/api/stock/{ticker}/oi-per-strike", params=params)
 
 
+_FLOW_ALERTS_MAX = 500   # UW caps the page here; asking for more SILENTLY falls
+                         # back to 50 (probed 2026-06-06: limit=1000 → 50 rows).
+
+
 def fetch_flow_alerts(ticker: str | None = None, limit: int = 50) -> dict:
     """Recent flow alerts. With `ticker`: filtered to that ticker. Without:
     cross-ticker hot today. Per-ticker /api/stock/{t}/flow-alerts is
-    DEPRECATED; this single endpoint serves both uses."""
-    params: dict = {"limit": limit}
+    DEPRECATED; this single endpoint serves both uses. `limit` is a page size
+    (one call regardless), clamped to UW's max to avoid the silent 50-row
+    fallback when it's exceeded."""
+    params: dict = {"limit": min(limit, _FLOW_ALERTS_MAX)}
     if ticker:
         params["ticker_symbol"] = ticker
     return _get("/api/option-trades/flow-alerts", params=params)

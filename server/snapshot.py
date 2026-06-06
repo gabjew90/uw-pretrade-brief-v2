@@ -366,7 +366,10 @@ async def build_single_row(ticker: str) -> Row | None:
     Tile 1 quiet). Returns None only if the row build itself fails."""
     ticker = ticker.upper()
     loop = asyncio.get_running_loop()
-    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 100, ticker))
+    # Per-ticker deep-dive: pull 200 (one call — limit is a page size, not extra
+    # budget) so Tile 1 covers more of the day for very active names. Quiet names
+    # have far fewer alerts than this, so they're unaffected.
+    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 200, ticker))
     if isinstance(flow_alerts, storage.UWFailure):
         flow_by_ticker = {}
     else:

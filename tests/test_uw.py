@@ -399,3 +399,15 @@ def test_contracts_near_focus_no_future_expiries():
                 "strike": 100.0, "bid": 1, "ask": 2, "iv": 0.2,
                 "volume": 100, "oi": 200}]
     assert contracts_near_focus(records, focus_strike=100.0) == []
+
+
+def test_flow_alerts_limit_clamped_to_uw_max(monkeypatch):
+    """UW silently returns 50 rows when limit exceeds its cap (~500). fetch_flow_alerts
+    must clamp so an over-large request never trips that silent fallback."""
+    import server.uw as uw
+    captured = {}
+    monkeypatch.setattr(uw, "_get", lambda path, params=None: captured.update(params or {}) or {"data": []})
+    uw.fetch_flow_alerts(ticker="SPY", limit=5000)
+    assert captured["limit"] == uw._FLOW_ALERTS_MAX
+    uw.fetch_flow_alerts(ticker="SPY", limit=200)
+    assert captured["limit"] == 200
