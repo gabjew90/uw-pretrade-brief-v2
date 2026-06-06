@@ -490,7 +490,9 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop, event_with
     # Tile 2: positioning reality check. 5-session OI from our own parquet
     # archive (tier-independent); per-strike delta from spot_exposures. Confirms
     # OI growth at the flow's strikes on the DIRECTION's side (not the aggregate).
-    oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 5))
+    # Fetch 6 sessions so that, after dropping today (provisional, not settled),
+    # up to 5 SETTLED sessions remain to bar.
+    oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 6))
     tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot, direction)
     # Tile 3: real per-strike net dealer gamma for the structural ladder, from
     # the spot-exposures payload already fetched above (no extra UW call).
@@ -837,22 +839,30 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
 
     n_settled = len(settled)
 
-    def _cluster_confirm(side: str) -> tuple[str, float]:
-        """(confirmation, trend_pct) for one side's flow-hit cluster, near-dated,
-        first→last settled session. 'unconfirmed' when <2 settled or no cluster."""
+    def _cluster_confirm(side: str) -> tuple[str, float, list[OISessionBar]]:
+        """(confirmation, trend_pct, aggregate_sessions) for one side's flow-hit
+        cluster, near-dated, first→last settled session. The aggregate series sums
+        the cluster's OI per settled session (index-aligned — all strikes carry the
+        same settled dates) so the frontend can show the summed progression, not
+        just the verdict. 'unconfirmed' when <2 settled or no cluster."""
         cl = [s for s in strike_hist if s.side == side and len(s.sessions) >= 2]
         near = [s for s in cl if 0 <= _dte(s.expiry) <= _HOLD_WINDOW_DAYS]
         cl = near or cl
-        if n_settled < 2 or not cl:
-            return "unconfirmed", 0.0
-        first = sum(s.sessions[0].oi for s in cl)
-        last = sum(s.sessions[-1].oi for s in cl)
+        if not cl:
+            return "unconfirmed", 0.0, []
+        ndays = len(cl[0].sessions)
+        agg = [OISessionBar(date=cl[0].sessions[i].date,
+                            oi=sum(s.sessions[i].oi for s in cl), provisional=False)
+               for i in range(ndays)]
+        if n_settled < 2:
+            return "unconfirmed", 0.0, agg
+        first, last = agg[0].oi, agg[-1].oi
         pct = round((last - first) / first * 100, 1) if first > 0 else 0.0
         state = "building" if pct >= 5 else "unwinding" if pct <= -5 else "flat"
-        return state, pct
+        return state, pct, agg
 
-    call_confirmation, call_trend = _cluster_confirm("call")
-    put_confirmation, put_trend = _cluster_confirm("put")
+    call_confirmation, call_trend, call_sessions = _cluster_confirm("call")
+    put_confirmation, put_trend, put_sessions = _cluster_confirm("put")
     # Flow-side read drives Positioning; the other side is shown for comparison.
     confirmation, oi_trend_5d_pct = (
         (call_confirmation, call_trend) if flow_side == "call" else (put_confirmation, put_trend))
@@ -877,6 +887,8 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         put_confirmation=put_confirmation,
         call_oi_trend_pct=call_trend,
         put_oi_trend_pct=put_trend,
+        call_sessions=call_sessions,
+        put_sessions=put_sessions,
         sessions_available=n_settled,   # settled days that actually bar
         strikes=strike_hist,
         expiry_distribution=expiry_dist,

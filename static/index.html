@@ -635,8 +635,13 @@
   .t2-foot b { color: var(--warn); font-weight: 700; }
   /* Tile 2 both-side cluster headline */
   .t2-clusters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 10px; }
-  .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 1px solid var(--grid); }
+  .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 1px solid var(--grid); text-align: left; cursor: pointer; font: inherit; color: inherit; }
   .t2-cluster.flowside { border-color: var(--accent, #7AA2F7); box-shadow: inset 0 0 0 1px rgba(122,162,247,0.25); }
+  .t2-cluster.viewing { background: var(--panel-2, var(--bg-2)); outline: 2px solid rgba(122,162,247,0.55); }
+  /* Aggregate (primary) OI bars */
+  .t2-agg { margin: 2px 0 12px; }
+  .t2-agg-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .t2-mini-empty { font-family: var(--ff-mono); font-size: 10px; color: var(--axis); padding: 4px 0; }
   .t2-cl-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .t2-cl-side { font-family: var(--ff-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
   .t2-cl-side.call { color: var(--ok); }
@@ -1354,8 +1359,8 @@ const state = { regime: "normal", selected: null, nothingToday: false, contractP
   tile4Detail: {}, lookups: {},
   // Tile 1 flow-chart controls (per-view; reset on ticker select)
   t1Side: "all", t1MinK: null,   // Tile 1: side filter + min-$ (null = auto per-ticker floor; 0 = show all)
-  // Tile 2 single-strike view: side (call/put) + selected strike (null = top by $)
-  t2Side: null, t2Strike: null };
+  // Tile 2: which side's aggregate to VIEW (null = flow side), + drill-down strike
+  t2ViewSide: null, t2Side: null, t2Strike: null };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
 (function setupDeepLink() {
   const urlT = new URLSearchParams(location.search).get('t');
@@ -1610,7 +1615,7 @@ function selectTicker(ticker) {
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
   state.t1Side = "all"; state.t1MinK = null;   // reset Tile 1 controls (null = auto floor)
-  state.t2Side = null; state.t2Strike = null;                  // reset Tile 2 single-strike view
+  state.t2ViewSide = null; state.t2Side = null; state.t2Strike = null;   // reset Tile 2 view + drill-down
   const row = ROWS.find(r => r.ticker === ticker);
   if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
     // Flow-only grid row → build the full row on demand (same path as search);
@@ -2301,30 +2306,34 @@ function renderTile2OI(row) {
       <button class="help-icon" data-help="tile2">?</button>
     </h3>`;
 
-  // Scattered flow is a NON-BLOCKING warning (the cluster read still stands).
-  const scatterBanner = t2.low_conviction
-    ? `<div class="t2-lowconv">${t2.low_conviction_msg || "Flow scattered — no single clear target."}</div>`
-    : "";
-
   const strikes = t2.strikes || [];   // each: {strike, side, expiry, premium_usd, sessions, ...}
   if (strikes.length === 0) {
-    return `${head}${scatterBanner}
+    return `${head}
       <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
   }
 
-  // Optional drill-down: a strike the user TAPPED to expand. Secondary to the
-  // cluster read — never changes it (the read is observed evidence).
-  const sel = state.t2Strike != null
-    ? strikes.find(s => s.strike === state.t2Strike && s.side === state.t2Side) : null;
+  // Which side's AGGREGATE bars + per-strike to view. Defaults to the flow side;
+  // tapping a cluster card switches it. Navigation only — both verdicts stay in
+  // the cards, so this never changes the read (observed evidence).
+  const viewSide = state.t2ViewSide || t2.flow_side || strikes[0].side || "call";
+  const aggSessions = viewSide === "call" ? (t2.call_sessions || []) : (t2.put_sessions || []);
+  const viewConf = viewSide === "call" ? t2.call_confirmation : t2.put_confirmation;
+  const viewStrikes = strikes.filter(s => s.side === viewSide);
+  // Optional drill-down: a strike the user TAPPED to expand (within the viewed side).
+  const sel = state.t2Strike != null ? viewStrikes.find(s => s.strike === state.t2Strike) : null;
   const sess = t2.sessions_available || 0;
+  const viewWord = viewSide === "call" ? "Calls" : "Puts";
 
-  return `${head}${scatterBanner}
-    ${renderT2ClusterCards(t2)}
+  return `${head}
+    ${renderT2ClusterCards(t2, viewSide)}
     ${renderT2OpeningStat(t2)}
+    <div class="t2-agg">
+      <div class="t2-agg-title">${viewWord} cluster — aggregate OI · last ${sess} settled session${sess === 1 ? "" : "s"}</div>
+      ${renderT2AggBars(aggSessions, viewConf)}
+    </div>
     <div class="t2-minis-wrap">
-      <div class="t2-minis-title">Per-strike OI · last ${sess} settled session${sess === 1 ? "" : "s"}
-        <span class="t2-minis-hint">(tap to expand)</span></div>
-      ${renderT2StrikeMinis(strikes)}
+      <div class="t2-minis-title">By strike <span class="t2-minis-hint">(tap to expand)</span></div>
+      ${renderT2StrikeMinis(viewStrikes)}
       ${sel ? renderOiSingleStrike(sel) : ""}
     </div>
     ${renderExpiryDistribution(t2.expiry_distribution || [])}
@@ -2340,7 +2349,7 @@ function renderTile2OI(row) {
 /* Headline: BOTH side clusters, ALWAYS shown — the call-vs-put comparison IS the
  * signal, so the operator's direction toggle never changes it (observed evidence).
  * Each aggregates that side's flow-hit strike cluster (5-session OI trend). */
-function renderT2ClusterCards(t2) {
+function renderT2ClusterCards(t2, viewSide) {
   const map = {
     building:    {t: "Building",  c: "var(--ok)",   d: "green",  a: "↑"},
     unwinding:   {t: "Unwinding", c: "var(--neg)",  d: "red",    a: "↓"},
@@ -2357,16 +2366,45 @@ function renderT2ClusterCards(t2) {
     const sub = conf === "unconfirmed"
       ? (n ? "archive warming" : "no flow this side")
       : `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${n} strike${n === 1 ? "" : "s"}`;
-    return `<div class="t2-cluster ${isFlow ? "flowside" : ""}">
+    return `<button class="t2-cluster ${isFlow ? "flowside" : ""} ${side === viewSide ? "viewing" : ""}"
+                    onclick="setT2ViewSide('${side}')" title="Show the ${side} cluster's aggregate OI">
       <div class="t2-cl-top">
         <span class="t2-cl-side ${side}">${side === "call" ? "CALLS" : "PUTS"}</span>
         ${isFlow ? `<span class="t2-cl-flow">flow side</span>` : ""}
       </div>
       <div class="t2-cl-verdict" style="color:${m.c}"><span class="gate-dot ${m.d}"></span>${m.a} ${m.t}</div>
       <div class="t2-cl-sub">${sub}</div>
-    </div>`;
+    </button>`;
   };
   return `<div class="t2-clusters">${card("call")}${card("put")}</div>`;
+}
+function setT2ViewSide(side) {
+  if (state.t2ViewSide === side) return;
+  state.t2ViewSide = side; state.t2Strike = null; state.t2Side = null;   // reset drill-down
+  _t2Rerender();
+}
+
+/* Aggregate OI bars for a cluster — the PRIMARY "did it build" visual (the verdict
+ * card is derived from this). Colored by the cluster's confirmation. */
+function renderT2AggBars(sessions, conf) {
+  const col = conf === "building" ? "#9ECE6A" : conf === "unwinding" ? "#F7768E" : "#5a6378";
+  return `<div class="t2-bars t2-bars-single">${_t2BarsSvg(sessions, col)}</div>`;
+}
+/* Shared 5-bar OI markup (settled sessions, oldest→newest) used by the aggregate
+ * and the per-strike drill-down. */
+function _t2BarsSvg(sessions, col) {
+  const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B`
+                  : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+  if (!sessions.length) return `<div class="t2-bars-warming">settled bars build over the week (archive warming)</div>`;
+  const max = Math.max(...sessions.map(b => b.oi), 1);
+  return sessions.map(b => {
+    const h = Math.max(2, (b.oi / max) * 100);
+    const d = (b.date || "").slice(5);
+    return `<div class="t2-bar-wrap" title="${d}: ${(b.oi || 0).toLocaleString()} OI (settled)">
+      <span class="t2-bar-oi">${fmtK(b.oi)}</span>
+      <div class="t2-bar t2-bar-big" style="height:${h}%;background:${col};border-color:${col};"></div>
+      <span class="t2-bar-date">${d}</span></div>`;
+  }).join("");
 }
 
 /* Opening-intensity on the flow side — labeled a PROXY (vol/OI>1), since the true
@@ -2384,9 +2422,11 @@ function renderT2OpeningStat(t2) {
   </div>`;
 }
 
-/* Per-strike drill-down: compact sparkline per flow-hit strike, grouped by side.
- * Secondary to the cluster headline; tap one to expand its full 5-bar detail. */
+/* Per-strike drill-down for the VIEWED side: compact sparkline per strike that the
+ * flow hit. Secondary to the cluster headline + aggregate; tap one to expand its
+ * full 5-bar detail. (`strikes` is already filtered to the viewed side.) */
 function renderT2StrikeMinis(strikes) {
+  if (!strikes.length) return `<div class="t2-mini-empty">no flow-hit strikes on this side</div>`;
   const mini = (s) => {
     const sessions = s.sessions || [];
     const max = Math.max(...sessions.map(b => b.oi), 1);
@@ -2395,19 +2435,13 @@ function renderT2StrikeMinis(strikes) {
       : `<span class="t2-mini-warm">—</span>`;
     const arrow = s.trend === "building" ? "↑" : s.trend === "unwinding" ? "↓" : "→";
     const aCol = s.trend === "building" ? "var(--ok)" : s.trend === "unwinding" ? "var(--neg)" : "var(--axis)";
-    const on = state.t2Strike === s.strike && state.t2Side === s.side;
-    return `<button class="t2-mini ${on ? "on" : ""}" onclick="toggleT2Strike(${s.strike},'${s.side}')">
+    const on = state.t2Strike === s.strike;
+    return `<button class="t2-mini ${on ? "on" : ""}" onclick="toggleT2Strike(${s.strike})">
       <span class="t2-mini-k">$${s.strike}</span>
       <span class="t2-mini-bars ${s.side}">${bars}</span>
       <span class="t2-mini-d" style="color:${aCol}">${arrow}</span></button>`;
   };
-  const row = (side, label) => {
-    const g = strikes.filter(s => s.side === side);
-    if (!g.length) return "";
-    return `<div class="t2-mini-row"><span class="t2-mini-lbl ${side}">${label}</span>
-      <span class="t2-mini-list">${g.map(mini).join("")}</span></div>`;
-  };
-  return `<div class="t2-minis">${row("call", "Calls")}${row("put", "Puts")}</div>`;
+  return `<div class="t2-mini-list">${strikes.map(mini).join("")}</div>`;
 }
 
 function _t2Rerender() {
@@ -2415,11 +2449,10 @@ function _t2Rerender() {
   const slot = document.getElementById("tile2-slot");
   if (row && slot) slot.innerHTML = renderTile2OI(row);   // Tile 2 only — robust to other tiles
 }
-/* Drill-down toggle: expand/collapse one strike's full detail. Pure navigation —
- * never changes the cluster read (observed evidence). */
-function toggleT2Strike(k, side) {
-  if (state.t2Strike === k && state.t2Side === side) { state.t2Strike = null; state.t2Side = null; }
-  else { state.t2Strike = k; state.t2Side = side; }
+/* Drill-down toggle: expand/collapse one strike's full detail (within the viewed
+ * side). Pure navigation — never changes the cluster read (observed evidence). */
+function toggleT2Strike(k) {
+  state.t2Strike = (state.t2Strike === k) ? null : k;
   _t2Rerender();
 }
 
@@ -2431,18 +2464,7 @@ function renderOiSingleStrike(s) {
   const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
   const col = s.trend === "building" ? "#9ECE6A" : s.trend === "unwinding" ? "#F7768E" : "#5a6378";
   const sideCls = s.side === "call" ? "call" : "put";
-  const sessions = s.sessions || [];
-  const maxOi = Math.max(...sessions.map(b => b.oi), 1);
-  const bars = sessions.length
-    ? sessions.map(b => {
-        const hPct = Math.max(2, (b.oi / maxOi) * 100);
-        const dateLbl = (b.date || "").slice(5);
-        return `<div class="t2-bar-wrap" title="${dateLbl}: ${b.oi.toLocaleString()} ${s.side} OI (settled)">
-          <span class="t2-bar-oi">${fmtK(b.oi)}</span>
-          <div class="t2-bar t2-bar-big" style="height:${hPct}%;background:${col};border-color:${col};"></div>
-          <span class="t2-bar-date">${dateLbl}</span></div>`;
-      }).join("")
-    : `<div class="t2-bars-warming">settled bars build over the week (archive warming)</div>`;
+  const bars = _t2BarsSvg(s.sessions || [], col);
   const voi = s.today_vol_oi || 0;
   const voiTxt = voi <= 0 ? "—" : voi >= 10 ? "10×+" : `${voi.toFixed(1)}×`;
   const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";

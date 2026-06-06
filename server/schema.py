@@ -107,7 +107,11 @@ class Tile2(BaseModel):
     put_confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
     call_oi_trend_pct: float = 0.0
     put_oi_trend_pct: float = 0.0
-    sessions_available: int = 0         # 1-5; <5 means archive still filling in
+    # Aggregate OI per settled session, summed across each side's flow-hit cluster
+    # (the primary "did it build" visual — the verdict above is derived from this).
+    call_sessions: list[OISessionBar] = Field(default_factory=list)
+    put_sessions: list[OISessionBar] = Field(default_factory=list)
+    sessions_available: int = 0         # settled days available (target 5)
     strikes: list[StrikeOIHistory] = Field(default_factory=list)
     expiry_distribution: list[ExpirySegment] = Field(default_factory=list)
     low_conviction: bool = False

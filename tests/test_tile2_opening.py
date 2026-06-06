@@ -93,6 +93,10 @@ def test_tile2_computes_both_side_clusters():
     assert t2.put_confirmation == "unwinding" and t2.put_oi_trend_pct == -20.0
     # flow_side is calls → top-level confirmation mirrors the call cluster
     assert t2.confirmation == "building"
+    # aggregate session series = summed cluster OI per settled session (the primary
+    # "did it build" visual the verdict is derived from)
+    assert [b.oi for b in t2.call_sessions] == [1000, 1200]
+    assert [b.oi for b in t2.put_sessions] == [1000, 800]
 
 
 def test_tile2_strikes_per_side_with_top_expiry_and_premium():
