@@ -1280,7 +1280,7 @@ const state = { regime: "normal", selected: null, nothingToday: false, contractP
   tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
   tile4Detail: {}, lookups: {},
   // Tile 1 flow-chart controls (per-view; reset on ticker select)
-  t1Side: "all", t1MinK: 0, t1WinH: 24,   // default to the full last trading session
+  t1Side: "all", t1MinK: 0,   // Tile 1 chart: side filter + min-$ (axis is fixed to the session)
   // Tile 2 single-strike view: side (call/put) + selected strike (null = top by $)
   t2Side: null, t2Strike: null };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
@@ -1536,7 +1536,7 @@ function selectTicker(ticker) {
   state.selected = ticker;
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
-  state.t1Side = "all"; state.t1MinK = 0; state.t1WinH = 24;   // reset Tile 1 controls (Day = full session)
+  state.t1Side = "all"; state.t1MinK = 0;   // reset Tile 1 controls
   state.t2Side = null; state.t2Strike = null;                  // reset Tile 2 single-strike view
   const row = ROWS.find(r => r.ticker === ticker);
   if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
@@ -1880,12 +1880,17 @@ function _sessionOpenEpoch(epochSec) {
   const etMidnight = Math.floor((ms + off) / DAY) * DAY - off;   // 00:00 ET as epoch ms
   return Math.floor((etMidnight + (9 * 60 + 30) * 60000) / 1000);
 }
+// Regular trading session [9:30, 16:00] ET around `epochSec`. The chart axis is
+// fixed to this — there's no flow when the market is closed, so no zoom/window
+// controls; pre-market / after-hours data is filtered out before plotting.
+function _sessionBounds(epochSec) {
+  const open = _sessionOpenEpoch(epochSec);
+  return {open, close: open + Math.round(6.5 * 3600)};   // 9:30 + 6h30m = 16:00 ET
+}
 function renderT1Controls(row) {
   const maxK = _t1MaxK(row);
   const seg = (val, cur, label, fn) =>
     `<button class="t3-tog ${val === cur ? "on" : ""}" onclick="${fn}('${val}')">${label}</button>`;
-  const win = (h, label) =>
-    `<button class="t3-tog ${state.t1WinH === h ? "on" : ""}" onclick="setT1Win(${h})">${label}</button>`;
   return `
     <div class="t1-controls">
       <div class="t3-grp"><span class="t3-grp-l">Side</span>
@@ -1894,8 +1899,6 @@ function renderT1Controls(row) {
         <input type="range" id="t1-min" class="t1-slider" min="0" max="${maxK}" step="50"
                value="${Math.min(state.t1MinK, maxK)}" oninput="onT1Min(this.value)">
         <span class="t1-min-lbl" id="t1-min-lbl">${state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all"}</span></div>
-      <div class="t3-grp"><span class="t3-grp-l">Window</span>
-        ${win(1, "1h")}${win(4, "4h")}${win(24, "Day")}</div>
     </div>`;
 }
 // Re-render ONLY Tile 1's slot (controls + chart). Scoped so a sibling tile that
@@ -1912,7 +1915,6 @@ function _t1Rerender() {
   if (row && slot) slot.innerHTML = renderFlowChart(row);
 }
 function setT1Side(s) { state.t1Side = s; _t1RerenderTile(); }   // slot-scoped: updates 'on' + bubbles
-function setT1Win(h) { state.t1WinH = h; _t1RerenderTile(); }
 function onT1Min(v) {
   state.t1MinK = +v;
   const lbl = document.getElementById("t1-min-lbl");
@@ -1940,34 +1942,41 @@ function renderFlowChart(row) {
   const innerH = H - padT - padB;
   const spot = row.spot || 0;
 
-  // Tile 1 controls: side filter (All/Calls/Puts), min-$ premium, time window.
+  // Tile 1 controls: side filter (All/Calls/Puts) + min-$ premium. No time
+  // window — the x-axis is fixed to the trading session (below).
   const minPrem = (state.t1MinK || 0) * 1000;
   const sideF = state.t1Side || "all";
   const sideWant = sideF === "puts" ? "put" : sideF === "calls" ? "call" : null;
-  const alerts = (row.flow_alerts_detail || []).filter(a =>
+  const ohlcAll = row.ohlc || [];
+  const alertsAll = (row.flow_alerts_detail || []).filter(a =>
     a.has_singleleg && !a.has_multileg &&
     (a.total_premium || 0) >= minPrem &&
     (sideWant === null || a.type === sideWant));
-  const ohlc = row.ohlc || [];
 
-  if (alerts.length === 0 && ohlc.length === 0) {
+  if (alertsAll.length === 0 && ohlcAll.length === 0) {
     return `<div class="flow-empty">No live alerts or OHLC for this ticker yet — first cycle still warming.</div>`;
   }
 
-  // ---- X domain: most-recent 4-hour session window ----
-  // Anchor on the latest of (newest alert, newest OHLC bar) so the chart
-  // always reaches the right edge.
-  const alertEpochs = alerts.map(a => Math.floor(new Date(a.created_at).getTime() / 1000)).filter(t => !isNaN(t));
-  const ohlcEpochs = ohlc.map(b => b.t);
-  const allT = [...alertEpochs, ...ohlcEpochs];
-  const tMax = allT.length ? Math.max(...allT) : Math.floor(Date.now() / 1000);
-  // Clamp the window to the last trading session — there's no flow when the
-  // market is closed, so a raw "tMax - Nh" would drag the axis into empty
-  // overnight/weekend space. "Day" (winH>=24) = the whole last session.
-  const winH = state.t1WinH || 4;
-  const sessOpen = _sessionOpenEpoch(tMax);
-  let tMin = winH >= 24 ? sessOpen : Math.max(tMax - winH * 3600, sessOpen);
-  if (tMin >= tMax) tMin = tMax - winH * 3600;   // guard: pre-open anchor
+  // ---- X domain: FIXED to the regular trading session [9:30, 16:00] ET ----
+  // Pick the session from the newest data point, then drop anything outside RTH
+  // (the OHLC feed includes pre-market/after-hours bars; left unfiltered they
+  // pile up against the left edge and flatten the price line). The axis spans
+  // the whole session so it doesn't move as data arrives.
+  const tOf = a => Math.floor(new Date(a.created_at).getTime() / 1000);
+  const rawT = [...alertsAll.map(tOf).filter(t => !isNaN(t)), ...ohlcAll.map(b => b.t)];
+  const anchor = rawT.length ? Math.max(...rawT) : Math.floor(Date.now() / 1000);
+  const sess = _sessionBounds(anchor);
+  let tMin = sess.open, tMax = sess.close;
+  const inSess = t => t >= tMin && t <= tMax;
+  let alerts = alertsAll.filter(a => inSess(tOf(a)));
+  let ohlc = ohlcAll.filter(b => inSess(b.t));
+  if (alerts.length === 0 && ohlc.length === 0) {
+    // All data is outside RTH (e.g. pre-market view) — fall back to its own span
+    // so the chart isn't blank.
+    alerts = alertsAll; ohlc = ohlcAll;
+    tMin = Math.min(...rawT); tMax = Math.max(...rawT);
+    if (!(tMax > tMin)) { tMin = anchor - 3600; tMax = anchor; }
+  }
   const xForT = t => padL + innerW * Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
 
   // ---- Y domain: spans alert strikes + ohlc price range ----
@@ -2007,12 +2016,16 @@ function renderFlowChart(row) {
     xTicksSvg += `<text x="${x.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">${fmtET(t)}</text>`;
   }
 
-  // ---- OHLC price line (gray, thin, smoothed close-of-bar) ----
+  // ---- OHLC price line (close-of-bar). Brighter than the axis so it reads as
+  // the price track, not chart furniture. Single point → a dot so a 1-bar
+  // session still shows price. ----
   let priceLine = "";
   if (ohlc.length >= 2) {
     const sorted = ohlc.slice().sort((a, b) => a.t - b.t);
     const pts = sorted.map(b => `${xForT(b.t).toFixed(1)},${yForP(b.c).toFixed(1)}`).join(" ");
-    priceLine = `<polyline points="${pts}" fill="none" stroke="var(--axis)" stroke-width="1.2" opacity="0.85"/>`;
+    priceLine = `<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="1.5" opacity="0.95"/>`;
+  } else if (ohlc.length === 1) {
+    priceLine = `<circle cx="${xForT(ohlc[0].t).toFixed(1)}" cy="${yForP(ohlc[0].c).toFixed(1)}" r="1.6" fill="var(--text)"/>`;
   }
 
   // ---- Spot reference (dashed horizontal at row.spot) ----

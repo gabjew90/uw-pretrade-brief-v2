@@ -885,9 +885,11 @@ def _extract_ohlc(ohlc_data: Any) -> list[OHLCBar]:
             ))
         except (TypeError, ValueError):
             continue
-    # Trim to the most recent 4-hour window (5m candles = 48 bars max).
+    # Trim to one full regular session: 6.5h / 5m = 78 candles. Tile 1's axis is
+    # fixed to the session, so this lets the price line span the whole 9:30–16:00
+    # ET window (the chart filters out any pre-market/after-hours bars itself).
     bars.sort(key=lambda b: b.t)
-    return bars[-48:]
+    return bars[-78:]
 
 
 def _extract_oi(today_data: Any, prev_data: Any) -> list[dict]:
