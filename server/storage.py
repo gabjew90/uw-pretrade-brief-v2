@@ -278,35 +278,44 @@ def read_oi_history(ticker: str, n_sessions: int = 5) -> list[dict]:
     for d in dt_dirs:
         date_str = d.name.replace("dt=", "")
         tdir = d / f"ticker={ticker}"
-        files = sorted(tdir.glob("part-*.parquet"), reverse=True)
-        strikes: dict[float, int] = {}
-        for path in files:
+        # Append-only writes fragment a day into many one-row part files, so the
+        # "latest {} snapshot for the day" must be chosen ACROSS all part files,
+        # not within the single newest file. Prefer no-date-param ({}) rows (the
+        # live today snapshot) by latest fetched_at; fall back to any row.
+        best_ts = best_resp = None        # latest {}-param row for the day
+        fb_ts = fb_resp = None            # fallback: latest any-param row
+        for path in tdir.glob("part-*.parquet"):
             try:
                 table = pq.read_table(path)
-                if table.num_rows == 0:
-                    continue
-                # Prefer the no-date-param row (the live today snapshot).
-                mask = pc.equal(table["params_json"], "{}")
-                filtered = table.filter(mask)
-                src = filtered if filtered.num_rows else table
-                latest_idx = pc.sort_indices(
-                    src.select(["fetched_at"]),
-                    sort_keys=[("fetched_at", "descending")],
-                )[0].as_py()
-                payload = json.loads(src["response"][latest_idx].as_py())
-                rows = payload.get("data") if isinstance(payload, dict) else payload
-                for r in (rows or []):
-                    try:
-                        k = float(r.get("strike") or 0)
-                        oi = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
-                        if k > 0:
-                            strikes[k] = oi
-                    except (TypeError, ValueError):
-                        continue
-                if strikes:
-                    break  # got this day's snapshot from the newest file
             except Exception as e:
                 log.warning("oi-history read failed %s @ %s: %s", ticker, path.name, e)
+                continue
+            for i in range(table.num_rows):
+                ts = table["fetched_at"][i].as_py()
+                params = table["params_json"][i].as_py()
+                resp = table["response"][i].as_py()
+                if params == "{}":
+                    if best_ts is None or ts > best_ts:
+                        best_ts, best_resp = ts, resp
+                else:
+                    if fb_ts is None or ts > fb_ts:
+                        fb_ts, fb_resp = ts, resp
+        chosen = best_resp if best_resp is not None else fb_resp
+        if chosen is None:
+            continue
+        try:
+            payload = json.loads(chosen)
+        except (TypeError, ValueError):
+            continue
+        rows = payload.get("data") if isinstance(payload, dict) else payload
+        strikes: dict[float, int] = {}
+        for r in (rows or []):
+            try:
+                k = float(r.get("strike") or 0)
+                oi = int(r.get("call_oi") or 0) + int(r.get("put_oi") or 0)
+                if k > 0:
+                    strikes[k] = oi
+            except (TypeError, ValueError):
                 continue
         if strikes:
             sessions.append({"date": date_str, "strikes": strikes})
