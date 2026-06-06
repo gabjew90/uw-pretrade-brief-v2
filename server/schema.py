@@ -90,7 +90,13 @@ class ExpirySegment(BaseModel):
 
 class Tile2(BaseModel):
     """Positioning Reality Check — is the flow real, building, where, still held?"""
-    opening_pct: float = 0.0            # % of single-leg alerts with volume_oi_ratio>1 (net-new positioning)
+    # The OBSERVED dominant side this tile confirmed (flow-derived at build time).
+    # Anchors every reading below — it is NOT the operator's direction toggle. The
+    # toggle is your *choice*; flow_side is what the market is actually doing, so
+    # the disagreement between them is the signal (never toggle it away). "" = no
+    # flow observed (gamma-only direction).
+    flow_side: Literal["call", "put", ""] = ""
+    opening_pct: float = 0.0            # % of flow-SIDE single-leg alerts with volume_oi_ratio>1 (net-new)
     avg_volume_oi_ratio: float = 0.0    # >1 = today's volume exceeds existing OI (opening intensity)
     oi_trend_5d_pct: float = 0.0        # aggregate OI change across available sessions
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"

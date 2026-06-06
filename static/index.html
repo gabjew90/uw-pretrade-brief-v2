@@ -628,6 +628,20 @@
     border: 1px dashed var(--grid); border-radius: 6px; margin-top: 10px;
   }
   .t2-lowconv { color: var(--warn); }
+  /* Navigation honesty note — you're viewing the off-(flow)-side. */
+  .t2-navnote {
+    margin-top: 8px; padding: 7px 10px; border-radius: 6px;
+    background: rgba(224,175,104,0.10); border: 1px solid rgba(224,175,104,0.35);
+    color: var(--warn); font-family: var(--ff-mono); font-size: 10px; line-height: 1.45;
+  }
+  /* "You're fading the flow" — loudest contradiction on the screen. */
+  .fade-flow-warn {
+    margin-bottom: 12px; padding: 12px 14px; border-radius: 8px;
+    background: rgba(226,75,74,0.12); border: 1px solid var(--neg);
+    color: var(--neg); font-family: var(--ff-mono); font-size: 12px; line-height: 1.5;
+    grid-column: 1 / -1;
+  }
+  .fade-flow-warn b { color: var(--neg); font-weight: 700; }
   .t2-expiry { margin-top: 14px; }
   .t2-exp-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
   .t2-exp-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--panel-3); }
@@ -1758,12 +1772,34 @@ function renderAllTiles(row) {
     ? renderTile4Picker(row, t4)
     : renderTile6Picker(row);
   return `
+    ${renderFadeFlowBanner(row)}
     ${renderVerdictPanel(row)}
     <div class="tile" id="tile1-slot">${renderTile1Flow(row)}</div>
     <div class="tile" id="tile2-slot">${renderTile2OI(row)}</div>
     <div class="tile tile--wide">${tile3}</div>
     <div class="tile tile-picker">${picker}</div>
   `;
+}
+
+/* "You're fading the flow" — the single most useful contradiction on the screen.
+ * Fires when the operator's CHOSEN side (row.direction, possibly toggled) opposes
+ * the OBSERVED opening flow (row.tile2.flow_side, fixed at build). This is the
+ * conflict the toggle must make louder, NOT launder away. Silent when the choice
+ * agrees with the flow, or when there's no observed flow side (gamma-only). */
+function renderFadeFlowBanner(row) {
+  const obs = row.tile2 && row.tile2.flow_side;   // "call" | "put" | "" (none)
+  if (!obs) return "";
+  const chosen = row.direction === "puts" ? "put" : "call";
+  if (chosen === obs) return "";
+  const obsWord = obs === "call" ? "CALLS" : "PUTS";
+  const chWord = chosen === "call" ? "CALLS" : "PUTS";
+  const conf = row.tile2.confirmation;
+  const oiBit = conf === "building" ? ` and ${obsWord.toLowerCase()}-side OI is building`
+              : conf === "unwinding" ? ` (though that ${obsWord.toLowerCase()} OI is unwinding)` : "";
+  return `<div class="fade-flow-warn">
+    ⚠ You're set to <b>${chWord}</b>, but today's opening flow is on the <b>${obsWord}</b> side${oiBit}.
+    You're <b>fading the flow</b> — treat this as a contradiction, not confirmation.
+  </div>`;
 }
 
 /* Deep-dive 3-leg verdict (Plan 3). Positioning + Structural directional legs,
@@ -2153,8 +2189,11 @@ function renderTile2OI(row) {
       <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
   }
 
-  // Default to the highest-$ (strike, side) overall; the toggle switches side.
-  if (!state.t2Side) state.t2Side = strikes[0].side || "call";
+  // Default the VIEW to the observed flow side (the honest read shows first); the
+  // toggle is navigation only — switching sides changes what you VIEW, never the
+  // confirmation conclusion (which stays anchored to t2.flow_side in the cards).
+  const obsSide = t2.flow_side || strikes[0].side || "call";
+  if (!state.t2Side) state.t2Side = obsSide;
   let sideEntries = strikes.filter(s => s.side === state.t2Side);
   if (sideEntries.length === 0) {
     // toggled to a side with no flow-targeted strike — keep the toggle, say so
@@ -2164,9 +2203,15 @@ function renderTile2OI(row) {
   }
   let selected = sideEntries.find(s => s.strike === state.t2Strike) || sideEntries[0];
   state.t2Strike = selected.strike;
+  // Navigation honesty: if you're viewing the side the flow did NOT favor, say so,
+  // so a high-$ strike on the off-side can't read as confirmation.
+  const navNote = (t2.flow_side && state.t2Side !== t2.flow_side)
+    ? `<div class="t2-navnote">Viewing ${state.t2Side === "call" ? "calls" : "puts"} — the flow-confirmed side is <b>${t2.flow_side === "call" ? "calls" : "puts"}</b>. This strike's read below is informational, not confirmation.</div>`
+    : "";
 
   return `${head}${scatterBanner}
     ${renderT2Controls(strikes, selected)}
+    ${navNote}
     ${renderOiSingleStrike(selected)}
     ${renderT2StatusCards(t2, row)}
     ${renderExpiryDistribution(t2.expiry_distribution || [])}
@@ -2251,10 +2296,13 @@ function renderOiSingleStrike(s) {
 }
 
 function renderT2StatusCards(t2, row) {
-  // All three are anchored to the FLOW's side (the direction this tile confirms),
-  // not the call+put aggregate. 1) Opening activity 2) OI Δ at flow strikes
-  // 3) Confirmation.
-  const sideWord = (row && row.direction === "puts") ? "puts" : "calls";
+  // All three are anchored to the OBSERVED flow side (t2.flow_side — what the
+  // market is actually opening), NOT the operator's direction toggle. The toggle
+  // is your choice; these are market facts. Labeling them by the toggle would
+  // launder your choice into fake confirmation — the contradiction between the
+  // two is the signal, so it must stay visible.
+  const obs = t2.flow_side || ((row && row.direction === "puts") ? "put" : "call");
+  const sideWord = obs === "put" ? "puts" : "calls";
   const openColor = t2.opening_pct >= 60 ? "var(--ok)" : t2.opening_pct >= 30 ? "var(--warn)" : "var(--neg)";
   const voi = t2.avg_volume_oi_ratio || 0;
   const voiLbl = voi <= 0 ? `${sideWord} side` : voi >= 10 ? `vol/OI 10×+ · ${sideWord}` : `vol/OI ${voi.toFixed(2)}× · ${sideWord}`;

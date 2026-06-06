@@ -865,6 +865,9 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
                f"— no clear target.") if low_conviction else ""
 
     return Tile2(
+        # Observed side this read confirmed — only when flow actually exists (else
+        # the direction was a gamma guess, so there's no observed flow side).
+        flow_side=(flow_side if flow_alerts else ""),
         opening_pct=round(opening_pct, 1),
         avg_volume_oi_ratio=round(med_voi, 2),
         oi_trend_5d_pct=oi_trend_5d_pct,

@@ -61,6 +61,14 @@ def test_tile2_confirmation_anchors_to_flow_side_not_aggregate():
     t2 = _build_tile2(alerts, oi_history, None, 100.0, direction="calls")
     assert t2.confirmation == "unwinding"        # follows the call side, not the aggregate
     assert t2.oi_trend_5d_pct < 0
+    assert t2.flow_side == "call"                 # observed side recorded for the frontend anchor
+
+
+def test_tile2_flow_side_empty_when_no_flow():
+    """No flow alerts → direction was a gamma guess, so there's no observed flow
+    side; flow_side must be "" so the frontend doesn't imply a confirmed side."""
+    t2 = _build_tile2([], [], None, 100.0, direction="calls")
+    assert t2.flow_side == ""
 
 
 def test_tile2_strikes_per_side_with_top_expiry_and_premium():
