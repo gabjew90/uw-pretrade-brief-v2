@@ -1812,12 +1812,27 @@ function pill(kind) {
 
 function renderTile1Flow(row) {
   const g = row.gates.flow;
-  const flowData = row.flow || {alerts: 0, premium_usd: 0, rank_cross: 100};
-  const askPct = (row.ask_side_pct || 0) * 100;
+  // Stats reflect what's VISIBLE: on a full row, derive from the filtered set
+  // (side + min-$) so they move with the toggle/slider and match the bubbles.
+  // On a light row the chart isn't shown yet, so use the grid aggregate.
+  let nAlerts, totalPrem, askPct;
+  if (row.is_light) {
+    const fd = row.flow || {alerts: 0, premium_usd: 0};
+    nAlerts = fd.alerts || 0; totalPrem = fd.premium_usd || 0;
+    askPct = (row.ask_side_pct || 0) * 100;
+  } else {
+    const vis = _t1Resolve(row);
+    nAlerts = vis.alerts.length;
+    totalPrem = vis.alerts.reduce((s, a) => s + (a.total_premium || 0), 0);
+    const ask = vis.alerts.reduce((s, a) => s + (a.total_ask_side_prem || 0), 0);
+    const bid = vis.alerts.reduce((s, a) => s + (a.total_bid_side_prem || 0), 0);
+    askPct = (ask + bid) > 0 ? ask / (ask + bid) * 100 : 0;
+  }
   const askColor = askPct >= 75 ? "var(--ok)" : "var(--text)";
-  const premLabel = flowData.premium_usd >= 1e6
-    ? `$${(flowData.premium_usd / 1e6).toFixed(1)}M`
-    : `$${Math.round(flowData.premium_usd / 1e3)}k`;
+  const premLabel = totalPrem >= 1e6
+    ? `$${(totalPrem / 1e6).toFixed(1)}M`
+    : `$${Math.round(totalPrem / 1e3)}k`;
+  const askKnown = row.is_light || nAlerts > 0;   // distinguish "0%" from "no ask/bid data"
   return `
     <h3>
       <span><span class="gate-dot ${g}"></span>Tile 1: Flow Conviction</span>
@@ -1826,7 +1841,7 @@ function renderTile1Flow(row) {
     <div class="flow-stats">
       <div class="flow-stat">
         <span class="lbl">Alerts</span>
-        <span class="val">${flowData.alerts}</span>
+        <span class="val">${nAlerts}</span>
       </div>
       <div class="flow-stat">
         <span class="lbl">Total premium</span>
@@ -1834,7 +1849,7 @@ function renderTile1Flow(row) {
       </div>
       <div class="flow-stat">
         <span class="lbl">Ask-side %</span>
-        <span class="val" style="color:${askColor}">${askPct.toFixed(0)}%</span>
+        <span class="val" style="color:${askColor}">${askKnown ? askPct.toFixed(0) + "%" : "—"}</span>
       </div>
     </div>
     <div class="flow-legend-row">
@@ -1885,6 +1900,36 @@ function _t1AutoMinK(row) {
 // Effective floor: explicit user value if set (incl. 0 = show all), else auto.
 function _t1EffMinK(row) {
   return state.t1MinK == null ? _t1AutoMinK(row) : state.t1MinK;
+}
+// Single source of truth for what Tile 1 SHOWS: applies the side filter + min-$
+// floor, confines to the newest extended trading day, and returns the visible
+// alerts/ohlc plus the time axis. Both the chart and the header stats use this
+// so the Alerts / Total premium / Ask-side % numbers always match what's plotted
+// (and update with the toggle/slider). `empty` = nothing to draw.
+function _t1Resolve(row) {
+  const minPrem = _t1EffMinK(row) * 1000;
+  const sideF = state.t1Side || "all";
+  const sideWant = sideF === "puts" ? "put" : sideF === "calls" ? "call" : null;
+  const ohlcAll = row.ohlc || [];
+  const alertsAll = (row.flow_alerts_detail || []).filter(a =>
+    a.has_singleleg && !a.has_multileg &&
+    (a.total_premium || 0) >= minPrem &&
+    (sideWant === null || a.type === sideWant));
+  const tOf = a => Math.floor(new Date(a.created_at).getTime() / 1000);
+  const rawT = [...alertsAll.map(tOf).filter(t => !isNaN(t)), ...ohlcAll.map(b => b.t)];
+  if (alertsAll.length === 0 && ohlcAll.length === 0) {
+    return {alerts: [], ohlc: [], tMin: 0, tMax: 1, empty: true};
+  }
+  const anchor = rawT.length ? Math.max(...rawT) : Math.floor(Date.now() / 1000);
+  const sess = _sessionBounds(anchor);
+  const inSess = t => t >= sess.open && t <= sess.close;
+  let alerts = alertsAll.filter(a => inSess(tOf(a)));
+  let ohlc = ohlcAll.filter(b => inSess(b.t));
+  let spanT = [...alerts.map(tOf), ...ohlc.map(b => b.t)];
+  if (spanT.length === 0) { alerts = alertsAll; ohlc = ohlcAll; spanT = rawT; }   // safety
+  let tMin = Math.min(...spanT), tMax = Math.max(...spanT);
+  if (!(tMax > tMin)) { tMin = anchor - 3600; tMax = anchor; }
+  return {alerts, ohlc, tMin, tMax, empty: false};
 }
 // Epoch (sec) of 9:30 AM ET on the ET-calendar date of `epochSec`. DST-safe:
 // derives the ET↔UTC offset from the anchor itself rather than assuming -4/-5.
@@ -1971,37 +2016,10 @@ function renderFlowChart(row) {
   const innerH = H - padT - padB;
   const spot = row.spot || 0;
 
-  // Tile 1 controls: side filter (All/Calls/Puts) + min-$ premium (auto
-  // per-ticker floor unless the user set it). No time window — the x-axis spans
-  // the last extended trading day (below).
-  const minPrem = _t1EffMinK(row) * 1000;
-  const sideF = state.t1Side || "all";
-  const sideWant = sideF === "puts" ? "put" : sideF === "calls" ? "call" : null;
-  const ohlcAll = row.ohlc || [];
-  const alertsAll = (row.flow_alerts_detail || []).filter(a =>
-    a.has_singleleg && !a.has_multileg &&
-    (a.total_premium || 0) >= minPrem &&
-    (sideWant === null || a.type === sideWant));
-
-  if (alertsAll.length === 0 && ohlcAll.length === 0) {
+  const { alerts, ohlc, tMin, tMax, empty } = _t1Resolve(row);
+  if (empty) {
     return `<div class="flow-empty">No live alerts or OHLC for this ticker yet — first cycle still warming.</div>`;
   }
-
-  // ---- X domain: the newest EXTENDED trading day (pre→post), tightened to the
-  // data actually present. Confine to one extended day from the newest data
-  // point so the axis never spans an overnight/weekend gap; then set the visible
-  // range to [first, last] of the in-day data so there's no dead empty space.
-  const tOf = a => Math.floor(new Date(a.created_at).getTime() / 1000);
-  const rawT = [...alertsAll.map(tOf).filter(t => !isNaN(t)), ...ohlcAll.map(b => b.t)];
-  const anchor = rawT.length ? Math.max(...rawT) : Math.floor(Date.now() / 1000);
-  const sess = _sessionBounds(anchor);
-  const inSess = t => t >= sess.open && t <= sess.close;
-  let alerts = alertsAll.filter(a => inSess(tOf(a)));
-  let ohlc = ohlcAll.filter(b => inSess(b.t));
-  let spanT = [...alerts.map(tOf), ...ohlc.map(b => b.t)];
-  if (spanT.length === 0) { alerts = alertsAll; ohlc = ohlcAll; spanT = rawT; }   // safety
-  let tMin = Math.min(...spanT), tMax = Math.max(...spanT);
-  if (!(tMax > tMin)) { tMin = anchor - 3600; tMax = anchor; }
   const xForT = t => padL + innerW * Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
 
   // ---- Y domain: spans alert strikes + ohlc price range ----
