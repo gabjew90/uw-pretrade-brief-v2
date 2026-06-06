@@ -295,6 +295,9 @@
   .row .dot.green  { background: var(--ok);   color: var(--ok-glow); }
   .row .dot.yellow { background: var(--warn); color: var(--warn-glow); }
   .row .dot.red    { background: var(--neg);  color: var(--neg-glow); }
+  .row .dot.gray   { background: var(--axis); opacity: 0.4; box-shadow: none; }
+  .row .direction.provisional { opacity: 0.6; font-style: italic; font-weight: 500; }
+  .row .direction.provisional em { font-size: 0.85em; opacity: 0.85; }
   .row .summary {
     color: var(--text); font-size: 11px; line-height: 1.4;
     min-width: 0;
@@ -1383,10 +1386,21 @@ function renderWatchlist() {
   for (const row of sorted) {
     const tr = document.createElement("div");
     tr.className = "row" + (state.selected === row.ticker ? " selected" : "");
-    const dirArrow = row.direction === "calls" ? "↑ Calls" : "↓ Puts";
-    const dots = ["flow", "oi", "structural", "cost"].map(g =>
-      `<span class="dot ${row.gates[g]}" title="Gate ${g}: ${row.gates[g]}"></span>`
-    ).join("");
+    const isLight = row.is_light;
+    // Light rows: show a provisional flow-derived side (opening/total flow) as
+    // unconfirmed; a gamma_fallback light row has no real read → "dir on click".
+    const dirProvisional = isLight &&
+      (row.direction_basis === "opening_flow" || row.direction_basis === "total_flow");
+    const dirArrow = (isLight && !dirProvisional) ? "· dir on click"
+                   : row.direction === "calls" ? "↑ Calls" : "↓ Puts";
+    const dirHtml = `<span class="direction ${row.direction}${dirProvisional ? " provisional" : ""}"`
+                  + `${dirProvisional ? ' title="flow-only — gamma confirmed on click"' : ""}>`
+                  + `${dirArrow}${dirProvisional ? " <em>(flow-only)</em>" : ""}</span>`;
+    const dots = ["flow", "oi", "structural", "cost"].map(g => {
+      const c = (isLight && g !== "flow") ? "gray" : row.gates[g];
+      const ttl = (isLight && g !== "flow") ? `Gate ${g}: click to evaluate` : `Gate ${g}: ${row.gates[g]}`;
+      return `<span class="dot ${c}" title="${ttl}"></span>`;
+    }).join("");
     const summary = gateSummaryText(row);
     let timestamp = "—";
     if (!row.is_synthetic) {
@@ -1397,7 +1411,7 @@ function renderWatchlist() {
     }
     tr.innerHTML = `
       <span class="ticker">${row.ticker}</span>
-      <span class="direction ${row.direction}">${dirArrow}</span>
+      ${dirHtml}
       <span class="dots">${dots}</span>
       <span class="summary">${summary}</span>
       <span class="timestamp">${timestamp}</span>
@@ -1418,6 +1432,15 @@ function selectTicker(ticker) {
   state.selected = ticker;
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
+  const row = ROWS.find(r => r.ticker === ticker);
+  if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
+    // Flow-only grid row → build the full row on demand (same path as search);
+    // it replaces the light row and re-selects, then renders like a hot ticker.
+    lookupTicker(ticker);
+    renderWatchlist();
+    renderDeepDive();
+    return;
+  }
   fetchTile3Detail(ticker);          // async; re-renders Tile 3 when it lands
   fetchTile4Detail(ticker);          // async; re-renders Tile 4 picker when it lands
   renderWatchlist();
@@ -1540,8 +1563,14 @@ function lookupTicker(ticker) {
     .then(d => {
       if (d && d.status === "unavailable") { state.lookups[ticker] = "error"; }
       else if (d && d.ticker) {
-        d.__lookedup = true;                       // mark: not flow-surfaced
-        if (!ROWS.find(r => r.ticker === d.ticker)) ROWS.push(d);
+        const idx = ROWS.findIndex(r => r.ticker === d.ticker);
+        if (idx >= 0) {
+          d.__lookedup = ROWS[idx].__lookedup;   // preserve origin (hot light-row vs searched)
+          ROWS[idx] = d;                          // upgrade light row → full row in place
+        } else {
+          d.__lookedup = true;                    // genuinely searched (not flow-surfaced)
+          ROWS.push(d);
+        }
         state.lookups[ticker] = "ok";
       } else { state.lookups[ticker] = "error"; }
       if (state.selected === ticker) { selectTicker(ticker); }
