@@ -631,6 +631,42 @@
   .t2-today-lbl { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.04em; }
   .t2-today-val { font-family: var(--ff-mono); font-size: 10px; font-weight: 700; color: var(--pos); }
   .t2-foot { margin-top: 10px; font-size: 9.5px; color: var(--axis); font-family: var(--ff-mono); line-height: 1.4; }
+  .t2-foot em { color: var(--text); font-style: normal; }
+  .t2-foot b { color: var(--warn); font-weight: 700; }
+  /* Tile 2 both-side cluster headline */
+  .t2-clusters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 10px; }
+  .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 1px solid var(--grid); }
+  .t2-cluster.flowside { border-color: var(--accent, #7AA2F7); box-shadow: inset 0 0 0 1px rgba(122,162,247,0.25); }
+  .t2-cl-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .t2-cl-side { font-family: var(--ff-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+  .t2-cl-side.call { color: var(--ok); }
+  .t2-cl-side.put { color: var(--neg); }
+  .t2-cl-flow { font-family: var(--ff-mono); font-size: 8px; color: #7AA2F7; border: 1px solid rgba(122,162,247,0.4); border-radius: 4px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .t2-cl-verdict { font-family: var(--ff-mono); font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+  .t2-cl-sub { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); margin-top: 2px; }
+  /* Opening proxy stat */
+  .t2-opening { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; padding: 6px 10px; background: var(--panel-3); border-radius: 6px; }
+  .t2-op-lbl { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; }
+  .t2-op-val { font-family: var(--ff-mono); font-size: 15px; font-weight: 700; }
+  .t2-op-sub { font-family: var(--ff-mono); font-size: 9px; color: var(--text-dim); margin-left: auto; }
+  /* Per-strike drill-down minis */
+  .t2-minis-wrap { margin: 4px 0 10px; }
+  .t2-minis-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .t2-minis-hint { text-transform: none; letter-spacing: 0; color: var(--text-dim); }
+  .t2-mini-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .t2-mini-lbl { font-family: var(--ff-mono); font-size: 9px; width: 34px; flex: none; }
+  .t2-mini-lbl.call { color: var(--ok); }
+  .t2-mini-lbl.put { color: var(--neg); }
+  .t2-mini-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .t2-mini { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 5px; background: var(--panel-2, var(--bg-2)); border: 1px solid var(--grid); cursor: pointer; font-family: var(--ff-mono); }
+  .t2-mini.on { border-color: #7AA2F7; }
+  .t2-mini-k { font-size: 10px; font-weight: 700; color: var(--title); }
+  .t2-mini-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 16px; }
+  .t2-mini-bar { width: 3px; border-radius: 1px; background: var(--axis); }
+  .t2-mini-bars.call .t2-mini-bar { background: #9ECE6A; }
+  .t2-mini-bars.put .t2-mini-bar { background: #F7768E; }
+  .t2-mini-warm { font-size: 9px; color: var(--axis); }
+  .t2-mini-d { font-size: 11px; font-weight: 700; }
   /* Tile 2 single (strike, side) view */
   .t2-single { margin: 6px 0 10px; }
   .t2-single-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
@@ -2265,70 +2301,113 @@ function renderTile2OI(row) {
       <button class="help-icon" data-help="tile2">?</button>
     </h3>`;
 
-  // Scattered flow is a NON-BLOCKING warning now, not a short-circuit: the
-  // single-strike view already focuses the top-$ (strike, side), so we still
-  // show it — just flag that the flow lacks a single clear target above it.
+  // Scattered flow is a NON-BLOCKING warning (the cluster read still stands).
   const scatterBanner = t2.low_conviction
-    ? `<div class="t2-lowconv">${t2.low_conviction_msg || "Flow scattered — no single clear target. Showing the largest position."}</div>`
+    ? `<div class="t2-lowconv">${t2.low_conviction_msg || "Flow scattered — no single clear target."}</div>`
     : "";
 
-  const strikes = t2.strikes || [];   // each: {strike, side, expiry, premium_usd, sessions, ...}, sorted by $ desc
+  const strikes = t2.strikes || [];   // each: {strike, side, expiry, premium_usd, sessions, ...}
   if (strikes.length === 0) {
     return `${head}${scatterBanner}
       <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
   }
 
-  // Default the VIEW to the observed flow side (the honest read shows first); the
-  // toggle is navigation only — switching sides changes what you VIEW, never the
-  // confirmation conclusion (which stays anchored to t2.flow_side in the cards).
-  const obsSide = t2.flow_side || strikes[0].side || "call";
-  if (!state.t2Side) state.t2Side = obsSide;
-  let sideEntries = strikes.filter(s => s.side === state.t2Side);
-  if (sideEntries.length === 0) {
-    // toggled to a side with no flow-targeted strike — keep the toggle, say so
-    return `${head}${scatterBanner}
-      ${renderT2Controls(strikes, null)}
-      <div class="t2-empty">No ${state.t2Side} flow targeted a strike for ${row.ticker}.</div>`;
-  }
-  let selected = sideEntries.find(s => s.strike === state.t2Strike) || sideEntries[0];
-  state.t2Strike = selected.strike;
-  // Navigation honesty: if you're viewing the side the flow did NOT favor, say so,
-  // so a high-$ strike on the off-side can't read as confirmation.
-  const navNote = (t2.flow_side && state.t2Side !== t2.flow_side)
-    ? `<div class="t2-navnote">Viewing ${state.t2Side === "call" ? "calls" : "puts"} — the flow-confirmed side is <b>${t2.flow_side === "call" ? "calls" : "puts"}</b>. This strike's read below is informational, not confirmation.</div>`
-    : "";
+  // Optional drill-down: a strike the user TAPPED to expand. Secondary to the
+  // cluster read — never changes it (the read is observed evidence).
+  const sel = state.t2Strike != null
+    ? strikes.find(s => s.strike === state.t2Strike && s.side === state.t2Side) : null;
+  const sess = t2.sessions_available || 0;
 
   return `${head}${scatterBanner}
-    ${renderT2Controls(strikes, selected)}
-    ${navNote}
-    ${renderOiSingleStrike(selected)}
-    ${renderT2StatusCards(t2, row)}
+    ${renderT2ClusterCards(t2)}
+    ${renderT2OpeningStat(t2)}
+    <div class="t2-minis-wrap">
+      <div class="t2-minis-title">Per-strike OI · last ${sess} settled session${sess === 1 ? "" : "s"}
+        <span class="t2-minis-hint">(tap to expand)</span></div>
+      ${renderT2StrikeMinis(strikes)}
+      ${sel ? renderOiSingleStrike(sel) : ""}
+    </div>
     ${renderExpiryDistribution(t2.expiry_distribution || [])}
     <div class="t2-foot">
-      OI history from our own archive ${pill("live")} · delta from greek-exposure ${pill("live")}
-      · today's OI provisional until settle (~9am next session). OI is per strike+side
-      (pooled across expiries — UW oi-per-strike carries no expiry).
+      Confirms whether the directional flow actually <em>opened</em> — OI growth at the flow's
+      strikes, by side, over settled sessions. "Opening" is a <b>proxy</b> (volume/OI&gt;1), not the
+      true flag — it can catch churn or round-trips. Building OI can still be a hedge or spread
+      leg, so this is <b>probabilistic confirmation, not proof</b>. OI from our archive ${pill("live")};
+      pooled across expiries (UW oi-per-strike carries no expiry); today provisional until ~9am settle.
     </div>`;
 }
 
-/* Tile 2 controls: [Calls·Puts] side toggle + a strike selector (that side's
- * flow-targeted strikes, by $ desc). Switching side jumps to that side's top-$ strike. */
-function renderT2Controls(strikes, selected) {
-  const nCall = strikes.filter(s => s.side === "call").length;
-  const nPut = strikes.filter(s => s.side === "put").length;
-  const sideBtn = (sd, n, label) =>
-    `<button class="t3-tog ${state.t2Side === sd ? "on" : ""}" ${n ? "" : "disabled style=\"opacity:.4;cursor:default\""}
-             onclick="${n ? `setT2Side('${sd}')` : ""}">${label} <span class="t3-tag">${n}</span></button>`;
-  const sideEntries = strikes.filter(s => s.side === state.t2Side);
-  const fmtPrem = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
-  const strikeBtns = sideEntries.slice(0, 6).map(s =>
-    `<button class="t3-tog ${selected && s.strike === selected.strike ? "on" : ""}" onclick="setT2Strike(${s.strike})">
-       $${s.strike} <span class="t3-tag">${fmtPrem(s.premium_usd)}</span></button>`).join("");
-  return `
-    <div class="t1-controls">
-      <div class="t3-grp"><span class="t3-grp-l">Side</span>${sideBtn("call", nCall, "Calls")}${sideBtn("put", nPut, "Puts")}</div>
-      <div class="t3-grp"><span class="t3-grp-l">Strike</span>${strikeBtns}</div>
+/* Headline: BOTH side clusters, ALWAYS shown — the call-vs-put comparison IS the
+ * signal, so the operator's direction toggle never changes it (observed evidence).
+ * Each aggregates that side's flow-hit strike cluster (5-session OI trend). */
+function renderT2ClusterCards(t2) {
+  const map = {
+    building:    {t: "Building",  c: "var(--ok)",   d: "green",  a: "↑"},
+    unwinding:   {t: "Unwinding", c: "var(--neg)",  d: "red",    a: "↓"},
+    flat:        {t: "Flat",      c: "var(--axis)", d: "yellow", a: "→"},
+    unconfirmed: {t: "Warming",   c: "var(--axis)", d: "yellow", a: "·"},
+  };
+  const strikes = t2.strikes || [];
+  const card = (side) => {
+    const conf = side === "call" ? t2.call_confirmation : t2.put_confirmation;
+    const pct = (side === "call" ? t2.call_oi_trend_pct : t2.put_oi_trend_pct) || 0;
+    const n = strikes.filter(s => s.side === side).length;
+    const m = map[conf] || map.unconfirmed;
+    const isFlow = t2.flow_side === side;
+    const sub = conf === "unconfirmed"
+      ? (n ? "archive warming" : "no flow this side")
+      : `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${n} strike${n === 1 ? "" : "s"}`;
+    return `<div class="t2-cluster ${isFlow ? "flowside" : ""}">
+      <div class="t2-cl-top">
+        <span class="t2-cl-side ${side}">${side === "call" ? "CALLS" : "PUTS"}</span>
+        ${isFlow ? `<span class="t2-cl-flow">flow side</span>` : ""}
+      </div>
+      <div class="t2-cl-verdict" style="color:${m.c}"><span class="gate-dot ${m.d}"></span>${m.a} ${m.t}</div>
+      <div class="t2-cl-sub">${sub}</div>
     </div>`;
+  };
+  return `<div class="t2-clusters">${card("call")}${card("put")}</div>`;
+}
+
+/* Opening-intensity on the flow side — labeled a PROXY (vol/OI>1), since the true
+ * all-opening flag is dead on this tier (catches churn/round-trips, not only net-new). */
+function renderT2OpeningStat(t2) {
+  const side = t2.flow_side === "put" ? "puts" : "calls";
+  const pct = t2.opening_pct || 0;
+  const c = pct >= 60 ? "var(--ok)" : pct >= 30 ? "var(--warn)" : "var(--neg)";
+  const voi = t2.avg_volume_oi_ratio || 0;
+  const voiLbl = voi <= 0 ? "" : voi >= 10 ? " · vol/OI 10×+" : ` · vol/OI ${voi.toFixed(1)}×`;
+  return `<div class="t2-opening">
+    <span class="t2-op-lbl">Opening proxy (${side})</span>
+    <span class="t2-op-val" style="color:${c}">${pct.toFixed(0)}%</span>
+    <span class="t2-op-sub">net-new (vol/OI&gt;1)${voiLbl}</span>
+  </div>`;
+}
+
+/* Per-strike drill-down: compact sparkline per flow-hit strike, grouped by side.
+ * Secondary to the cluster headline; tap one to expand its full 5-bar detail. */
+function renderT2StrikeMinis(strikes) {
+  const mini = (s) => {
+    const sessions = s.sessions || [];
+    const max = Math.max(...sessions.map(b => b.oi), 1);
+    const bars = sessions.length
+      ? sessions.map(b => `<span class="t2-mini-bar" style="height:${Math.max(12, (b.oi / max) * 100)}%"></span>`).join("")
+      : `<span class="t2-mini-warm">—</span>`;
+    const arrow = s.trend === "building" ? "↑" : s.trend === "unwinding" ? "↓" : "→";
+    const aCol = s.trend === "building" ? "var(--ok)" : s.trend === "unwinding" ? "var(--neg)" : "var(--axis)";
+    const on = state.t2Strike === s.strike && state.t2Side === s.side;
+    return `<button class="t2-mini ${on ? "on" : ""}" onclick="toggleT2Strike(${s.strike},'${s.side}')">
+      <span class="t2-mini-k">$${s.strike}</span>
+      <span class="t2-mini-bars ${s.side}">${bars}</span>
+      <span class="t2-mini-d" style="color:${aCol}">${arrow}</span></button>`;
+  };
+  const row = (side, label) => {
+    const g = strikes.filter(s => s.side === side);
+    if (!g.length) return "";
+    return `<div class="t2-mini-row"><span class="t2-mini-lbl ${side}">${label}</span>
+      <span class="t2-mini-list">${g.map(mini).join("")}</span></div>`;
+  };
+  return `<div class="t2-minis">${row("call", "Calls")}${row("put", "Puts")}</div>`;
 }
 
 function _t2Rerender() {
@@ -2336,12 +2415,13 @@ function _t2Rerender() {
   const slot = document.getElementById("tile2-slot");
   if (row && slot) slot.innerHTML = renderTile2OI(row);   // Tile 2 only — robust to other tiles
 }
-function setT2Side(sd) {
-  if (state.t2Side === sd) return;
-  state.t2Side = sd; state.t2Strike = null;   // jump to that side's top-$ strike
+/* Drill-down toggle: expand/collapse one strike's full detail. Pure navigation —
+ * never changes the cluster read (observed evidence). */
+function toggleT2Strike(k, side) {
+  if (state.t2Strike === k && state.t2Side === side) { state.t2Strike = null; state.t2Side = null; }
+  else { state.t2Strike = k; state.t2Side = side; }
   _t2Rerender();
 }
-function setT2Strike(k) { state.t2Strike = k; _t2Rerender(); }
 
 /* One (strike, side) at a time: headline ($strike SIDE · exp · $flow) + its 5-day
  * settled OI bars + ΔOI / net-delta / today vol-OI. */
@@ -2380,49 +2460,6 @@ function renderOiSingleStrike(s) {
       <div class="t2-single-foot">
         <span style="color:${deltaColor}">ΔOI ${deltaLbl}</span>
         <span class="t2-today" title="today's volume/OI ratio — OI confirms ~9am next session">today vol/OI ${voiTxt}</span>
-      </div>
-    </div>`;
-}
-
-function renderT2StatusCards(t2, row) {
-  // All three are anchored to the OBSERVED flow side (t2.flow_side — what the
-  // market is actually opening), NOT the operator's direction toggle. The toggle
-  // is your choice; these are market facts. Labeling them by the toggle would
-  // launder your choice into fake confirmation — the contradiction between the
-  // two is the signal, so it must stay visible.
-  const obs = t2.flow_side || ((row && row.direction === "puts") ? "put" : "call");
-  const sideWord = obs === "put" ? "puts" : "calls";
-  const openColor = t2.opening_pct >= 60 ? "var(--ok)" : t2.opening_pct >= 30 ? "var(--warn)" : "var(--neg)";
-  const voi = t2.avg_volume_oi_ratio || 0;
-  const voiLbl = voi <= 0 ? `${sideWord} side` : voi >= 10 ? `vol/OI 10×+ · ${sideWord}` : `vol/OI ${voi.toFixed(2)}× · ${sideWord}`;
-  const trendPct = t2.oi_trend_5d_pct || 0;
-  const trendColor = trendPct >= 5 ? "var(--ok)" : trendPct <= -5 ? "var(--neg)" : "var(--axis)";
-  const trendArrow = trendPct >= 5 ? "↑" : trendPct <= -5 ? "↓" : "→";
-  const confMap = {
-    building: {t: "Building", c: "var(--ok)", d: "green"},
-    unwinding: {t: "Unwinding", c: "var(--neg)", d: "red"},
-    flat: {t: "Flat", c: "var(--axis)", d: "yellow"},
-    unconfirmed: {t: "Warming", c: "var(--axis)", d: "yellow"},
-  };
-  const conf = confMap[t2.confirmation] || confMap.unconfirmed;
-  const sess = t2.sessions_available || 0;
-  const trendSub = sess < 2 ? `archive warming (${sess}/5d)` : `${sideWord}, vs prior session`;
-  return `
-    <div class="t2-cards">
-      <div class="t2-card">
-        <span class="lbl">Opening activity</span>
-        <span class="val" style="color:${openColor}">${(t2.opening_pct || 0).toFixed(0)}%</span>
-        <span class="sub">${voiLbl}</span>
-      </div>
-      <div class="t2-card">
-        <span class="lbl">OI Δ at flow strikes</span>
-        <span class="val" style="color:${trendColor}">${trendArrow} ${trendPct >= 0 ? "+" : ""}${trendPct.toFixed(0)}%</span>
-        <span class="sub">${trendSub}</span>
-      </div>
-      <div class="t2-card">
-        <span class="lbl">Confirmation</span>
-        <span class="val" style="color:${conf.c}"><span class="gate-dot ${conf.d}"></span>${conf.t}</span>
-        <span class="sub">${sideWord} at flow strikes</span>
       </div>
     </div>`;
 }

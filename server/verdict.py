@@ -78,16 +78,26 @@ def skew_state(rr25: float | None, direction: str, *, thr: float = _SKEW_THR) ->
 def positioning_leg(direction_basis: str, flow_gate: str, oi_confirmation: str) -> str:
     """green / yellow / red. Collapses Flow+OI into the predictive core. Green
     requires the OPENING basis (not the weaker total_flow fallback) so a Favorable
-    verdict can't rest on it; archive-decoupled (green even when OI 'unconfirmed');
-    'unwinding' caps green→yellow."""
+    verdict can't rest on it.
+
+    OI confirmation acts as a MODIFIER on the opening-flow read, not a gate:
+      - building    → bonus: corroborating OI growth lifts even a yellow-conviction
+                      opening read to green.
+      - unwinding   → cap-down: the 'buying' was closing, so cap green→yellow.
+      - flat / unconfirmed → neutral: strong opening flow stands on its own
+                      (green when flow_gate is green). Archive-decoupled — missing
+                      history ('unconfirmed') NEVER blocks the verdict."""
     if direction_basis == "gamma_fallback" or flow_gate == "red":
         return "red"
     if direction_basis == "total_flow":
         return "yellow"                       # weaker basis — caps below Favorable
     # opening_flow:
-    if flow_gate == "green" and oi_confirmation != "unwinding":
-        return "green"
-    return "yellow"
+    if oi_confirmation == "unwinding":
+        return "yellow"                       # cap-down: looks like closing
+    if oi_confirmation == "building":
+        return "green"                        # bonus: OI build corroborates the flow
+    # flat / unconfirmed → neutral: flow stands on its own
+    return "green" if flow_gate == "green" else "yellow"
 
 
 def compute_verdict(*, direction: str, direction_basis: str, flow_gate: str,

@@ -71,6 +71,30 @@ def test_tile2_flow_side_empty_when_no_flow():
     assert t2.flow_side == ""
 
 
+def test_tile2_computes_both_side_clusters():
+    """Both call and put clusters are computed + shown (the comparison IS the
+    signal), each a 5-session trend over its own flow-hit strikes — independent of
+    which side the direction picked."""
+    def fa(type_, strike, prem):
+        return FlowAlert(created_at="2026-06-05T14:00:00Z", strike=strike, type=type_,
+                         total_premium=prem, total_ask_side_prem=prem, total_bid_side_prem=0.0,
+                         has_singleleg=True, has_multileg=False, expiry="2026-06-12",
+                         volume_oi_ratio=2.0)
+    alerts = [fa("call", 105.0, 2_000_000), fa("put", 95.0, 1_000_000)]
+    # call-105 builds 1000→1200 (+20%); put-95 unwinds 1000→800 (−20%)
+    oi_history = [
+        {"date": "2020-01-01", "strikes": {105.0: 2000, 95.0: 1000},
+         "call": {105.0: 1000}, "put": {95.0: 1000}},
+        {"date": "2020-01-02", "strikes": {105.0: 2000, 95.0: 1000},
+         "call": {105.0: 1200}, "put": {95.0: 800}},
+    ]
+    t2 = _build_tile2(alerts, oi_history, None, 100.0, direction="calls")
+    assert t2.call_confirmation == "building" and t2.call_oi_trend_pct == 20.0
+    assert t2.put_confirmation == "unwinding" and t2.put_oi_trend_pct == -20.0
+    # flow_side is calls → top-level confirmation mirrors the call cluster
+    assert t2.confirmation == "building"
+
+
 def test_tile2_strikes_per_side_with_top_expiry_and_premium():
     """Tile 2 strikes are per (strike, side), carry the top expiry by $, and the
     list is highest-premium first (so the frontend defaults to the top contract)."""

@@ -817,15 +817,16 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     # Highest-$ first so the frontend defaults to the top (strike, side).
     strike_hist.sort(key=lambda s: -s.premium_usd)
 
-    # ── Confirmation: flow-side strike CLUSTER, near-dated, day-over-day ───
-    # The reality-check question is narrow — "did OI grow at the strikes this
-    # directional flow concentrated in, on THIS side, recently?" So confirm on
-    # the flow-side cluster only (top-premium flow-side strikes), preferring the
-    # near-dated/hold-window expiries, comparing the newest settled session to the
-    # prior one. NOT the call+put aggregate (contaminated) and NOT a single strike
-    # (idiosyncratic). Building = the directional flow opened; shrinking = it was
-    # closing (the signal was noise). This is probabilistic — a call-strike OI
-    # build can still be a covered call or spread leg — so it corroborates, not proves.
+    # ── Confirmation: per-SIDE strike CLUSTER, near-dated, 5-session trend ──
+    # The reality-check question is narrow — "did OI grow at the strikes the flow
+    # concentrated in, on each side, over the last few settled sessions?" So we
+    # aggregate the cluster (top-premium flow-hit strikes), preferring near-dated
+    # (hold-window) expiries, first settled session vs last. BOTH sides are
+    # computed and shown — the call-vs-put comparison IS the signal. NEVER the
+    # call+put aggregate (contaminated: covered calls, LEAPS, hedges) and never a
+    # single strike (idiosyncratic). Building = the flow opened; shrinking = it was
+    # closing (noise). Probabilistic — a call-strike build can still be a covered
+    # call or spread leg — so it corroborates, not proves.
     today = _date.today()
 
     def _dte(e: str) -> int:
@@ -835,26 +836,26 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
             return -9999
 
     n_settled = len(settled)
-    cluster = [s for s in strike_hist if s.side == flow_side and len(s.sessions) >= 2]
-    near = [s for s in cluster if 0 <= _dte(s.expiry) <= _HOLD_WINDOW_DAYS]
-    cluster = near or cluster   # fall back to all flow-side strikes if none near-dated
 
-    oi_trend_5d_pct = 0.0
-    if n_settled >= 2 and cluster:
-        base = sum(s.sessions[-2].oi for s in cluster)
-        delta = sum(s.delta_oi for s in cluster)   # newest settled − prior settled
-        if base > 0:
-            oi_trend_5d_pct = round(delta / base * 100, 1)
+    def _cluster_confirm(side: str) -> tuple[str, float]:
+        """(confirmation, trend_pct) for one side's flow-hit cluster, near-dated,
+        first→last settled session. 'unconfirmed' when <2 settled or no cluster."""
+        cl = [s for s in strike_hist if s.side == side and len(s.sessions) >= 2]
+        near = [s for s in cl if 0 <= _dte(s.expiry) <= _HOLD_WINDOW_DAYS]
+        cl = near or cl
+        if n_settled < 2 or not cl:
+            return "unconfirmed", 0.0
+        first = sum(s.sessions[0].oi for s in cl)
+        last = sum(s.sessions[-1].oi for s in cl)
+        pct = round((last - first) / first * 100, 1) if first > 0 else 0.0
+        state = "building" if pct >= 5 else "unwinding" if pct <= -5 else "flat"
+        return state, pct
 
-    # ── Confirmation state ────────────────────────────────────────────────
-    if n_settled < 2 or not cluster:
-        confirmation = "unconfirmed"   # not enough settled history / no flow-side strikes
-    elif oi_trend_5d_pct >= 5:
-        confirmation = "building"
-    elif oi_trend_5d_pct <= -5:
-        confirmation = "unwinding"
-    else:
-        confirmation = "flat"
+    call_confirmation, call_trend = _cluster_confirm("call")
+    put_confirmation, put_trend = _cluster_confirm("put")
+    # Flow-side read drives Positioning; the other side is shown for comparison.
+    confirmation, oi_trend_5d_pct = (
+        (call_confirmation, call_trend) if flow_side == "call" else (put_confirmation, put_trend))
 
     # ── Low-conviction state (name-wide scatter warning) ──────────────────
     n_expiries = len(prem_by_expiry)
@@ -872,6 +873,10 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         avg_volume_oi_ratio=round(med_voi, 2),
         oi_trend_5d_pct=oi_trend_5d_pct,
         confirmation=confirmation,
+        call_confirmation=call_confirmation,
+        put_confirmation=put_confirmation,
+        call_oi_trend_pct=call_trend,
+        put_oi_trend_pct=put_trend,
         sessions_available=n_settled,   # settled days that actually bar
         strikes=strike_hist,
         expiry_distribution=expiry_dist,

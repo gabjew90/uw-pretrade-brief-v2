@@ -98,8 +98,15 @@ class Tile2(BaseModel):
     flow_side: Literal["call", "put", ""] = ""
     opening_pct: float = 0.0            # % of flow-SIDE single-leg alerts with volume_oi_ratio>1 (net-new)
     avg_volume_oi_ratio: float = 0.0    # >1 = today's volume exceeds existing OI (opening intensity)
-    oi_trend_5d_pct: float = 0.0        # aggregate OI change across available sessions
+    oi_trend_5d_pct: float = 0.0        # flow-side cluster OI change (first→last settled session)
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
+    # BOTH clusters always — the call-vs-put comparison IS the signal, shown
+    # regardless of the operator's side choice. Each is the 5-session OI trend
+    # aggregated over that side's flow-hit strike cluster (near-dated).
+    call_confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
+    put_confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
+    call_oi_trend_pct: float = 0.0
+    put_oi_trend_pct: float = 0.0
     sessions_available: int = 0         # 1-5; <5 means archive still filling in
     strikes: list[StrikeOIHistory] = Field(default_factory=list)
     expiry_distribution: list[ExpirySegment] = Field(default_factory=list)

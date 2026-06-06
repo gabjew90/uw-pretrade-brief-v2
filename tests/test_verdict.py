@@ -76,8 +76,19 @@ def test_positioning_gamma_fallback_is_red():
     assert verdict.positioning_leg("gamma_fallback", "green", "building") == "red"
 
 
-def test_positioning_weak_flow_yellow():
-    assert verdict.positioning_leg("opening_flow", "yellow", "building") == "yellow"
+def test_positioning_building_bonus_lifts_yellow_flow_to_green():
+    # building OI corroborates a yellow-conviction opening read → bonus to green
+    assert verdict.positioning_leg("opening_flow", "yellow", "building") == "green"
+
+
+def test_positioning_flat_is_neutral_yellow_flow_stays_yellow():
+    # flat/unconfirmed are neutral — no bonus, so a yellow flow stays yellow
+    assert verdict.positioning_leg("opening_flow", "yellow", "flat") == "yellow"
+    assert verdict.positioning_leg("opening_flow", "yellow", "unconfirmed") == "yellow"
+
+
+def test_positioning_building_keeps_green_flow_green():
+    assert verdict.positioning_leg("opening_flow", "green", "building") == "green"
 
 
 # ---------- compute_verdict ----------
