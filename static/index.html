@@ -665,6 +665,15 @@
   .t3-tog.on { color: var(--title); background: var(--panel); border-color: var(--pos); box-shadow: inset 0 0 0 1px rgba(122,162,247,0.4); }
   .t3-tag { color: var(--axis); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 3px; }
   .t3-tog.on .t3-tag { color: var(--pos); }
+  /* Tile 1 flow controls (reuse .t3-grp / .t3-tog) + min-$ slider */
+  .t1-controls { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 10px; }
+  .t1-minwrap { min-width: 150px; }
+  .t1-slider { -webkit-appearance: none; appearance: none; height: 4px; width: 96px; border-radius: 3px;
+    background: var(--grid); outline: none; cursor: pointer; }
+  .t1-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--pos); cursor: pointer; border: none; }
+  .t1-slider::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--pos); border: none; cursor: pointer; }
+  .t1-min-lbl { font-family: var(--ff-mono); font-size: 11px; color: var(--title); min-width: 42px; }
   .t3-body { display: grid; grid-template-columns: 1fr 240px; gap: 16px; align-items: start; }
   .t3-ladder { background: var(--bg); border: 1px solid var(--grid); border-radius: 8px; padding: 6px 4px; }
   .t3-side { display: flex; flex-direction: column; gap: 12px; }
@@ -1255,7 +1264,9 @@ const ROWS = LIVE_ROWS;
 
 const state = { regime: "normal", selected: null, nothingToday: false, contractPickerShowThisWeek: false, searchQuery: "",
   tile3Detail: {}, tile3Weighting: "oi", tile3Expiry: null,
-  tile4Detail: {}, lookups: {} };
+  tile4Detail: {}, lookups: {},
+  // Tile 1 flow-chart controls (per-view; reset on ticker select)
+  t1Side: "all", t1MinK: 0, t1WinH: 4 };
 /* V2-EDIT-4-BEGIN — deep-link via ?t=NVDA + history.replaceState on click */
 (function setupDeepLink() {
   const urlT = new URLSearchParams(location.search).get('t');
@@ -1509,6 +1520,7 @@ function selectTicker(ticker) {
   state.selected = ticker;
   state.tile3Expiry = null;          // reset expiry tab for the new ticker
   state.tile3Weighting = "oi";
+  state.t1Side = "all"; state.t1MinK = 0; state.t1WinH = 4;   // reset Tile 1 controls
   const row = ROWS.find(r => r.ticker === ticker);
   if (row && row.is_light && state.lookups[ticker] !== "loading" && state.lookups[ticker] !== "ok") {
     // Flow-only grid row → build the full row on demand (same path as search);
@@ -1815,11 +1827,57 @@ function renderTile1Flow(row) {
       <span class="legend-item">◯ ring = swept</span>
       <span class="legend-item">bigger = more $</span>
     </div>
-    <div class="flow-chart-wrap">
+    ${renderT1Controls(row)}
+    <div class="flow-chart-wrap" id="t1-chart">
       ${renderFlowChart(row)}
     </div>
     <div class="flow-alert-detail" data-empty="true">Tap a bubble for trade detail</div>
   `;
+}
+
+/* Tile 1 interactive controls: side filter (All/Calls/Puts — actually filters the
+ * bubbles), a min-$ premium slider, and a timeframe window. All re-render only the
+ * chart (so dragging the slider doesn't rebuild/lose the slider). */
+function _t1MaxK(row) {
+  const prem = (row.flow_alerts_detail || [])
+    .filter(a => a.has_singleleg && !a.has_multileg)
+    .map(a => a.total_premium || 0);
+  const max = prem.length ? Math.max(...prem) : 0;
+  return Math.max(500, Math.ceil(max / 1000 / 50) * 50);   // $k, rounded up to 50, min 500
+}
+function _fmtK(k) {
+  return k >= 1000 ? `$${(k / 1000).toFixed(k % 1000 ? 1 : 0)}M` : `$${k}k`;
+}
+function renderT1Controls(row) {
+  const maxK = _t1MaxK(row);
+  const seg = (val, cur, label, fn) =>
+    `<button class="t3-tog ${val === cur ? "on" : ""}" onclick="${fn}('${val}')">${label}</button>`;
+  const win = (h, label) =>
+    `<button class="t3-tog ${state.t1WinH === h ? "on" : ""}" onclick="setT1Win(${h})">${label}</button>`;
+  return `
+    <div class="t1-controls">
+      <div class="t3-grp"><span class="t3-grp-l">Side</span>
+        ${seg("all", state.t1Side, "All", "setT1Side")}${seg("calls", state.t1Side, "Calls", "setT1Side")}${seg("puts", state.t1Side, "Puts", "setT1Side")}</div>
+      <div class="t3-grp t1-minwrap"><span class="t3-grp-l">Min&nbsp;$</span>
+        <input type="range" id="t1-min" class="t1-slider" min="0" max="${maxK}" step="50"
+               value="${Math.min(state.t1MinK, maxK)}" oninput="onT1Min(this.value)">
+        <span class="t1-min-lbl" id="t1-min-lbl">${state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all"}</span></div>
+      <div class="t3-grp"><span class="t3-grp-l">Window</span>
+        ${win(1, "1h")}${win(4, "4h")}${win(6.5, "Day")}${win(168, "Week")}</div>
+    </div>`;
+}
+function _t1Rerender() {
+  const row = ROWS.find(r => r.ticker === state.selected);
+  const slot = document.getElementById("t1-chart");
+  if (row && slot) slot.innerHTML = renderFlowChart(row);
+}
+function setT1Side(s) { state.t1Side = s; renderDeepDive(); }     // full re-render so the segmented 'on' updates
+function setT1Win(h) { state.t1WinH = h; renderDeepDive(); }
+function onT1Min(v) {
+  state.t1MinK = +v;
+  const lbl = document.getElementById("t1-min-lbl");
+  if (lbl) lbl.textContent = state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all";
+  _t1Rerender();   // chart only — keep the slider element intact mid-drag
 }
 
 /* Tile 1 chart per the build spec: scatter of single-leg alert bubbles plotted
@@ -1842,12 +1900,15 @@ function renderFlowChart(row) {
   const innerH = H - padT - padB;
   const spot = row.spot || 0;
 
-  const alerts = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
+  // Tile 1 controls: side filter (All/Calls/Puts), min-$ premium, time window.
+  const minPrem = (state.t1MinK || 0) * 1000;
+  const sideF = state.t1Side || "all";
+  const sideWant = sideF === "puts" ? "put" : sideF === "calls" ? "call" : null;
+  const alerts = (row.flow_alerts_detail || []).filter(a =>
+    a.has_singleleg && !a.has_multileg &&
+    (a.total_premium || 0) >= minPrem &&
+    (sideWant === null || a.type === sideWant));
   const ohlc = row.ohlc || [];
-  // The CALLS/PUTS toggle emphasizes the chosen side: same-side bubbles stay
-  // bright, opposite-side dimmed (NOT hidden — opposing flow can be a real
-  // contrarian signal you shouldn't lose).
-  const chosenSide = row.direction === "puts" ? "put" : "call";
 
   if (alerts.length === 0 && ohlc.length === 0) {
     return `<div class="flow-empty">No live alerts or OHLC for this ticker yet — first cycle still warming.</div>`;
@@ -1860,7 +1921,7 @@ function renderFlowChart(row) {
   const ohlcEpochs = ohlc.map(b => b.t);
   const allT = [...alertEpochs, ...ohlcEpochs];
   const tMax = allT.length ? Math.max(...allT) : Math.floor(Date.now() / 1000);
-  const tMin = tMax - 4 * 3600;
+  const tMin = tMax - (state.t1WinH || 4) * 3600;
   const xForT = t => padL + innerW * Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin || 1)));
 
   // ---- Y domain: spans alert strikes + ohlc price range ----
@@ -1890,11 +1951,13 @@ function renderFlowChart(row) {
     yTicksSvg += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis)" font-family="JetBrains Mono,ui-monospace,monospace" font-size="9">$${fmt(p)}</text>`;
   }
 
-  // ---- X ticks: 5 time labels in ET ----
+  // ---- X ticks: 5 time labels in ET (date-only for multi-day windows) ----
+  const longWin = (state.t1WinH || 4) > 24;
   const fmtET = epoch => {
     const d = new Date(epoch * 1000);
-    // toLocaleTimeString w/ America/New_York zone, no seconds
-    return d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
+    return longWin
+      ? d.toLocaleDateString("en-US", {timeZone: "America/New_York", month: "numeric", day: "numeric"})
+      : d.toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
   };
   let xTicksSvg = "";
   for (let i = 0; i <= 4; i++) {
@@ -1941,8 +2004,7 @@ function renderFlowChart(row) {
     const askDom = askBidSum > 0 ? (a.total_ask_side_prem / askBidSum) >= 0.5 : true;
     const fill = askBidPopulated ? (askDom ? color : "none") : color;
     const strokeW = a.has_sweep ? 2.5 : 1.4;
-    const op = a.type === chosenSide ? 0.92 : 0.16;   // dim the opposite side (toggle emphasis)
-    const ring = a.has_sweep ? `<circle class="flow-bubble-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="${(op * 0.6).toFixed(2)}"/>` : "";
+    const ring = a.has_sweep ? `<circle class="flow-bubble-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="0.55"/>` : "";
     const tET = fmtET(epoch);
     const premLbl = a.total_premium >= 1e6 ? `$${(a.total_premium / 1e6).toFixed(1)}M` : `$${Math.round(a.total_premium / 1e3)}k`;
     const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : null;
@@ -1950,7 +2012,7 @@ function renderFlowChart(row) {
                                          : `${askPctAlert}% ${askDom ? "bought at ask" : "sold at bid"}`;
     const hover = `${tET} — ${a.total_size} contracts of the $${fmt(a.strike)} ${a.type} exp ${a.expiry || "?"} · ${premLbl} · ${sideLbl}${a.has_sweep ? " · swept" : ""}${a.all_opening_trades ? " · opening" : ""}`;
     const dataHover = hover.replace(/"/g, "&quot;").replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    bubblesSvg += `${ring}<circle class="flow-bubble" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="${op}" data-hover="${dataHover}"/>`;
+    bubblesSvg += `${ring}<circle class="flow-bubble" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="${strokeW}" opacity="0.92" data-hover="${dataHover}"/>`;
   }
 
   return `
