@@ -59,6 +59,24 @@ the system clock falls back to the seeded snapshot — pull a fresh archive (or 
 degrades gracefully to last-good). The `/admin/export` endpoint (token-guarded by
 BACKFILL_TOKEN) streams a tar.gz of DATA_DIR for re-pulling a fresh archive.
 
+## Data integrity — UW pulls degrade SILENTLY (detect, don't trust)
+
+UW failures honest-degrade to "unavailable"/fallback, so a broken pull looks
+identical to "no data right now" — every data bug this codebase has hit was
+invisible (404 path typo, wrong field keys, wrong row, inverted sign). Defenses:
+
+- **UW paths are HYPHENATED** (flow-alerts, spot-exposures, historical-risk-reversal-skew).
+  An underscore 404s silently. `tests/test_uw_paths.py` lints this at CI.
+- **End-to-end health check:** `railway run python scripts/probe_endpoints.py [TICKER]`
+  hits every endpoint and reports per-endpoint status + parser-key presence + value
+  sanity (index put-skew sign, IV range, settled RV, opening-flow distribution).
+  Run it after ANY UW-touching change. Exit≠0 on error/sanity-fail. (Railway token:
+  set `RAILWAY_API_TOKEN`; per-command load if the shell predates it — see memory.)
+- **Test extractors against REAL captured golden payloads** (not hand-written — a
+  hand-written fixture enshrines your wrong assumption). Assert the extractor returns
+  a sane, non-None *value*, not just that a field exists. This is what finally caught
+  the iv/rv key bugs.
+
 ## Behavior — guardrails
 
 - The `frontend-design` plugin is **allowed** for frontend work. The earlier rule
