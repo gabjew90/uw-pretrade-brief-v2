@@ -165,6 +165,8 @@ class Row(BaseModel):
     direction: Literal["calls", "puts"]
     direction_basis: Literal["opening_flow", "total_flow", "gamma_fallback"] = "gamma_fallback"
     is_synthetic: bool = False
+    is_light: bool = False   # True = flow-only grid row (no per-ticker gamma/OI/cost);
+                             # full gates + tiles fill in on click. See basic-platform spec.
     gates: Gates
     gate_method: GateMethod
     flow: Flow = Field(default_factory=Flow)

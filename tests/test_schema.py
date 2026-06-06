@@ -53,6 +53,15 @@ def test_row_has_direction_basis_default():
     assert row2.direction_basis == "opening_flow"
 
 
+def test_row_is_light_defaults_false():
+    from server.schema import Row, Gates, GateMethod
+    r = Row(ticker="AAPL", spot=1.0, direction="calls",
+            gates=Gates(flow="yellow", oi="yellow", structural="yellow", cost="yellow"),
+            gate_method=GateMethod(flow="cross_sectional", oi="absolute",
+                                   structural="absolute", cost="percentile"))
+    assert r.is_light is False
+
+
 def test_regime_has_structured_market_fields():
     from server.schema import Regime
     r = Regime(label="normal", headline="Trend regime — extends", posture="Favorable")
