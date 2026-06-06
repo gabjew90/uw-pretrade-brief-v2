@@ -14,7 +14,7 @@ import contextvars
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 from functools import partial
 from typing import Any
 
@@ -482,10 +482,16 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop, event_with
     flow_alerts_detail = _project_flow_alerts(flow_info.get("raw_alerts", []))
     ohlc_bars = _extract_ohlc(ohlc_data)
     ask_side_pct = float(flow_info.get("ask_side_pct", 0.0))
+    # Direction first: OPENING flow leads (Ge-Lin-Pearson — opening bets predict,
+    # closing bets don't), falling back to total flow then the legacy gamma rule.
+    # derive_direction returns the basis so the UI can flag the weaker cases.
+    # Tile 2 needs it: it confirms the flow that set THIS direction (flow-side).
+    direction, direction_basis = gates.derive_direction(flow_alerts_detail, gex_sign, flip_pct)
     # Tile 2: positioning reality check. 5-session OI from our own parquet
-    # archive (tier-independent); per-strike delta from spot_exposures.
+    # archive (tier-independent); per-strike delta from spot_exposures. Confirms
+    # OI growth at the flow's strikes on the DIRECTION's side (not the aggregate).
     oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 5))
-    tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot)
+    tile2 = _build_tile2(flow_alerts_detail, oi_history, spot_data, spot, direction)
     # Tile 3: real per-strike net dealer gamma for the structural ladder, from
     # the spot-exposures payload already fetched above (no extra UW call).
     tile3 = _build_tile3(spot_data, spot)
@@ -494,11 +500,6 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop, event_with
     if sector:
         tide_data = await _in_ctx(loop, partial(storage.fetch_sector_tide, sector))
         sector_tide_value = _extract_sector_tide_value(tide_data)
-
-    # Direction: OPENING flow leads (Ge-Lin-Pearson — opening bets predict,
-    # closing bets don't), falling back to total flow then the legacy gamma rule.
-    # derive_direction returns the basis so the UI can flag the weaker cases.
-    direction, direction_basis = gates.derive_direction(flow_alerts_detail, gex_sign, flip_pct)
 
     raw_row = {
         "ticker": ticker,
@@ -696,25 +697,40 @@ def _median(xs: list[float]) -> float:
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
 
 
+_HOLD_WINDOW_DAYS = 45   # "near-dated" for Tile 2 confirmation: weeklies + front
+                         # monthly. Far-dated OI (LEAPS/quarterlies) rarely reflects
+                         # the opening flow we're confirming. Fallback if none match.
+
+
 def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
-                 spot_data: Any, spot: float) -> Tile2:
+                 spot_data: Any, spot: float, direction: str = "calls") -> Tile2:
     """Assemble Tile 2's positioning-reality model from:
-      - flow_alerts: opening read (all_opening_trades, volume_oi_ratio) +
-        per-strike premium + expiry distribution
+      - flow_alerts: opening read (volume_oi_ratio) + per-strike premium + expiry
       - oi_history: oldest→newest daily OI snapshots from our parquet archive
       - spot_data: per-strike net delta (greek-exposure)
+      - direction: the headline side this tile must CONFIRM ("calls"/"puts")
+
+    Tile 2 confirms the specific opening flow that set the direction: did OI grow
+    at the strikes that flow concentrated in, on THAT side, near-dated? It is
+    anchored to the flow's side — never the name-wide call+put aggregate, which is
+    contaminated (covered calls, spread legs, protective puts) and severs the link
+    to the bet we're following.
     """
-    # ── Opening read ──────────────────────────────────────────────────────
+    # Side we're confirming. Opening read, per-strike premium, OI trend and the
+    # confirmation verdict are all measured on THIS side only.
+    flow_side = "put" if direction == "puts" else "call"
+
+    # ── Opening read (flow side only) ─────────────────────────────────────
     # Opening intensity = volume_oi_ratio>1 (today's volume exceeded prior OI =
-    # net-new positioning). UW's all_opening_trades flag is ~always False on
-    # Basic, so it kept opening_pct stuck at 0; use the same voi>1 proxy as
-    # gates.derive_direction and avg_volume_oi_ratio below.
-    n = len(flow_alerts)
-    opening_n = sum(1 for a in flow_alerts if a.volume_oi_ratio > 1)
-    opening_pct = (opening_n / n * 100) if n else 0.0
+    # net-new positioning). Measured on the flow side so contaminating other-side
+    # flow can't move it. (UW's all_opening_trades flag is ~always False on Basic.)
+    side_alerts = [a for a in flow_alerts if a.type == flow_side]
+    sa_n = len(side_alerts)
+    opening_n = sum(1 for a in side_alerts if a.volume_oi_ratio > 1)
+    opening_pct = (opening_n / sa_n * 100) if sa_n else 0.0
     # Median, not mean — a single brand-new far-OTM strike (tiny prior OI) can
     # blow a mean vol/OI ratio into the hundreds and misrepresent the batch.
-    vois = [a.volume_oi_ratio for a in flow_alerts if a.volume_oi_ratio > 0]
+    vois = [a.volume_oi_ratio for a in side_alerts if a.volume_oi_ratio > 0]
     med_voi = _median(vois)
 
     # ── Per-strike premium (flow concentration) + today vol/OI ────────────
@@ -801,18 +817,38 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     # Highest-$ first so the frontend defaults to the top (strike, side).
     strike_hist.sort(key=lambda s: -s.premium_usd)
 
-    # ── Aggregate OI trend across focus strikes (settled days only) ───────
+    # ── Confirmation: flow-side strike CLUSTER, near-dated, day-over-day ───
+    # The reality-check question is narrow — "did OI grow at the strikes this
+    # directional flow concentrated in, on THIS side, recently?" So confirm on
+    # the flow-side cluster only (top-premium flow-side strikes), preferring the
+    # near-dated/hold-window expiries, comparing the newest settled session to the
+    # prior one. NOT the call+put aggregate (contaminated) and NOT a single strike
+    # (idiosyncratic). Building = the directional flow opened; shrinking = it was
+    # closing (the signal was noise). This is probabilistic — a call-strike OI
+    # build can still be a covered call or spread leg — so it corroborates, not proves.
+    today = _date.today()
+
+    def _dte(e: str) -> int:
+        try:
+            return (_date.fromisoformat(e) - today).days
+        except (TypeError, ValueError):
+            return -9999
+
     n_settled = len(settled)
+    cluster = [s for s in strike_hist if s.side == flow_side and len(s.sessions) >= 2]
+    near = [s for s in cluster if 0 <= _dte(s.expiry) <= _HOLD_WINDOW_DAYS]
+    cluster = near or cluster   # fall back to all flow-side strikes if none near-dated
+
     oi_trend_5d_pct = 0.0
-    if n_settled >= 2 and strike_hist:
-        first_total = sum(s.sessions[0].oi for s in strike_hist if s.sessions)
-        last_total = sum(s.sessions[-1].oi for s in strike_hist if s.sessions)
-        if first_total > 0:
-            oi_trend_5d_pct = round((last_total - first_total) / first_total * 100, 1)
+    if n_settled >= 2 and cluster:
+        base = sum(s.sessions[-2].oi for s in cluster)
+        delta = sum(s.delta_oi for s in cluster)   # newest settled − prior settled
+        if base > 0:
+            oi_trend_5d_pct = round(delta / base * 100, 1)
 
     # ── Confirmation state ────────────────────────────────────────────────
-    if n_settled < 2:
-        confirmation = "unconfirmed"   # not enough settled archive history yet
+    if n_settled < 2 or not cluster:
+        confirmation = "unconfirmed"   # not enough settled history / no flow-side strikes
     elif oi_trend_5d_pct >= 5:
         confirmation = "building"
     elif oi_trend_5d_pct <= -5:
@@ -820,10 +856,10 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     else:
         confirmation = "flat"
 
-    # ── Low-conviction state ──────────────────────────────────────────────
+    # ── Low-conviction state (name-wide scatter warning) ──────────────────
     n_expiries = len(prem_by_expiry)
     n_strikes = len(prem_by_strike)
-    low_conviction = n > 0 and (n_expiries >= 4 or n_strikes >= 8) and \
+    low_conviction = len(flow_alerts) > 0 and (n_expiries >= 4 or n_strikes >= 8) and \
         (max(prem_by_expiry.values(), default=0) / total_prem if total_prem else 0) < 0.4
     low_msg = (f"Flow scattered across {n_expiries} expirations / {n_strikes} strikes "
                f"— no clear target.") if low_conviction else ""

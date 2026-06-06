@@ -2168,7 +2168,7 @@ function renderTile2OI(row) {
   return `${head}${scatterBanner}
     ${renderT2Controls(strikes, selected)}
     ${renderOiSingleStrike(selected)}
-    ${renderT2StatusCards(t2)}
+    ${renderT2StatusCards(t2, row)}
     ${renderExpiryDistribution(t2.expiry_distribution || [])}
     <div class="t2-foot">
       OI history from our own archive ${pill("live")} · delta from greek-exposure ${pill("live")}
@@ -2250,11 +2250,14 @@ function renderOiSingleStrike(s) {
     </div>`;
 }
 
-function renderT2StatusCards(t2) {
-  // 1) Opening activity  2) 5-day OI trend  3) Confirmation state
+function renderT2StatusCards(t2, row) {
+  // All three are anchored to the FLOW's side (the direction this tile confirms),
+  // not the call+put aggregate. 1) Opening activity 2) OI Δ at flow strikes
+  // 3) Confirmation.
+  const sideWord = (row && row.direction === "puts") ? "puts" : "calls";
   const openColor = t2.opening_pct >= 60 ? "var(--ok)" : t2.opening_pct >= 30 ? "var(--warn)" : "var(--neg)";
   const voi = t2.avg_volume_oi_ratio || 0;
-  const voiLbl = voi <= 0 ? "opening trades" : voi >= 10 ? "vol/OI 10×+ (heavy)" : `vol/OI ${voi.toFixed(2)}×`;
+  const voiLbl = voi <= 0 ? `${sideWord} side` : voi >= 10 ? `vol/OI 10×+ · ${sideWord}` : `vol/OI ${voi.toFixed(2)}× · ${sideWord}`;
   const trendPct = t2.oi_trend_5d_pct || 0;
   const trendColor = trendPct >= 5 ? "var(--ok)" : trendPct <= -5 ? "var(--neg)" : "var(--axis)";
   const trendArrow = trendPct >= 5 ? "↑" : trendPct <= -5 ? "↓" : "→";
@@ -2266,7 +2269,7 @@ function renderT2StatusCards(t2) {
   };
   const conf = confMap[t2.confirmation] || confMap.unconfirmed;
   const sess = t2.sessions_available || 0;
-  const trendSub = sess < 2 ? `archive warming (${sess}/5d)` : `${sess}-session`;
+  const trendSub = sess < 2 ? `archive warming (${sess}/5d)` : `${sideWord}, vs prior session`;
   return `
     <div class="t2-cards">
       <div class="t2-card">
@@ -2275,14 +2278,14 @@ function renderT2StatusCards(t2) {
         <span class="sub">${voiLbl}</span>
       </div>
       <div class="t2-card">
-        <span class="lbl">5-day OI trend</span>
+        <span class="lbl">OI Δ at flow strikes</span>
         <span class="val" style="color:${trendColor}">${trendArrow} ${trendPct >= 0 ? "+" : ""}${trendPct.toFixed(0)}%</span>
         <span class="sub">${trendSub}</span>
       </div>
       <div class="t2-card">
         <span class="lbl">Confirmation</span>
         <span class="val" style="color:${conf.c}"><span class="gate-dot ${conf.d}"></span>${conf.t}</span>
-        <span class="sub">positioning</span>
+        <span class="sub">${sideWord} at flow strikes</span>
       </div>
     </div>`;
 }
