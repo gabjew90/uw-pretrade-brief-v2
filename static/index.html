@@ -658,9 +658,12 @@
   .t2-foot b { color: var(--warn); font-weight: 700; }
   /* Tile 2 both-side cluster headline */
   .t2-clusters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 10px; }
-  .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 1px solid var(--grid); text-align: left; cursor: pointer; font: inherit; color: inherit; }
-  .t2-cluster.flowside { border-color: var(--accent, #7AA2F7); box-shadow: inset 0 0 0 1px rgba(122,162,247,0.25); }
-  .t2-cluster.viewing { background: var(--panel-2, var(--bg-2)); outline: 2px solid rgba(122,162,247,0.55); }
+  .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 2px solid var(--grid); text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color 0.12s ease; }
+  /* flow side = subtle tint + the "flow side" chip (no blue border, so it doesn't
+     compete with the viewing indicator). */
+  .t2-cluster.flowside { background: rgba(122,162,247,0.06); }
+  /* viewing = the BLUE border that moves to whichever card you tap. */
+  .t2-cluster.viewing { border-color: #7AA2F7; box-shadow: 0 0 0 1px #7AA2F7; }
   /* Aggregate (primary) OI bars */
   .t2-agg { margin: 2px 0 12px; }
   .t2-agg-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
@@ -2404,12 +2407,10 @@ function renderTile2OI(row) {
       ${sel ? renderOiSingleStrike(sel) : ""}
     </div>
     ${renderT2ExpiryRelevance(t2)}
+    ${renderT2Synthesis(row)}
     <div class="t2-foot">
-      Confirms whether the directional flow actually <em>opened</em> — OI growth at the flow's
-      strikes, by side, over settled sessions. "Opening" is a <b>proxy</b> (volume/OI&gt;1), not the
-      true flag — it can catch churn or round-trips. Building OI can still be a hedge or spread
-      leg, so this is <b>probabilistic confirmation, not proof</b>. OI from our archive ${pill("live")};
-      pooled across expiries (UW oi-per-strike carries no expiry); today provisional until ~9am settle.
+      OI from our archive ${pill("live")}, pooled across expiries; today provisional until ~9am settle.
+      "Opening" is a volume/OI&gt;1 <b>proxy</b>; OI building is <b>probabilistic confirmation, not proof</b>.
     </div>`;
 }
 
@@ -2551,17 +2552,26 @@ function renderOiSingleStrike(s) {
     </div>`;
 }
 
-/* Expiry RELEVANCE (collapsed) — Tile 2 only needs to know the flow is in the
- * hold window vs parked far-dated, plus the scatter flag. The full premium-by-
- * expiry breakdown belongs to Tile 4 (where you pick the expiry), not here. */
+/* Expiry RELEVANCE (collapsed): is the flow in the hold window or parked far-dated?
+ * The full premium-by-expiry breakdown belongs to Tile 4 (where you pick the expiry). */
 function renderT2ExpiryRelevance(t2) {
-  if (t2.low_conviction) {
-    return `<div class="t2-relevance scattered">⚠ ${t2.low_conviction_msg || "Flow spread across many expirations — no clear target."}</div>`;
-  }
   const pct = t2.near_dated_pct || 0;
   const c = pct >= 60 ? "var(--ok)" : pct >= 30 ? "var(--warn)" : "var(--neg)";
   return `<div class="t2-relevance">
     <span style="color:${c};font-weight:700">${pct.toFixed(0)}%</span> of flow $ is near-dated (≤45d) — ${pct >= 60 ? "in your hold window" : pct >= 30 ? "partly in window" : "mostly parked far-dated"}.</div>`;
+}
+
+/* Gemini synthesis of the POSITIONING reality (row.insights.positioning) — narrates
+ * whether the flow opened: cluster confirmation by side, opening proxy, near-dated.
+ * Observed read; does NOT follow the operator's toggle. */
+function renderT2Synthesis(row) {
+  const text = row.insights && row.insights.positioning;
+  if (!text) return "";
+  return `
+    <div class="t1-synth">
+      <span class="t1-synth-tag">✦ positioning read</span>
+      <span class="t1-synth-body">${text}</span>
+    </div>`;
 }
 
 /* ============================================================

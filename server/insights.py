@@ -24,6 +24,7 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _STRUCTURAL_TEMPLATE = (_PROMPTS_DIR / "structural.txt").read_text(encoding="utf-8")
 _CURVE_TEMPLATE = (_PROMPTS_DIR / "curve.txt").read_text(encoding="utf-8")
 _FLOW_TEMPLATE = (_PROMPTS_DIR / "flow.txt").read_text(encoding="utf-8")
+_POSITIONING_TEMPLATE = (_PROMPTS_DIR / "positioning.txt").read_text(encoding="utf-8")
 
 
 def generate_insights(row: dict) -> dict[str, str | None]:
@@ -31,6 +32,30 @@ def generate_insights(row: dict) -> dict[str, str | None]:
         "structural": _generate_or_cache(row, "structural"),
         "curve": _generate_or_cache(row, "curve"),
         "flow": _generate_or_cache(row, "flow"),
+        "positioning": _generate_or_cache(row, "positioning"),
+    }
+
+
+def _positioning_facts(row: dict) -> dict:
+    """Tile 2 positioning-reality story off the row — did the directional flow open?
+    Cluster confirmation by side + opening proxy + near-dated. Observed, not toggled."""
+    t2 = row.get("tile2") or {}
+    side = t2.get("flow_side") or ("put" if row.get("direction") == "puts" else "call")
+    flow_word = "puts" if side == "put" else "calls"
+    other_word = "calls" if side == "put" else "puts"
+    flow_conf = (t2.get("call_confirmation") if side == "call" else t2.get("put_confirmation")) or "unconfirmed"
+    other_conf = (t2.get("put_confirmation") if side == "call" else t2.get("call_confirmation")) or "unconfirmed"
+    trend = (t2.get("call_oi_trend_pct") if side == "call" else t2.get("put_oi_trend_pct")) or 0
+    return {
+        "ticker": row.get("ticker", "TICKER"),
+        "flow_side": flow_word,
+        "other_side": other_word,
+        "flow_conf": flow_conf,
+        "flow_trend": f"{trend:+.0f}",
+        "other_conf": other_conf,
+        "opening_pct": f"{round(t2.get('opening_pct', 0) or 0)}",
+        "near_dated_pct": f"{round(t2.get('near_dated_pct', 0) or 0)}",
+        "sessions": int(t2.get("sessions_available", 0) or 0),
     }
 
 
@@ -95,6 +120,8 @@ def _generate(row: dict, kind: str) -> str:
 def _render_prompt(row: dict, kind: str) -> str:
     if kind == "flow":
         return _FLOW_TEMPLATE.format(**_flow_facts(row))
+    if kind == "positioning":
+        return _POSITIONING_TEMPLATE.format(**_positioning_facts(row))
     if kind == "structural":
         flip = row.get("flip_dist_pct", 0.0)
         return _STRUCTURAL_TEMPLATE.format(
@@ -127,6 +154,11 @@ def _cache_key(row: dict, kind: str) -> tuple:
         return ("flow", f["ticker"], f["dominant"], f["top_strike"],
                 round(float(row.get("ask_side_pct", 0.0) or 0.0) * 10),
                 f["sweeps"])
+    if kind == "positioning":
+        f = _positioning_facts(row)
+        return ("positioning", f["ticker"], f["flow_side"], f["flow_conf"],
+                f["other_conf"], f["sessions"],
+                round(int(f["opening_pct"]) / 10), round(int(f["near_dated_pct"]) / 10))
     if kind == "structural":
         return (
             "structural",
@@ -174,6 +206,20 @@ def _fallback(row: dict, kind: str) -> str:
                 f"<strong>{f['premium']}</strong> premium{f['sweep_clause']}. "
                 f"The tape printed {f['ask_side']} (<strong>{f['ask_pct']}%</strong> at ask) "
                 f"— <em>{'initiated buying' if int(f['ask_pct'] or 0) >= 55 else 'sold into' if int(f['ask_pct'] or 0) and int(f['ask_pct']) <= 45 else 'two-way'}</em>.")
+    if kind == "positioning":
+        f = _positioning_facts(row)
+        if f["sessions"] < 2:
+            return (f"Archive still warming (<strong>{f['sessions']}</strong> settled sessions) — "
+                    f"positioning <em>unconfirmed</em>; strong opening flow stands on its own for now.")
+        verdict = {"building": "<em>confirms</em> — OI grew where the flow hit",
+                   "unwinding": "<em>undercuts</em> it — looks like closing",
+                   "flat": "is <em>neutral</em> — OI flat",
+                   "unconfirmed": "is unconfirmed"}.get(f["flow_conf"], "is unconfirmed")
+        return (f"{f['flow_side'].capitalize()} flow strikes are <strong>{f['flow_conf']}</strong> "
+                f"(<strong>{f['flow_trend']}%</strong> over {f['sessions']} sessions) — {verdict}; "
+                f"the {f['other_side']} side is {f['other_conf']}. "
+                f"<strong>{f['opening_pct']}%</strong> net-new (proxy), <strong>{f['near_dated_pct']}%</strong> "
+                f"near-dated — probabilistic confirmation, not proof.")
     if kind == "structural":
         flip = row.get("flip_dist_pct", 0.0)
         gate = row.get("gates", {}).get("structural", "yellow")
