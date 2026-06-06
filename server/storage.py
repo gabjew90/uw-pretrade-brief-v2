@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -57,14 +58,13 @@ def _data_dir() -> Path:
     return Path(os.environ.get("DATA_DIR", "/data"))
 
 
-def _partition_path(endpoint: str, ticker: str | None, fetched_at: datetime) -> Path:
-    """Build the parquet partition path for this (endpoint, ticker, hour)."""
-    dt = fetched_at.strftime("%Y-%m-%d")
-    hhmm = fetched_at.strftime("%H") + "00"  # bucket to the hour
-    parts = [_data_dir(), "raw", f"endpoint={endpoint}", f"dt={dt}"]
+def _partition_dir(endpoint: str, ticker: str | None, fetched_at: datetime) -> Path:
+    """Directory for this (endpoint, ticker, day). One immutable part file per
+    write lives here (see write_response)."""
+    dt_str = fetched_at.strftime("%Y-%m-%d")
+    parts = [_data_dir(), "raw", f"endpoint={endpoint}", f"dt={dt_str}"]
     if ticker:
         parts.append(f"ticker={ticker}")
-    parts.append(f"part-{hhmm}.parquet")
     return Path(*parts)
 
 
@@ -94,8 +94,8 @@ def write_response(
     Returns True on success, False on any I/O failure (logged, not raised).
     """
     try:
-        path = _partition_path(endpoint, ticker, fetched_at)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        d = _partition_dir(endpoint, ticker, fetched_at)
+        d.mkdir(parents=True, exist_ok=True)
         row = {
             "fetched_at": [fetched_at],
             # ticker omitted: encoded in the partition path (ticker=<TICKER>/)
@@ -105,10 +105,15 @@ def write_response(
             "response": [json.dumps(response, default=str)],
         }
         new_table = pa.table(row, schema=_record_schema())
-        if path.exists():
-            existing = pq.ParquetFile(path).read()
-            new_table = pa.concat_tables([existing, new_table])
-        pq.write_table(new_table, path, compression="zstd", use_dictionary=False)
+        # One immutable part file per write — append-only, atomic. Named so it
+        # sorts newest-last within the day; uuid suffix avoids collisions for
+        # same-second concurrent writes (light-build vs click-build). No
+        # read-modify-write, so concurrent writers can't clobber each other.
+        fname = f"part-{fetched_at.strftime('%H%M%S')}-{uuid.uuid4().hex[:8]}.parquet"
+        path = d / fname
+        tmp = path.with_suffix(".parquet.tmp")
+        pq.write_table(new_table, tmp, compression="zstd", use_dictionary=False)
+        os.replace(tmp, path)   # atomic publish
         return True
     except Exception as e:
         log.error("storage write failed: endpoint=%s ticker=%s err=%s", endpoint, ticker, e)
