@@ -1,9 +1,11 @@
-"""FastAPI app entrypoint. Lifespan task refreshes snapshot every 60s.
+"""FastAPI app entrypoint. Request-driven: no background loop — / and
+/snapshot.json build a light flow grid on demand (cached per-namespace TTL) via
+snapshot.get_or_build_snapshot; clicks build full rows on demand.
 
 Routes:
-  GET /              → prototype HTML hydrated with __SNAPSHOT__ from cache
-  GET /snapshot.json → cached snapshot as JSON (frontend polls every 60s)
-  GET /health        → liveness + snapshot age
+  GET /                  → prototype HTML hydrated with __SNAPSHOT__ (built on request)
+  GET /snapshot.json     → light snapshot JSON; ?refresh=1 forces a flow rebuild
+  GET /health            → liveness + snapshot age
 """
 from __future__ import annotations
 import asyncio
@@ -50,12 +52,6 @@ def _resolve_row(ticker: str):
     if row is not None:
         return row
     return _lookup_cache.get(ticker)
-
-
-_REFRESH_INTERVAL_SECONDS = 120  # 15 tickers × 9 endpoints = 135 calls/cycle; 120s = ~68/min, fits 120/min budget
-# When the market is closed we re-check the clock every 5 min instead of every
-# 120s — resumes within 5 min of the open without spinning UW-free clock checks.
-_CLOSED_RECHECK_SECONDS = 300
 
 
 def _seed_cache_from_disk() -> None:
@@ -116,82 +112,13 @@ async def lifespan(app: FastAPI):
     # Restore today's UW call count from the volume so a cold-boot/redeploy
     # doesn't reset the budget meter to 0 (which masked the real cap 2026-06-01).
     budget.load_persisted()
-    # Seed the snapshot cache from the last persisted good snapshot, so a
-    # cold-boot serves last-close data instead of blank (off-hours / mid-outage).
+    # Request-driven: NO background loop. Seed the last persisted snapshot into
+    # the cache + the front-door RAM so the first page-load repaints instantly
+    # (off-hours / mid-outage) before the request path rebuilds the flow grid.
     _seed_cache_from_disk()
-    # REPLAY mode: no background loop (no live UW); the dashboard runs entirely
-    # off the captured archive.
-    task = None if _replay_enabled() else asyncio.create_task(_refresh_loop())
+    if _snapshot_cache.get("latest") is not None:
+        snapshot_mod._RAM["latest"] = _snapshot_cache["latest"]
     yield
-    if task is None:
-        return
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-
-
-def _next_cached_snapshot(current: Snapshot | None, fresh: Snapshot,
-                          now: datetime) -> Snapshot:
-    """Decide what stays in the cache after one refresh cycle.
-
-    A refresh that yields rows is real data and replaces the cache. A refresh
-    that yields NO rows means the upstream fetch failed — `refresh_snapshot`
-    returns `_empty_snapshot` when the leading flow-alerts call 429s/errors. In
-    that case we KEEP the last good snapshot and stamp `stale_since` rather than
-    blanking the dashboard. Only when there is no prior good snapshot (cold boot
-    mid-outage) do we surface the empty/warming snapshot so /health reports it
-    and the loop keeps retrying instead of freezing a blank.
-
-    Regression guard for the 2026-05-29 outage: a single in-window 429 used to
-    overwrite good data with `rows: []`, which the market-gate then froze for
-    the whole closed period.
-    """
-    if fresh.rows:
-        return fresh
-    if current is not None and current.rows:
-        if current.stale_since is None:
-            current.stale_since = now
-        return current
-    return fresh
-
-
-async def _refresh_loop():
-    while True:
-        # Kill-switch: SNAPSHOT_PAUSED=true skips the UW call entirely. Use this
-        # to give UW's rate-limit window time to fully reset without our traffic.
-        if os.environ.get("SNAPSHOT_PAUSED", "").lower() in ("1", "true", "yes"):
-            log.info("snapshot loop paused (SNAPSHOT_PAUSED env var set); sleeping %ds",
-                     _REFRESH_INTERVAL_SECONDS)
-            await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
-            continue
-
-        # Market-hours gate: options data only moves during RTH. Outside the
-        # window we hold the last-good snapshot and re-check every 5 min. Set
-        # MARKET_GATE_DISABLED=true to force 24/7 (e.g. for debugging).
-        # We gate on having a GOOD (non-empty) snapshot, not merely a non-None
-        # one: a cold boot mid-outage produces an empty snapshot, and we must
-        # keep retrying it rather than freezing a blank dashboard until the open.
-        gate_off = os.environ.get("MARKET_GATE_DISABLED", "").lower() in ("1", "true", "yes")
-        cached = _snapshot_cache.get("latest")
-        have_good = cached is not None and bool(cached.rows)
-        if not gate_off and have_good and not market_hours.market_is_open():
-            log.info("market closed; holding last-good snapshot, re-check in %ds",
-                     _CLOSED_RECHECK_SECONDS)
-            await asyncio.sleep(_CLOSED_RECHECK_SECONDS)
-            continue
-
-        try:
-            fresh = await snapshot_mod.refresh_snapshot()
-            kept = _next_cached_snapshot(cached, fresh, datetime.now(tz=timezone.utc))
-            if kept is cached and not fresh.rows:
-                log.warning("refresh produced 0 rows (upstream failure); holding "
-                            "last-good snapshot, stale_since=%s", kept.stale_since)
-            _snapshot_cache["latest"] = kept
-        except Exception as e:
-            log.exception("snapshot refresh failed: %s", e)
-        await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
 
 
 app = FastAPI(lifespan=lifespan, title="UW Pretrade Brief v2")

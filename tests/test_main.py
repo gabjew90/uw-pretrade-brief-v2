@@ -21,13 +21,14 @@ def _reset_snapshot_cache():
 
 @pytest.fixture
 def client(tmp_data_dir, tmp_path, monkeypatch):
-    # Replace lifespan refresh with no-op so tests don't fire real UW
-    async def noop_refresh():
+    # Replace the request-path build with a no-op so tests don't fire real UW
+    # (/ and /snapshot.json now build on demand via get_or_build_snapshot).
+    async def noop_build(*, force_flow=False):
         from server.schema import Snapshot, Regime
         from datetime import datetime, timezone
         return Snapshot(fetched_at=datetime.now(timezone.utc),
                         regime=Regime(label="normal"), rows=[])
-    monkeypatch.setattr(snapshot_mod, "refresh_snapshot", noop_refresh)
+    monkeypatch.setattr(snapshot_mod, "get_or_build_snapshot", noop_build)
 
     # Use a temp static dir with a minimal stub, so the test doesn't clobber
     # the real static/index.html
@@ -331,58 +332,6 @@ def test_root_returns_html_with_hydration_script(client):
 def test_root_with_deep_link_query_param(client):
     r = client.get("/?t=NVDA")
     assert r.status_code == 200
-
-
-# ── _next_cached_snapshot: a failed/empty refresh must not blank a good snapshot ──
-
-def _snap(has_rows: bool, stale_since=None):
-    """Build a Snapshot whose only test-relevant traits are rows-truthiness and
-    stale_since. model_construct bypasses Row validation so we can use a cheap
-    placeholder row."""
-    from datetime import datetime, timezone
-    from server.schema import Snapshot, Regime
-    return Snapshot.model_construct(
-        fetched_at=datetime.now(timezone.utc),
-        regime=Regime(label="normal"),
-        rows=[object()] if has_rows else [],
-        stale_since=stale_since,
-    )
-
-
-def test_good_refresh_replaces_cache():
-    now = datetime.now(timezone.utc)
-    current = _snap(has_rows=True)
-    fresh = _snap(has_rows=True)
-    assert main._next_cached_snapshot(current, fresh, now) is fresh
-
-
-def test_empty_refresh_keeps_last_good_and_marks_stale():
-    """A 429 → _empty_snapshot must NOT overwrite a good snapshot with blanks.
-    Regression for the 'loads but stale and no artifacts' outage: keep last good,
-    set stale_since."""
-    now = datetime.now(timezone.utc)
-    current = _snap(has_rows=True)
-    empty = _snap(has_rows=False)
-    result = main._next_cached_snapshot(current, empty, now)
-    assert result is current
-    assert result.rows                 # data preserved, not blanked
-    assert result.stale_since == now   # flagged stale for the UI
-
-
-def test_empty_refresh_does_not_overwrite_existing_stale_since():
-    earlier = datetime(2026, 5, 29, 20, 0, tzinfo=timezone.utc)
-    later = datetime(2026, 5, 29, 20, 5, tzinfo=timezone.utc)
-    current = _snap(has_rows=True, stale_since=earlier)
-    result = main._next_cached_snapshot(current, _snap(has_rows=False), later)
-    assert result.stale_since == earlier  # keep the original staleness onset
-
-
-def test_cold_boot_empty_refresh_surfaces_warming_snapshot():
-    """No prior good snapshot (cold boot mid-outage) → surface the empty one so
-    /health reports warming and the loop keeps retrying (not frozen)."""
-    now = datetime.now(timezone.utc)
-    empty = _snap(has_rows=False)
-    assert main._next_cached_snapshot(None, empty, now) is empty
 
 
 def test_atomic_view_stamps_as_of_and_provenance_on_success(tmp_data_dir):
