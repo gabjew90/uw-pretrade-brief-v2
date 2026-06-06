@@ -1302,10 +1302,9 @@ function renderRegimeBanner() {
   // Loud staleness past the flow window (no background refresh exists), plus a
   // one-call "refresh flow" button. User-initiated only — never auto.
   const STALE_S = 60;
-  const ageTxt = ageEl.textContent;
   const hhmm = fetchedAt.toISOString().slice(11, 16);
   const staleHtml = ageSec > STALE_S
-    ? `<span class="flow-stale">flow as of ${hhmm}Z · ${ageTxt}</span> · `
+    ? `<span class="flow-stale">flow as of ${hhmm}Z</span> · `
     : "";
   detailEl.innerHTML = `${snap.rows.length} tickers · ${staleHtml}`
     + `<button id="refresh-grid-btn" class="refresh-grid" title="re-pull flow (1 call); won't disturb an open deep-dive">refresh flow</button>`;
