@@ -576,6 +576,7 @@
   .flow-balance .fb-crumb .call { color: #9ECE6A; font-weight: 700; }
   .flow-balance .fb-crumb .put { color: #F7768E; font-weight: 700; }
   .flow-asof { font-family: var(--ff-mono); font-size: 9px; color: var(--warn); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .flow-trunc { color: var(--neg); }
   .flow-stat-scope { text-transform: none; letter-spacing: 0; color: var(--text-dim); font-size: 8px; }
   .flow-stats {
     display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px;
@@ -1996,8 +1997,8 @@ function renderT1Balance(row) {
   // Breadcrumb makes the nesting explicit so the three figures don't read as one
   // broken-down total: session flow ⊃ opening ⊃ the call/put split.
   const breadcrumb = isOpening
-    ? `${fmtP(totAll)} session → ${fmtP(tot)} opening → <span class="call">${callPct}% calls</span> / <span class="put">${putPct}% puts</span>`
-    : `${fmtP(totAll)} session flow → no opening prints → ${callPct}/${putPct} by total $`;
+    ? `${fmtP(totAll)} shown → ${fmtP(tot)} opening → <span class="call">${callPct}% calls</span> / <span class="put">${putPct}% puts</span>`
+    : `${fmtP(totAll)} shown flow → no opening prints → ${callPct}/${putPct} by total $`;
   return `
     <div class="flow-balance">
       <div class="fb-top">
@@ -2013,16 +2014,21 @@ function renderT1Balance(row) {
     </div>`;
 }
 
-/* Stamp the headline stats with the data's session date so they don't read as
- * live on a weekend (the chart is labeled "last session"; the stat boxes weren't). */
+/* Stamp the FLOW's actual time window (not "session") so it's honest about
+ * coverage. The flow-alerts feed returns only the last N alerts, so on an active
+ * name (SPY) the window is just the tail of the day — flag that explicitly rather
+ * than implying full-session coverage. */
 function _t1SessionStamp(row) {
-  const ts = [];
-  (row.flow_alerts_detail || []).forEach(a => { const t = new Date(a.created_at).getTime(); if (!isNaN(t)) ts.push(t); });
-  (row.ohlc || []).forEach(b => ts.push(b.t * 1000));
-  if (!ts.length) return "";
-  const d = new Date(Math.max(...ts));
-  const lbl = d.toLocaleDateString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric"});
-  return `as of ${lbl} · last session`;
+  const at = (row.flow_alerts_detail || [])
+    .map(a => new Date(a.created_at).getTime()).filter(t => !isNaN(t));
+  if (!at.length) return "";
+  const lo = Math.min(...at), hi = Math.max(...at);
+  const fmtD = t => new Date(t).toLocaleDateString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric"});
+  const fmtT = t => new Date(t).toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
+  // Earliest flow well after the 9:30 open ⇒ the feed returned only the tail (cap hit).
+  const sessOpen = _sessionOpenEpoch(Math.floor(hi / 1000)) * 1000;
+  const truncated = lo > sessOpen + 45 * 60 * 1000;
+  return `flow ${fmtD(hi)} ${fmtT(lo)}–${fmtT(hi)} ET${truncated ? ` · <span class="flow-trunc">last alerts only — not full session</span>` : ""}`;
 }
 
 /* The "shown" stat row — the side + min-$ filtered subset that's actually on the

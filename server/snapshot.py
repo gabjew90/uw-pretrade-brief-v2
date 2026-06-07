@@ -364,10 +364,13 @@ async def build_single_row(ticker: str) -> Row | None:
     Tile 1 quiet). Returns None only if the row build itself fails."""
     ticker = ticker.upper()
     loop = asyncio.get_running_loop()
-    # Per-ticker deep-dive: pull 200 (one call — limit is a page size, not extra
-    # budget) so Tile 1 covers more of the day for very active names. Quiet names
-    # have far fewer alerts than this, so they're unaffected.
-    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 200, ticker))
+    # Per-ticker deep-dive: pull UW's max page (one call — limit is a page size,
+    # not extra budget) so Tile 1 covers as much of the session as possible. NOTE:
+    # very active names (SPY/QQQ) still exceed this in a day, so the page is the
+    # TAIL of the session, not the whole thing — Tile 1 labels the actual time
+    # window + flags truncation so it never claims full-session coverage. (Probed
+    # 2026-06-06: SPY @ 500 = last ~4.5h; the morning is real, just not returned.)
+    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 500, ticker))
     if isinstance(flow_alerts, storage.UWFailure):
         flow_by_ticker = {}
     else:
