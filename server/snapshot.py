@@ -816,10 +816,14 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
             if a.volume_oi_ratio > 0:
                 voi_ks.setdefault(key, []).append(a.volume_oi_ratio)
 
-    # Focus: top (strike, side) pairs by side premium. Fall back to top-OI strikes
-    # (both sides) when flow carries no strike premium.
+    # Focus: top (strike, side) pairs by premium, chosen PER SIDE so a dominant side
+    # can't crowd the other out. A global top-N silently dropped the smaller side
+    # entirely — e.g. SPY index puts (~$171M) buried $40M of real opening call flow,
+    # so calls wrongly showed "no flow". Top 5 each → both sides always represented;
+    # a side is only truly empty when it had no opening flow at all (then: context).
     if prem_ks:
-        focus_ks = sorted(prem_ks, key=lambda key: -prem_ks[key])[:8]
+        _top = lambda sd: sorted((k for k in prem_ks if k[1] == sd), key=lambda k: -prem_ks[k])[:5]
+        focus_ks = _top("call") + _top("put")
     elif oi_history:
         latest = oi_history[-1]["strikes"]
         focus_ks = [(k, side) for k in sorted(latest, key=lambda x: -latest[x])[:4]

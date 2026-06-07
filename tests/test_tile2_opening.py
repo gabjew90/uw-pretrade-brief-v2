@@ -33,6 +33,24 @@ def test_tile2_confirmation_anchors_to_flow_side_not_aggregate():
     assert t2.flow_side == "call"                 # observed side recorded for the frontend anchor
 
 
+def test_tile2_dominant_side_does_not_crowd_out_the_other():
+    """Per-side strike selection: a far-larger side must not bury the other side's
+    real flow. Regression for SPY index puts (~$171M) hiding $40M of opening CALL
+    flow — a global top-N dropped calls entirely, mislabeling them 'no flow'."""
+    def fa(type_, strike, prem):
+        return FlowAlert(created_at="2026-06-03T14:00:00Z", strike=strike, type=type_,
+                         total_premium=prem, total_ask_side_prem=prem, total_bid_side_prem=0,
+                         has_singleleg=True, has_multileg=False, expiry="2026-06-12", volume_oi_ratio=2.0)
+    # six heavy put strikes + one real (smaller) call strike
+    alerts = [fa("put", 100.0 + i, 10_000_000) for i in range(6)] + [fa("call", 120.0, 3_000_000)]
+    t2 = _build_tile2(alerts, [], direction="puts",
+                      now_et=datetime(2026, 6, 6, 12, 0, tzinfo=_ET))
+    sides = {s.side for s in t2.strikes}
+    assert "call" in sides and "put" in sides            # call survives the put deluge
+    assert any(s.strike == 120.0 and s.side == "call" for s in t2.strikes)
+    assert t2.call_is_context is False                   # real call flow, NOT context
+
+
 def test_tile2_context_oi_for_no_flow_side():
     """Settled OI is DECOUPLED from opening flow: a side with no opening flow still
     shows its settled OI at the FLOW side's strikes, as CONTEXT (not a confirmation).
