@@ -826,54 +826,35 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     else:
         focus_ks = []
 
-    # Settlement is keyed to the TRADING calendar, not calendar "today" (which flips
-    # ~4h early in UTC AND invents phantom weekend "sessions" — the OI archive's
-    # partition date is the CAPTURE date, so a weekend page-load writes a Sat/Sun
-    # partition holding Friday's carried-forward OI). A session's OI publishes
-    # ~9:15 AM ET the NEXT TRADING day, so:
-    #   - a weekend/holiday is never a forming session (no live vol/OI);
-    #   - over a weekend the unsettled session is FRIDAY's flow, settling Monday.
+    # Settlement is keyed to the TRADING calendar, not calendar "today" (UTC midnight
+    # flips ~4h early AND the OI archive's partition date is the CAPTURE date, so a
+    # weekend page-load writes a Sat/Sun partition of carried-forward OI). Rule:
+    #   - The forming session is ONLY TODAY's live session — a trading day, once the
+    #     session is underway (>= 9:15 ET). Its OI publishes ~9:15 ET the next trading
+    #     day (settles_on). A weekend/holiday is never forming (market closed).
+    #   - Every other trading-day partition is SETTLED (a bar). Weekend/holiday
+    #     partitions are carried-forward duplicates, never distinct sessions → dropped.
+    # So over a weekend nothing is "forming" and all five weekday bars show.
     from zoneinfo import ZoneInfo
     _ET = ZoneInfo("America/New_York")
     _now_et = now_et or datetime.now(_ET)
-    _SETTLE_T = _time(9, 15)
+    _today = _now_et.date()
 
-    def _settled_by(sess: _date) -> bool:
-        """A trading session's OI has published once ~9:15 ET the next trading day
-        has passed."""
-        publish = datetime.combine(market_hours.next_trading_day(sess), _SETTLE_T, tzinfo=_ET)
-        return _now_et >= publish
+    forming_active = market_hours.is_trading_day(_today) and _now_et.time() >= _time(9, 15)
+    forming_date = _today.isoformat() if forming_active else ""
 
-    # Only real trading-day partitions are sessions; weekend/holiday captures are
-    # carried-forward duplicates of the last session, never distinct bars.
+    # Real trading-day partitions, minus today's still-forming (provisional) snapshot.
     _trading = [s for s in oi_history
                 if (sd := _safe_date(s["date"])) and market_hours.is_trading_day(sd)]
-    settled = [s for s in _trading if _settled_by(_safe_date(s["date"]))]
+    settled = [s for s in _trading if s["date"] != forming_date]
     settled_dates = [s["date"] for s in settled]
     settled_through = max(settled_dates) if settled_dates else ""
 
-    # The forming session = the trading day the displayed FLOW belongs to (max ET
-    # date among the alerts), if its OI hasn't published yet. Fall back to the latest
-    # trading-day partition, then to the most recent trading day as of now.
-    _flow_dates = sorted({d for a in flow_alerts
-                          if (dt := _parse_iso(a.created_at)) is not None
-                          and (d := dt.astimezone(_ET).date())})
-    if _flow_dates:
-        flow_session = _flow_dates[-1]
-    elif _trading:
-        flow_session = max(_safe_date(s["date"]) for s in _trading)
-    else:
-        _today = _now_et.date()
-        flow_session = _today if market_hours.is_trading_day(_today) \
-            else market_hours.prev_trading_day(_today)
-
-    if market_hours.is_trading_day(flow_session) and not _settled_by(flow_session):
+    if forming_active:
         settlement_mode = "forming"
-        forming_date = flow_session.isoformat()
-        settles_on = market_hours.next_trading_day(flow_session).isoformat()
+        settles_on = market_hours.next_trading_day(_today).isoformat()
     else:
         settlement_mode = "settled"
-        forming_date = ""
         settles_on = ""
 
     strike_hist: list[StrikeOIHistory] = []

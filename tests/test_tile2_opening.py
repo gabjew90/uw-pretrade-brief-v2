@@ -108,39 +108,47 @@ def _fa_on(date_iso, type_="call", strike=105.0):
                      has_singleleg=True, has_multileg=False, expiry="2026-06-12", volume_oi_ratio=2.0)
 
 
-def test_tile2_settlement_forming_until_next_trading_day_publish():
-    """The flow's trading session is FORMING until its OI publishes ~9:15am ET the
-    NEXT trading day. Friday 2026-06-05 flow, evaluated Friday 8pm ET → still
-    forming, settling Monday 2026-06-08 (not Saturday)."""
-    t2 = _build_tile2([_fa_on("2026-06-05")], [], direction="calls",
-                      now_et=datetime(2026, 6, 5, 20, 0, tzinfo=_ET))
+def test_tile2_settlement_forming_only_for_todays_live_session():
+    """The forming session is ONLY today's live session (a trading day, after the
+    9:15 ET open). Evaluated Wed 2026-06-03 noon → today is forming, settling the
+    next trading day (Thu). Today's own (provisional) partition is NOT a settled bar."""
+    oi = [{"date": "2026-06-01", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
+          {"date": "2026-06-02", "strikes": {105.0: 1050}, "call": {105.0: 1050}, "put": {}},
+          {"date": "2026-06-03", "strikes": {105.0: 1100}, "call": {105.0: 1100}, "put": {}}]  # today, provisional
+    t2 = _build_tile2([_fa_on("2026-06-03")], oi, direction="calls",
+                      now_et=datetime(2026, 6, 3, 12, 0, tzinfo=_ET))   # Wed noon
     assert t2.settlement_mode == "forming"
-    assert t2.forming_date == "2026-06-05"
-    assert t2.settles_on == "2026-06-08"        # Monday, skipping the weekend
+    assert t2.forming_date == "2026-06-03"
+    assert t2.settles_on == "2026-06-04"        # Thursday
+    assert t2.settled_through == "2026-06-02"    # today's bar excluded
 
 
-def test_tile2_settlement_weekend_is_not_a_session():
-    """Over the weekend the unsettled session is FRIDAY's flow — never Saturday or
-    Sunday (a non-trading 'today'). Even with a phantom Sunday OI partition (a
-    carried-forward capture), the forming date must be Friday and settles Monday."""
-    oi = [{"date": "2026-06-05", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
-          {"date": "2026-06-07", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}}]  # Sun phantom
+def test_tile2_settlement_weekend_shows_all_days_no_forming():
+    """Over the weekend NOTHING is forming (market closed) and every weekday bar
+    shows — Friday's session has settled. A phantom Sunday partition (carried-forward
+    capture) is dropped, never a distinct session."""
+    oi = [{"date": "2026-06-01", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
+          {"date": "2026-06-02", "strikes": {105.0: 1010}, "call": {105.0: 1010}, "put": {}},
+          {"date": "2026-06-03", "strikes": {105.0: 1020}, "call": {105.0: 1020}, "put": {}},
+          {"date": "2026-06-04", "strikes": {105.0: 1030}, "call": {105.0: 1030}, "put": {}},
+          {"date": "2026-06-05", "strikes": {105.0: 1040}, "call": {105.0: 1040}, "put": {}},
+          {"date": "2026-06-07", "strikes": {105.0: 1040}, "call": {105.0: 1040}, "put": {}}]  # Sun phantom
     t2 = _build_tile2([_fa_on("2026-06-05")], oi, direction="calls",
                       now_et=datetime(2026, 6, 7, 12, 0, tzinfo=_ET))   # Sunday noon
-    assert t2.settlement_mode == "forming"
-    assert t2.forming_date == "2026-06-05"      # Friday, NOT Sunday Jun 7
-    assert t2.settles_on == "2026-06-08"        # Monday
-    # The Sunday phantom partition is not a settled bar.
-    assert "2026-06-07" not in t2.settled_through
-
-
-def test_tile2_settlement_settled_after_publish():
-    """Once the next trading day's 9:15 ET passes, the session is settled."""
-    oi = [{"date": "2026-06-02", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
-          {"date": "2026-06-03", "strikes": {105.0: 1100}, "call": {105.0: 1100}, "put": {}}]
-    t2 = _build_tile2([_fa_on("2026-06-03")], oi, direction="calls",
-                      now_et=datetime(2026, 6, 5, 12, 0, tzinfo=_ET))   # Fri, well after Thu publish
     assert t2.settlement_mode == "settled"
-    assert t2.settled_through == "2026-06-03"
     assert t2.forming_date == ""
     assert t2.settles_on == ""
+    assert t2.settled_through == "2026-06-05"     # Friday, the latest weekday
+    assert t2.sessions_available == 5             # all five weekdays, Sunday phantom dropped
+
+
+def test_tile2_settlement_premarket_trading_day_not_yet_forming():
+    """Before the 9:15 ET open on a trading day, today's session hasn't begun, so
+    nothing is forming yet — the prior settled sessions stand."""
+    oi = [{"date": "2026-06-04", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
+          {"date": "2026-06-05", "strikes": {105.0: 1100}, "call": {105.0: 1100}, "put": {}}]
+    t2 = _build_tile2([_fa_on("2026-06-05")], oi, direction="calls",
+                      now_et=datetime(2026, 6, 8, 7, 0, tzinfo=_ET))    # Mon 7am, pre-open
+    assert t2.settlement_mode == "settled"
+    assert t2.forming_date == ""
+    assert t2.settled_through == "2026-06-05"
