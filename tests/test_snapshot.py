@@ -18,7 +18,9 @@ def stub_uw(monkeypatch):
     """Patch UW client layer (not storage layer), so storage._through runs and
     writes parquet naturally."""
     from server import uw
-    def _flow(ticker=None, limit=100):
+    def _flow(ticker=None, limit=100, older_than=None):
+        if older_than:
+            return {"data": []}   # pagination: no older page in the stub
         names = [ticker] if ticker else ["NVDA", "TSLA", "AMD", "PLTR", "AMC",
                                          "AAPL", "GOOGL", "MSFT", "META", "NFLX",
                                          "AMZN", "F", "BAC", "WMT", "JPM"]
@@ -147,7 +149,7 @@ async def test_build_single_row_backfills_oi_history(stub_uw, fresh_storage_stat
 async def test_build_single_row_no_flow_still_builds(stub_uw, fresh_storage_state, tmp_data_dir, monkeypatch):
     """A searched ticker may have NO flow — the row still builds (Tile 1 quiet)."""
     from server import uw
-    monkeypatch.setattr(uw, "fetch_flow_alerts", lambda ticker=None, limit=50: {"data": []})
+    monkeypatch.setattr(uw, "fetch_flow_alerts", lambda ticker=None, limit=50, older_than=None: {"data": []})
     row = await snapshot.build_single_row("ZZZZ")
     assert row is not None and row.ticker == "ZZZZ"
     assert row.flow.alerts == 0   # no flow → quiet, not a crash
@@ -487,3 +489,37 @@ def test_extract_ohlc_keeps_extended_hours():
     bars = snapshot._extract_ohlc(payload)
     closes = {b.c for b in bars}
     assert {1.0, 2.0, 4.0, 5.0} <= closes   # pre, regular, post, field-less all kept
+
+
+async def test_fetch_session_flow_alerts_paginates_to_session_open(monkeypatch):
+    """The flow feed returns only the last N alerts, so an active name needs a few
+    older_than pages to span the session. _fetch_session_flow_alerts must page
+    backward, dedupe, and stop once it reaches the 9:30 ET open."""
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+    from server import snapshot as snap, storage
+    # Alerts every 5 min, 09:35 ET (13:35 UTC, EDT) → 16:00 ET, on 2026-06-05.
+    base = datetime(2026, 6, 5, 13, 35, tzinfo=timezone.utc)
+    allrows = [{"created_at": (base + timedelta(minutes=5 * i)).isoformat().replace("+00:00", "Z"),
+                "option_chain": f"SPY{i}", "ticker": "SPY", "total_premium": "1000"}
+               for i in range(78)]   # ~6.4h of 5-min alerts
+
+    calls = {"n": 0}
+
+    def fake_fetch(limit, ticker, older_than=None):
+        calls["n"] += 1
+        rows = allrows if not older_than else [r for r in allrows if r["created_at"] < older_than]
+        rows = sorted(rows, key=lambda r: r["created_at"], reverse=True)[:limit]
+        return {"data": rows}
+
+    async def direct(loop, fn):   # bypass the executor pool in the test
+        return fn()
+
+    monkeypatch.setattr(storage, "fetch_flow_alerts", fake_fetch)
+    monkeypatch.setattr(snap, "_in_ctx", direct)
+
+    merged = await snap._fetch_session_flow_alerts("SPY", asyncio.get_event_loop(), page=20)
+    cres = [r["created_at"] for r in merged["data"]]
+    assert len(cres) == len(set(cres)) == 78           # all alerts, deduped across pages
+    assert min(cres) == allrows[0]["created_at"]       # reached the 09:35 session start
+    assert calls["n"] >= 4                              # 78/20 → multiple pages, not one

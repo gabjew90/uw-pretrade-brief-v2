@@ -502,15 +502,24 @@ def fetch_earnings(ticker: str, is_hot: bool = False):
                     lambda: uw.fetch_earnings(ticker))
 
 
-def fetch_flow_alerts(limit: int = 100, ticker: str | None = None):
+def fetch_flow_alerts(limit: int = 100, ticker: str | None = None,
+                      older_than: str | None = None):
     # Cross-ticker endpoint; treated as "hot" (60s TTL) since hot-list computation
     # is on the critical path every snapshot. With `ticker`, filtered to that
-    # symbol — used by the on-demand search-any-ticker lookup.
+    # symbol — used by the on-demand search-any-ticker lookup. `older_than` is a
+    # created_at cursor for paginating backward over a session (see
+    # snapshot._fetch_session_flow_alerts); each page is cached on its own key, so
+    # the stable older pages stay cached while only the newest page re-fetches.
     params = {"limit": limit}
     if ticker:
         params["ticker"] = ticker
-    return _through("flow_alerts", ticker, params, True,
-                    lambda: uw.fetch_flow_alerts(ticker=ticker, limit=limit))
+    if older_than:
+        params["older_than"] = older_than
+    # Only pass older_than to the client when paginating, so the common one-page
+    # call shape is unchanged (keeps existing callers/mocks working).
+    uw_call = (lambda: uw.fetch_flow_alerts(ticker=ticker, limit=limit, older_than=older_than)) if older_than \
+        else (lambda: uw.fetch_flow_alerts(ticker=ticker, limit=limit))
+    return _through("flow_alerts", ticker, params, True, uw_call)
 
 
 def fetch_market_tide():

@@ -116,15 +116,20 @@ _FLOW_ALERTS_MAX = 500   # UW caps the page here; asking for more SILENTLY falls
                          # back to 50 (probed 2026-06-06: limit=1000 → 50 rows).
 
 
-def fetch_flow_alerts(ticker: str | None = None, limit: int = 50) -> dict:
+def fetch_flow_alerts(ticker: str | None = None, limit: int = 50,
+                      older_than: str | None = None) -> dict:
     """Recent flow alerts. With `ticker`: filtered to that ticker. Without:
     cross-ticker hot today. Per-ticker /api/stock/{t}/flow-alerts is
     DEPRECATED; this single endpoint serves both uses. `limit` is a page size
     (one call regardless), clamped to UW's max to avoid the silent 50-row
-    fallback when it's exceeded."""
+    fallback when it's exceeded. `older_than` (a created_at value) pages BACKWARD
+    — returns alerts strictly older than it, for covering a full session that
+    exceeds one page (probed working 2026-06-06)."""
     params: dict = {"limit": min(limit, _FLOW_ALERTS_MAX)}
     if ticker:
         params["ticker_symbol"] = ticker
+    if older_than:
+        params["older_than"] = older_than
     return _get("/api/option-trades/flow-alerts", params=params)
 
 

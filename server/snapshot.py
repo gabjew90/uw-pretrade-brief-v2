@@ -357,6 +357,72 @@ async def get_or_build_snapshot(*, force_flow: bool = False) -> Snapshot:
     return fresh
 
 
+_SESSION_FLOW_MAX_PAGES = 6   # hard stop; 6×500 = 3000 alerts covers a busy SPY day
+
+
+def _et_session_open_utc(newest_iso: str):
+    """UTC datetime of 9:30 AM ET on the ET date of `newest_iso` (DST-correct)."""
+    try:
+        from zoneinfo import ZoneInfo
+        et = datetime.fromisoformat(newest_iso.replace("Z", "+00:00")).astimezone(ZoneInfo("America/New_York"))
+        return et.replace(hour=9, minute=30, second=0, microsecond=0).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _parse_iso(s: str):
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+async def _fetch_session_flow_alerts(ticker: str, loop, max_pages: int = _SESSION_FLOW_MAX_PAGES,
+                                     page: int = 500):
+    """Paginate flow-alerts BACKWARD (older_than cursor) until the most-recent
+    session is covered (oldest alert ≤ that session's 9:30 ET open) or
+    `max_pages`. The feed returns only the last N per call, so active names (SPY)
+    need a few pages to span the day; quiet names finish in one. Returns a merged
+    {'data':[...]} deduped by (created_at, option_chain), or the first page's
+    UWFailure if even that fails."""
+    first = await _in_ctx(loop, partial(storage.fetch_flow_alerts, page, ticker))
+    if isinstance(first, storage.UWFailure):
+        return first
+    rows = list(first.get("data") or [])
+    if not rows:
+        return {"data": []}
+    cre = lambda r: r.get("created_at")
+    newest = max((cre(r) for r in rows if cre(r)), default=None)
+    sess_open = _et_session_open_utc(newest) if newest else None
+    seen = {(cre(r), r.get("option_chain")) for r in rows}
+    cursor = min((cre(r) for r in rows if cre(r)), default=None)
+    for _ in range(max_pages - 1):
+        if not cursor:
+            break
+        c_dt = _parse_iso(cursor)
+        if sess_open and c_dt and c_dt <= sess_open:
+            break                                   # session covered
+        nxt = await _in_ctx(loop, partial(storage.fetch_flow_alerts, page, ticker, cursor))
+        if isinstance(nxt, storage.UWFailure):
+            break                                   # keep what we have
+        nrows = nxt.get("data") or []
+        added = [r for r in nrows if (cre(r), r.get("option_chain")) not in seen]
+        if not added:
+            break                                   # no older data
+        for r in added:
+            seen.add((cre(r), r.get("option_chain")))
+        rows.extend(added)
+        cursor = min((cre(r) for r in nrows if cre(r)), default=None)
+    # Trim the overshoot: pagination stops one page PAST the open, so the last page
+    # spills into prior days. Keep only the newest EXTENDED session (pre-market
+    # 4:00 ET onward, matching Tile 1's window) so "session flow" is accurate and
+    # the payload stays lean. Unparseable timestamps are kept (don't lose data).
+    if sess_open:
+        ext_open = sess_open - timedelta(hours=5, minutes=30)   # 09:30 → 04:00 ET
+        rows = [r for r in rows if (_parse_iso(cre(r)) or ext_open) >= ext_open]
+    return {"data": rows}
+
+
 async def build_single_row(ticker: str) -> Row | None:
     """Build a full dashboard row for ANY ticker on demand (search-any-ticker).
     Reuses _build_dashboard_row — the same row the hot-15 get. Fetches the
@@ -364,13 +430,11 @@ async def build_single_row(ticker: str) -> Row | None:
     Tile 1 quiet). Returns None only if the row build itself fails."""
     ticker = ticker.upper()
     loop = asyncio.get_running_loop()
-    # Per-ticker deep-dive: pull UW's max page (one call — limit is a page size,
-    # not extra budget) so Tile 1 covers as much of the session as possible. NOTE:
-    # very active names (SPY/QQQ) still exceed this in a day, so the page is the
-    # TAIL of the session, not the whole thing — Tile 1 labels the actual time
-    # window + flags truncation so it never claims full-session coverage. (Probed
-    # 2026-06-06: SPY @ 500 = last ~4.5h; the morning is real, just not returned.)
-    flow_alerts = await _in_ctx(loop, partial(storage.fetch_flow_alerts, 500, ticker))
+    # Per-ticker deep-dive: paginate the flow feed backward until the whole
+    # session is covered (the feed only returns the last N per call, so an active
+    # name like SPY needs a few pages — quiet names finish in one). A handful of
+    # cached calls; covers the morning the single-page fetch was missing.
+    flow_alerts = await _fetch_session_flow_alerts(ticker, loop)
     if isinstance(flow_alerts, storage.UWFailure):
         flow_by_ticker = {}
     else:
