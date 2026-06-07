@@ -18,9 +18,9 @@ from datetime import date as _date, datetime, timedelta, timezone
 from functools import partial
 from typing import Any
 
-from server import gates, gex, insights, market_regime, storage, uw, universe
+from server import gates, gex, greek_flow as greek_flow_mod, insights, market_regime, storage, uw, universe
 from server import verdict as verdict_mod
-from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, Insights,
+from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, GreekFlow, Insights,
                             NewsItem, OHLCBar, OI, OISessionBar, OIStrike, Regime,
                             Row, Snapshot, StrikeOIHistory, Tile2, Tile3, Tile3Strike,
                             Verdict)
@@ -464,6 +464,22 @@ async def build_single_row(ticker: str) -> Row | None:
     row = await _build_dashboard_row(ticker, flow_info=flow_info, loop=loop,
                                      event_within_hold=event_flag)
     row.insights = Insights(**insights.generate_insights(row.model_dump()))
+    # Tile 1 net-delta composite (display-only). One cached per-minute greek-flow
+    # call; honest-degrade to available=False (renders "unavailable", never a
+    # fabricated curve). Provisional = live & early in the current ET session.
+    try:
+        gflow = await _in_ctx(loop, partial(storage.fetch_greek_flow, ticker))
+        comp = greek_flow_mod.build_composite(gflow if isinstance(gflow, dict) else {})
+        if comp.get("available"):
+            from zoneinfo import ZoneInfo
+            now_et = datetime.now(ZoneInfo("America/New_York"))
+            open_et = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+            mins = (now_et - open_et).total_seconds() / 60
+            comp["provisional"] = (comp.get("session_date") == now_et.date().isoformat()
+                                   and 0 <= mins < 75)   # live & first ~75 min only
+        row.greek_flow = GreekFlow(**comp)
+    except Exception as e:
+        log.warning("greek-flow composite for %s failed (non-fatal): %s", ticker, e)
     # Deep-dive 3-leg verdict (Plan 3). Skew RR25 at a ~30d expiry: PRIMARY = UW's
     # vendor historical-risk-reversal-skew (clean, sign-corrected in verdict_mod);
     # FALLBACK = derived from greeks (call-25Δ IV − put-25Δ IV) when vendor is

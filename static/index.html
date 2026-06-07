@@ -575,6 +575,16 @@
   .flow-balance .fb-crumb { font-family: var(--ff-mono); font-size: 10px; color: var(--text); margin-top: 5px; }
   .flow-balance .fb-crumb .call { color: #9ECE6A; font-weight: 700; }
   .flow-balance .fb-crumb .put { color: #F7768E; font-weight: 700; }
+  /* Net-delta composite */
+  .t1-delta { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid var(--grid); }
+  .t1-delta.diverge { background: rgba(226,75,74,0.10); border-color: var(--neg); }
+  .t1d-lead { font-family: var(--ff-mono); font-size: 12px; font-weight: 700; }
+  .t1-delta.diverge .t1d-lead { color: var(--neg); }
+  .t1d-sub { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); margin-top: 3px; }
+  .t1d-sub b { color: var(--text); }
+  .t1d-caution { color: var(--warn); }
+  .t1d-prov { color: var(--warn); }
+  .t1d-spark { margin: 4px 0 1px; }
   .flow-asof { font-family: var(--ff-mono); font-size: 9px; color: var(--warn); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
   .flow-trunc { color: var(--neg); }
   .flow-stat-scope { text-transform: none; letter-spacing: 0; color: var(--text-dim); font-size: 8px; }
@@ -2019,6 +2029,55 @@ function renderT1Balance(row) {
     </div>`;
 }
 
+/* Net-delta composite (spec 2026-06-06-tile1-greek-flow-delta). Headline =
+ * total_delta_flow (net delta the tape traded), plain-language. Stands DOWN when it
+ * diverges from the opening-$ premium lean (so it can't contradict the rest of the
+ * tile). dir_delta_flow is the directional-conviction caution lens. Deep-dive only;
+ * renders nothing when unavailable (no fabricated curve). */
+function _t1DeltaSpark(cum, net) {
+  if (!cum || cum.length < 2) return "";
+  const W = 140, H = 26, pad = 2;
+  const lo = Math.min(...cum, 0), hi = Math.max(...cum, 0), range = (hi - lo) || 1;
+  const x = i => pad + (W - 2 * pad) * (i / (cum.length - 1));
+  const y = v => pad + (H - 2 * pad) * (1 - (v - lo) / range);
+  const pts = cum.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const col = net >= 0 ? "#9ECE6A" : "#F7768E";
+  return `<svg class="t1d-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;max-width:200px;height:26px;display:block;">
+    <line x1="${pad}" y1="${y(0).toFixed(1)}" x2="${W - pad}" y2="${y(0).toFixed(1)}" stroke="var(--grid)" stroke-width="0.5"/>
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.4"/></svg>`;
+}
+function renderT1DeltaFlow(row) {
+  const gf = row.greek_flow;
+  if (!gf || !gf.available) return "";
+  const fmtSh = n => { const a = Math.abs(n); return a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(0)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : `${Math.round(a)}`; };
+  const net = gf.net_delta || 0;
+  const netBull = net > 0;
+  const chosenBull = row.direction !== "puts";   // opening-$ premium lean
+  const headlineDiverges = netBull !== chosenBull;
+  const dirBull = (gf.dir_delta || 0) > 0;
+  const dirDiverges = (gf.dir_delta || 0) !== 0 && dirBull !== netBull;
+  const acc = gf.accumulation || "";
+  const prov = gf.provisional ? ` · <span class="t1d-prov">provisional — early session</span>` : "";
+  const spark = _t1DeltaSpark(gf.cumsum, net);
+  const netWord = netBull ? "bullish" : "bearish";
+  const sideWord = netBull ? "upside" : "downside";
+  // Coherence guard: when net delta opposes the premium lean, the headline stands
+  // down and leads with the disagreement (no confident claim against the tile).
+  if (headlineDiverges) {
+    return `<div class="t1-delta diverge">
+      <div class="t1d-lead">⚠ net delta is <b>${netWord}</b> (≈${fmtSh(net)} sh ${sideWord}) — disagrees with the <b>${chosenBull ? "calls" : "puts"}</b> premium lean</div>
+      ${spark}
+      <div class="t1d-sub">net options delta traded today · ${acc}${prov}</div>
+    </div>`;
+  }
+  const dirNote = dirDiverges ? ` · <span class="t1d-caution">but directional bets lean ${dirBull ? "bullish" : "bearish"}</span>` : "";
+  return `<div class="t1-delta">
+    <div class="t1d-lead" style="color:${netBull ? "var(--ok)" : "var(--neg)"}">Net delta <b>${netWord}</b> · ≈${fmtSh(net)} sh ${sideWord}</div>
+    ${spark}
+    <div class="t1d-sub">net options delta traded today · <b>${acc}</b>${dirNote}${prov}</div>
+  </div>`;
+}
+
 /* Stamp the FLOW's actual time window (not "session") so it's honest about
  * coverage. The flow-alerts feed returns only the last N alerts, so on an active
  * name (SPY) the window is just the tail of the day — flag that explicitly rather
@@ -2078,6 +2137,7 @@ function renderTile1Flow(row) {
       <button class="help-icon" data-help="tile1">?</button>
     </h3>
     ${renderT1Balance(row)}
+    ${renderT1DeltaFlow(row)}
     ${stamp ? `<div class="flow-asof">${stamp}</div>` : ""}
     <div class="flow-stats" id="t1-stats">${renderT1StatsRow(row)}</div>
     <div class="flow-legend-row">

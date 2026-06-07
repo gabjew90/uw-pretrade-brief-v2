@@ -66,3 +66,68 @@ def is_degenerate(payload, field: str = "dir_delta_flow") -> bool:
     if len(s) < 2:
         return True
     return max(s) == min(s)
+
+
+def session_date(payload):
+    """ET-naive date string of the data (from the newest row's timestamp), or ''."""
+    rows = _data(payload)
+    if not rows:
+        return ""
+    ts = rows[-1].get("timestamp") or ""
+    return ts[:10] if isinstance(ts, str) else ""
+
+
+def accumulation_read(cumsum: list[float]) -> tuple[str, float]:
+    """Path read on a cumsum curve. efficiency = |final| / max(|cumsum|) (1.0 = clean
+    one-way; ≪1 = spiked & reverted). Zero-crossing aware:
+      reversed = the curve crossed to the OPPOSITE side of its peak (flipped sign),
+      fading   = reverted toward zero but stayed the same side (eff ≤ 0.4),
+      building = eff ≥ 0.7, choppy = the 0.4–0.7 middle, flat = no movement."""
+    if not cumsum:
+        return "flat", 0.0
+    final = cumsum[-1]
+    peak = max(cumsum, key=abs)          # signed value at max |.|
+    peak_abs = abs(peak)
+    if peak_abs == 0:
+        return "flat", 0.0
+    eff = abs(final) / peak_abs
+    crossed = (peak > 0 and final < 0) or (peak < 0 and final > 0)
+    if crossed:
+        state = "reversed"
+    elif eff >= 0.7:
+        state = "building"
+    elif eff <= 0.4:
+        state = "fading"
+    else:
+        state = "choppy"
+    return state, round(eff, 2)
+
+
+def _downsample(xs: list[float], n: int = 48) -> list[float]:
+    """Even ≤n-point sample of a curve for a compact sparkline (keeps the last point)."""
+    if len(xs) <= n:
+        return [round(x) for x in xs]
+    step = len(xs) / n
+    out = [round(xs[min(len(xs) - 1, int(i * step))]) for i in range(n)]
+    out[-1] = round(xs[-1])
+    return out
+
+
+def build_composite(payload) -> dict:
+    """Tile 1's net-delta composite (display-only). Headline = total_delta_flow
+    (tape-consistent net delta); dir_delta_flow is the directional-conviction lens.
+    Returns available=False when the tape curve is degenerate (→ 'unavailable',
+    never a silent 'flat')."""
+    if is_degenerate(payload, "total_delta_flow"):
+        return {"available": False}
+    cd_total = cumdelta(payload, "total_delta_flow")
+    state, eff = accumulation_read(cd_total)
+    return {
+        "available": True,
+        "net_delta": round(cd_total[-1]),                     # tape net (headline)
+        "dir_delta": round(session_net(payload, "dir_delta_flow")),  # conviction lens
+        "accumulation": state,
+        "efficiency": eff,
+        "cumsum": _downsample(cd_total, 48),
+        "session_date": session_date(payload),
+    }

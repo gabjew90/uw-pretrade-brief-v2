@@ -1,0 +1,46 @@
+{
+  "data": [
+    {
+      "timestamp": "2026-06-05T13:30:00Z",
+      "ticker": "SPY",
+      "transactions": 12735,
+      "volume": 96265,
+      "dir_delta_flow": "-13189.4245646200774934200",
+      "dir_vega_flow": "57509.1301331412572830500",
+      "otm_dir_delta_flow": "79403.345444522412600",
+      "otm_dir_vega_flow": "-126977.159420976340501700",
+      "otm_total_delta_flow": "-975323.589116034066200",
+      "otm_total_vega_flow": "541638.932126206146814500",
+      "total_delta_flow": "-1175732.8786906477895986200",
+      "total_vega_flow": "1725270.6396851415077122500"
+    },
+    {
+      "timestamp": "2026-06-05T13:31:00Z",
+      "ticker": "SPY",
+      "transactions": 9412,
+      "volume": 59323,
+      "dir_delta_flow": "249715.162091026566300200",
+      "dir_vega_flow": "-45373.6700162140730850300",
+      "otm_dir_delta_flow": "92641.872102301041800",
+      "otm_dir_vega_flow": "-40248.8037168777678447300",
+      "otm_total_delta_flow": "-240438.849510002177100",
+      "otm_total_vega_flow": "238627.1427913269457505700",
+      "total_delta_flow": "-264623.297878766745569800",
+      "total_vega_flow": "787996.5080107510695892700"
+    },
+    {
+      "timestamp": "2026-06-05T13:32:00Z",
+      "ticker": "SPY",
+      "transactions": 8878,
+      "volume": 62700,
+      "dir_delta_flow": "73374.1162057820439305900",
+      "dir_vega_flow": "-130160.9222372646014271100",
+      "otm_dir_delta_flow": "9783.048771202117700",
+      "otm_dir_vega_flow": "-64127.0521385942525196100",
+      "otm_total_delta_flow": "26436.397919297687300",
+      "otm_total_vega_flow": "244976.9470820040214625900",
+      "total_delta_flow": "389539.3197297193104737900",
+      "total_vega_flow": "800872.9488916261490900900"
+    }
+  ]
+}

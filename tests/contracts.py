@@ -56,6 +56,11 @@ CONTRACTS: dict[str, dict] = {
                      "call_vanna", "put_vanna"],
         "note": "tile3_detail: per-expiry charm/vanna drift + dte",
     },
+    "greek_flow": {
+        "required": ["timestamp", "dir_delta_flow", "total_delta_flow"],
+        "note": "greek_flow.build_composite: Tile 1 net-delta composite. PER-MINUTE — "
+                "total_delta_flow=headline (net delta traded), dir_delta_flow=conviction lens",
+    },
     "earnings": {
         "required": [],   # snapshot._extract_days_to_earnings reads several optional
                           # date keys (report_date/start_date/date) with fallback;

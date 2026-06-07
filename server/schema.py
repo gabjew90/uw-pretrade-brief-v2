@@ -196,6 +196,21 @@ class OHLCBar(BaseModel):
     v: float = 0.0
 
 
+class GreekFlow(BaseModel):
+    """Tile 1 net-delta composite (display-only, deep-dive only). Per-minute greek
+    FLOW aggregated over the session. Headline = net_delta (total_delta_flow, the
+    net delta the tape actually traded); dir_delta is the directional-conviction
+    lens (diverges from the tape). See spec 2026-06-06-tile1-greek-flow-delta."""
+    available: bool = False
+    net_delta: float = 0.0      # Σ total_delta_flow — net delta built (headline). +=bullish
+    dir_delta: float = 0.0      # Σ dir_delta_flow — directional-conviction lens (caution on divergence)
+    accumulation: Literal["building", "fading", "reversed", "choppy", "flat"] = "flat"
+    efficiency: float = 0.0     # |final| / max|cumsum| — path cleanliness (0-1)
+    cumsum: list[float] = Field(default_factory=list)  # downsampled net-delta curve (sparkline)
+    session_date: str = ""      # ET date of the data
+    provisional: bool = False   # True when live & early in the session (read not yet trustworthy)
+
+
 class Row(BaseModel):
     # extra="allow" lets _failures and _timestamp pass through as extra fields.
     # Pydantic 2 forbids leading-underscore formal field names, so this is the
@@ -242,6 +257,7 @@ class Row(BaseModel):
     ask_side_pct: float = 0.0
     tile2: Tile2 = Field(default_factory=Tile2)
     tile3: Tile3 = Field(default_factory=Tile3)
+    greek_flow: GreekFlow = Field(default_factory=GreekFlow)   # Tile 1 net-delta composite (deep-dive)
 
 
 class Regime(BaseModel):

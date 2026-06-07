@@ -466,6 +466,13 @@ def fetch_greek_exposure_expiry(ticker: str, is_hot: bool = True):
                     lambda: uw.fetch_greek_exposure_expiry(ticker))
 
 
+def fetch_greek_flow(ticker: str, is_hot: bool = True):
+    """Per-minute intraday greek FLOW (dir/total delta & vega being traded). Hot
+    TTL — drives Tile 1's net-delta composite; fresh per ticker-select."""
+    return _through("greek_flow", ticker, None, is_hot,
+                    lambda: uw.fetch_greek_flow(ticker))
+
+
 def fetch_spot_exposures_expiry_strike(ticker: str, expirations: list[str],
                                        min_strike: float | None = None,
                                        max_strike: float | None = None,

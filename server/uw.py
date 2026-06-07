@@ -141,6 +141,16 @@ def fetch_greek_exposure_expiry(ticker: str, date: str | None = None) -> dict:
     return _get(f"/api/stock/{ticker}/greek-exposure/expiry", params=params)
 
 
+def fetch_greek_flow(ticker: str, date: str | None = None) -> dict:
+    """Per-MINUTE greek FLOW (not standing exposure): dir/total delta & vega flow
+    being traded intraday. Drives Tile 1's net-delta composite. Fields per row:
+    timestamp, dir_delta_flow, total_delta_flow, dir_vega_flow, total_vega_flow,
+    otm_* (decimal strings). PER-MINUTE — daily figure is sum, curve is cumsum.
+    `date` (within ~lookback) pulls a past session (probed working 2026-06-06)."""
+    params = {"date": date} if date else None
+    return _get(f"/api/stock/{ticker}/greek-flow", params=params)
+
+
 def fetch_spot_exposures_expiry_strike(ticker: str, expirations: list[str],
                                        min_strike: float | None = None,
                                        max_strike: float | None = None,

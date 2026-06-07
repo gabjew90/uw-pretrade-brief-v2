@@ -63,3 +63,28 @@ def test_dir_delta_diverges_from_tape_at_event_minute(gf):
     total = greek_flow.value_at_minute(gf, "19:32", "total_delta_flow")
     assert dir_d is not None and total is not None
     assert dir_d > 0 and total < 0             # directional bullish vs total bearish — they disagree
+
+
+# ── Composite (display-only build) ───────────────────────────────────────────
+def test_build_composite_on_fixture(gf):
+    c = greek_flow.build_composite(gf)
+    assert c["available"] is True
+    assert c["net_delta"] < 0                  # 6/5 total_delta net bearish (matches down day)
+    assert c["dir_delta"] > 0                  # directional bucket net bullish (diverges)
+    assert c["session_date"] == "2026-06-05"
+    assert 2 <= len(c["cumsum"]) <= 48         # downsampled curve for the sparkline
+    assert c["accumulation"] in ("building", "fading", "reversed", "choppy", "flat")
+
+
+def test_build_composite_degenerate_is_unavailable():
+    assert greek_flow.build_composite({"data": []})["available"] is False
+    flat = {"data": [{"timestamp": f"2026-06-05T13:3{i}:00Z", "total_delta_flow": "0"} for i in range(5)]}
+    assert greek_flow.build_composite(flat)["available"] is False
+
+
+def test_accumulation_read_states():
+    assert greek_flow.accumulation_read([1, 2, 3, 4, 10])[0] == "building"   # clean one-way
+    assert greek_flow.accumulation_read([10, 8, 4, 2, 1])[0] == "fading"     # reverted toward 0
+    assert greek_flow.accumulation_read([1, 5, 10, 2, -8])[0] == "reversed"  # crossed to opposite
+    assert greek_flow.accumulation_read([1, 10, 3, 8, 5])[0] == "choppy"     # middle band
+    assert greek_flow.accumulation_read([0, 0, 0])[0] == "flat"
