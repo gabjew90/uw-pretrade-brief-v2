@@ -3818,6 +3818,10 @@ function hideTooltip() {
 document.getElementById("tooltip-overlay").addEventListener("click", (e) => {
   if (e.target.id === "tooltip-overlay" || e.target.id === "tooltip-close") hideTooltip();
 });
+// Escape closes the help overlay (standard modal affordance; click-outside + × also work).
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("tooltip-overlay").classList.contains("show")) hideTooltip();
+});
 
 // Event delegation for all tooltip triggers.
 // Intentional 3-way attribute split (skipped Minor #4 namespace consolidation):
