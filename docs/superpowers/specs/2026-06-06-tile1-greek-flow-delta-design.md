@@ -1,7 +1,9 @@
-# Tile 1 Greek-Flow Delta Composite — Design (rev 2)
+# Tile 1 Greek-Flow Delta Composite — Design (rev 3)
 
-**Status:** spec for review (not yet implemented). rev 2 incorporates a live probe
-(2026-06-06) that resolved the load-bearing data questions + review feedback.
+**Status:** spec for review (not yet implemented). rev 2 added a live probe that
+resolved the data questions; rev 3 fixes the sign-calibration fixture (must be a
+clean one-sided session, not divergent 6/5) and makes the delta headline stand down
+on divergence so the tile stays coherent.
 **Goal:** Add a live "is directional **delta** being *built* this session, and is it
 *accumulating* or *round-tripping*?" reading to Tile 1, so the open-state decision
 rests on a real-time composite — not premium/side alone.
@@ -92,26 +94,42 @@ divergence-veto so it can never manufacture false multi-signal confidence.
 
 ## Render (Tile 1, below the opening-$ balance)
 
-- **Net delta built — plain language, no jargon** (the tool is novice-readable):
-  e.g. *"net bullish bets ≈ 1.2M shares of upside being bought today"* /
-  *"net bearish bets ≈ 0.8M shares of downside."* Map signed delta → "≈ N shares of
-  up/downside." Avoid "Δ", "delta-weighted," etc. in the headline.
+- **Headline confidence is CONDITIONAL on agreement** (coherence guard). When delta
+  agrees with the opening-$ direction, lead with the plain-language read (novice-
+  readable, no jargon): *"net bullish bets ≈ 1.2M shares of upside being bought"* /
+  *"net bearish bets ≈ 0.8M shares of downside."* (Map signed delta → "≈ N shares of
+  up/downside"; never "Δ"/"delta-weighted".) **When divergence fires, the standalone
+  delta headline STANDS DOWN** — don't assert "net bullish bets ≈ 5M" while the rest
+  of the tile (puts-lead premium, tide, price, total-delta) reads bearish. Lead
+  instead with the disagreement; a lone bullish headline against an all-bearish
+  screen is the exact misleading display this tool exists to avoid. (6/5 is the live
+  example: opening-$ puts-lead but dir-delta sum +5.1M.)
+- **Divergence chip** (when it fires, and it becomes the lead per above):
+  *"heads-up: premium leans <X> but the delta flow leans <Y> — they disagree."*
 - **Accumulation sparkline**: the **cumsum** curve, with one word — building / fading
   / reversed / choppy.
-- **Divergence chip** (only when it fires): *"heads-up: the premium leans <X> but the
-  delta flow leans <Y> — they disagree."* No chip when they align (no fake confirm).
-- **Provisional gate**: early-session reads (under a min elapsed / min ticks, e.g.
-  < ~60 min or < N rows) are labeled *provisional* — path-efficiency on a half
-  session is low-information; "building at noon can round-trip by 3pm."
+- **Provisional gate keys off the CLOCK, not row count**: a read is provisional only
+  when the session is **live and early** (e.g. < ~60–90 min since the 9:30 ET open) —
+  path-efficiency on a half session is low-information ("building at noon can
+  round-trip by 3pm"). A complete-but-thin session (half-day/holiday) is NOT
+  provisional just because it has few ticks; the closed-state "final" stamp applies.
 - Provenance **live**; on a weekend it's the last session's **final** cumsum, frozen
   under the existing "as of <last session>" stamp (per-session; no fetch when closed).
 
 ## Hard golden-fixture blockers (before the read is trusted)
 
-1. **Sign + aggregation**: assert on a captured payload that `sum(dir_delta_flow)`
-   has the expected sign for a session of known *flow* lean (cross-checked vs the
-   opening-$ direction on the same payload — NOT vs price). The 6/5 data is a usable
-   first fixture (down day, dir-delta net +, total-delta net −).
+1. **Sign + aggregation — calibrate on a CLEAN one-sided session, never a divergent
+   one.** Assert `sum(dir_delta_flow)` has the expected sign on a day of
+   *unambiguous* directional flow — overwhelming ask-side CALL buying, where premium
+   AND delta must both be clearly bullish → a correct convention yields a strongly
+   positive sum ("positive = bullish" pinned). **Do NOT calibrate on 6/5**: it's
+   divergent (opening-$ puts-lead/bearish vs dir-delta sum +5.1M/bullish), so it
+   cannot separate "convention correct + true divergence" from "convention inverted +
+   delta actually agrees" — the field under test is the only evidence of which way
+   delta leaned. Keep 6/5 as the **divergence-test** fixture (perfect for that), not
+   the calibration one. **Dependency:** until sign is pinned on a clean session the
+   divergence-veto can fire backwards, so the read stays display-only (phase 1
+   already is — just stating it).
 2. **Curve population**: assert the per-minute series is real and the **cumsum is
    non-degenerate** (not all-zero / not flat) — a flat/empty array must render
    "unavailable," never a silent permanent "flat." (Same silent-death class as the
