@@ -86,3 +86,30 @@ def test_tile2_strikes_per_side_with_top_expiry_and_premium():
     assert c105.premium_usd == 2_500_000          # both call-105 alerts summed
     assert c105.expiry == "2026-06-12"            # top expiry by $ (2.0M > 0.5M)
     assert t2.strikes[0].premium_usd == 2_500_000  # highest-$ first
+
+
+def _fa_oi(type_, strike, expiry="2026-06-12"):
+    return FlowAlert(created_at="2026-06-05T14:00:00Z", strike=strike, type=type_,
+                     total_premium=1_000_000, total_ask_side_prem=0, total_bid_side_prem=0,
+                     has_singleleg=True, has_multileg=False, expiry=expiry, volume_oi_ratio=2.0)
+
+
+def test_tile2_settlement_forming_for_todays_session():
+    """A session dated TODAY (ET) hasn't settled — mode must be 'forming' (its OI
+    publishes ~9:15am ET next session), driven off ET not UTC."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    oi = [{"date": today, "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}}]
+    t2 = _build_tile2([_fa_oi("call", 105.0)], oi, direction="calls")
+    assert t2.settlement_mode == "forming"
+    assert t2.forming_date == today
+
+
+def test_tile2_settlement_settled_for_old_sessions():
+    oi = [{"date": "2020-01-02", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
+          {"date": "2020-01-03", "strikes": {105.0: 1100}, "call": {105.0: 1100}, "put": {}}]
+    t2 = _build_tile2([_fa_oi("call", 105.0)], oi, direction="calls")
+    assert t2.settlement_mode == "settled"
+    assert t2.settled_through == "2020-01-03"
+    assert t2.forming_date == ""

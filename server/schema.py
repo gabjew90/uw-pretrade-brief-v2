@@ -109,6 +109,13 @@ class Tile2(BaseModel):
     # (the primary "did it build" visual — the verdict above is derived from this).
     call_sessions: list[OISessionBar] = Field(default_factory=list)
     put_sessions: list[OISessionBar] = Field(default_factory=list)
+    # Settlement state (drives Tile 2's FORMING/SETTLED badge). "forming" = the
+    # latest session's OI hasn't published yet (today's live vol/OI, provisional);
+    # "settled" = it landed as a bar and confirms (or kills) that session's flow.
+    # Flipped on the ET ~9:15am publish boundary, not UTC midnight.
+    settlement_mode: Literal["forming", "settled"] = "settled"
+    settled_through: str = ""            # newest settled bar date (ISO)
+    forming_date: str = ""              # the provisional session date, "" when none
     sessions_available: int = 0         # settled days available (target 5)
     strikes: list[StrikeOIHistory] = Field(default_factory=list)
     expiry_distribution: list[ExpirySegment] = Field(default_factory=list)

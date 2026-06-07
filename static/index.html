@@ -662,6 +662,11 @@
   .t2-today-lbl { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.04em; }
   .t2-today-val { font-family: var(--ff-mono); font-size: 10px; font-weight: 700; color: var(--pos); }
   /* Tile 2 both-side cluster headline */
+  /* Settlement mode badge */
+  .t2-settle { font-family: var(--ff-mono); font-size: 10px; font-weight: 700; padding: 5px 9px; border-radius: 6px; margin: 2px 0 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .t2-settle.forming { color: var(--warn); background: rgba(224,175,104,0.10); border: 1px solid rgba(224,175,104,0.35); }
+  .t2-settle.settled { color: var(--ok); background: rgba(154,206,106,0.10); border: 1px solid rgba(154,206,106,0.30); }
+  .t2-settle .t2-settle-sub { font-weight: 400; color: var(--text-dim); text-transform: none; }
   .t2-clusters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 10px; }
   .t2-cluster { padding: 9px 11px; border-radius: 7px; background: var(--panel-3); border: 2px solid var(--grid); text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color 0.12s ease; }
   /* flow side = subtle tint + the "flow side" chip (no blue border, so it doesn't
@@ -2454,6 +2459,7 @@ function renderTile2OI(row) {
   const viewWord = viewSide === "call" ? "Calls" : "Puts";
 
   return `${head}
+    ${renderT2SettleBadge(t2)}
     ${renderT2ClusterCards(t2, viewSide)}
     <div class="t2-agg">
       <div class="t2-agg-title">${viewWord} cluster — aggregate OI · last ${sess} settled session${sess === 1 ? "" : "s"}</div>
@@ -2471,6 +2477,26 @@ function renderTile2OI(row) {
 /* Headline: BOTH side clusters, ALWAYS shown — the call-vs-put comparison IS the
  * signal, so the operator's direction toggle never changes it (observed evidence).
  * Each aggregates that side's flow-hit strike cluster (5-session OI trend). */
+/* FORMING vs SETTLED mode badge. FORMING = the latest session's OI hasn't
+ * published yet (today's live vol/OI, provisional) → confirmation pending. SETTLED
+ * = it landed as a bar and confirms (or kills) that session's flow. Flips on the
+ * ET ~9:15am publish boundary (server-computed), not UTC midnight. */
+function _t2FmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T12:00:00Z");
+  return isNaN(d) ? iso : d.toLocaleDateString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric"});
+}
+function renderT2SettleBadge(t2) {
+  if (t2.settlement_mode === "forming") {
+    const d = _t2FmtDate(t2.forming_date);
+    return `<div class="t2-settle forming">● FORMING${d ? " · " + d : " · today"} — live vol/OI, not yet settled
+      <span class="t2-settle-sub">OI confirms ~9:15am ET next session</span></div>`;
+  }
+  const d = _t2FmtDate(t2.settled_through);
+  return `<div class="t2-settle settled">● SETTLED${d ? " · confirms " + d : ""}
+    <span class="t2-settle-sub">OI published — bars are final</span></div>`;
+}
+
 function renderT2ClusterCards(t2, viewSide) {
   const map = {
     building:    {t: "Building",  c: "var(--ok)",   d: "green",  a: "↑"},

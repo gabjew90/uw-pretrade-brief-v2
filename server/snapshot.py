@@ -377,6 +377,13 @@ def _parse_iso(s: str):
         return None
 
 
+def _safe_date(s):
+    try:
+        return _date.fromisoformat(s)
+    except (TypeError, ValueError):
+        return None
+
+
 async def _fetch_session_flow_alerts(ticker: str, loop, max_pages: int = _SESSION_FLOW_MAX_PAGES,
                                      page: int = 500):
     """Paginate flow-alerts BACKWARD (older_than cursor) until the most-recent
@@ -803,12 +810,24 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     else:
         focus_ks = []
 
-    # Spec: today's OI is NOT settled until ~9am next session, so it is shown
-    # as a live vol/OI ratio — never as a settled bar. Treat the most-recent
-    # archived session as "today" (provisional) and bar only the settled days.
-    today_date = datetime.now(tz=timezone.utc).date().isoformat()
-    settled = [s for s in oi_history if s["date"] != today_date]
+    # Settlement boundary in ET (NOT UTC midnight — that flips ~4h early at 8pm ET).
+    # A session's OI publishes ~9:15 AM ET the next morning, so as of now the most
+    # recent SETTLED date is yesterday (after 9:15 ET) or the day before (before it).
+    # Anything newer than that cutoff is "forming" (today's live vol/OI), never a bar.
+    from zoneinfo import ZoneInfo
+    _now_et = datetime.now(ZoneInfo("America/New_York"))
+    _settle_t = _now_et.replace(hour=9, minute=15, second=0, microsecond=0)
+    settled_cutoff = _now_et.date() - timedelta(days=1 if _now_et >= _settle_t else 2)
+    settled = [s for s in oi_history if _safe_date(s["date"]) and _safe_date(s["date"]) <= settled_cutoff]
     settled_dates = [s["date"] for s in settled]
+    # Settlement mode for the Tile 2 label: "forming" while the latest session's OI
+    # hasn't published yet (today, or the evening after close), then "settled" once
+    # it lands as a bar. Drives the FORMING/SETTLED badge.
+    _all_dates = [s["date"] for s in oi_history if _safe_date(s["date"])]
+    _forming = [d for d in _all_dates if _safe_date(d) > settled_cutoff]
+    settlement_mode = "forming" if _forming else "settled"
+    forming_date = max(_forming) if _forming else ""
+    settled_through = max(settled_dates) if settled_dates else ""
 
     strike_hist: list[StrikeOIHistory] = []
     for (k, side) in focus_ks:
@@ -910,6 +929,9 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         put_oi_trend_pct=put_trend,
         call_sessions=call_sessions,
         put_sessions=put_sessions,
+        settlement_mode=settlement_mode,
+        settled_through=settled_through,
+        forming_date=forming_date,
         sessions_available=n_settled,   # settled days that actually bar
         strikes=strike_hist,
         expiry_distribution=expiry_dist,
