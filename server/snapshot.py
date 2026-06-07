@@ -945,6 +945,51 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     confirmation, oi_trend_5d_pct = (
         (call_confirmation, call_trend) if flow_side == "call" else (put_confirmation, put_trend))
 
+    # ── Decouple settled OI from opening flow (CONTEXT view) ──────────────────
+    # A side with NO opening flow still has settled OI — showing nothing conflates
+    # "no opening flow" with "no OI". So render that side's settled OI at the FLOW
+    # side's near-dated cluster strikes: a two-sided CONTEXT read (is this side also
+    # building at those strikes?), explicitly NOT a confirmation (no bet here to
+    # confirm; flow_side / confirmation are untouched, so the verdict is unaffected).
+    call_is_context = put_is_context = False
+
+    def _context_cluster(empty: str, flow: str):
+        """OI for `empty` side at `flow` side's near-dated cluster strikes.
+        Returns (trend_pct, aggregate_sessions, per-strike entries)."""
+        src_ks = [s.strike for s in strike_hist if s.side == flow and s.in_aggregate]
+        if not src_ks or n_settled < 2:
+            return 0.0, [], []
+        agg = [OISessionBar(date=ss["date"],
+                            oi=sum(int((ss.get(empty) or {}).get(k, 0)) for k in src_ks),
+                            provisional=False)
+               for ss in settled]
+        entries: list[StrikeOIHistory] = []
+        for k in src_ks:
+            bars = [OISessionBar(date=ss["date"], oi=int((ss.get(empty) or {}).get(k, 0)),
+                                 provisional=False) for ss in settled]
+            d_oi, tr = 0, "flat"
+            if len(bars) >= 2 and bars[-2].oi > 0:
+                d_oi = bars[-1].oi - bars[-2].oi
+                r = d_oi / bars[-2].oi
+                tr = "building" if r >= 0.05 else "unwinding" if r <= -0.05 else "flat"
+            entries.append(StrikeOIHistory(strike=k, side=empty, expiry="", dte=-9999,
+                                           in_aggregate=True, is_context=True, sessions=bars,
+                                           delta_oi=d_oi, premium_usd=0.0, trend=tr))
+        first, last = agg[0].oi, agg[-1].oi
+        pct = round((last - first) / first * 100, 1) if first > 0 else 0.0
+        return pct, agg, entries
+
+    _has_call = any(s.side == "call" for s in strike_hist)
+    _has_put = any(s.side == "put" for s in strike_hist)
+    if flow_alerts and _has_put and not _has_call:
+        call_trend, call_sessions, _ctx = _context_cluster("call", "put")
+        strike_hist += _ctx
+        call_is_context = bool(_ctx)
+    elif flow_alerts and _has_call and not _has_put:
+        put_trend, put_sessions, _ctx = _context_cluster("put", "call")
+        strike_hist += _ctx
+        put_is_context = bool(_ctx)
+
     # ── Low-conviction state (name-wide scatter warning) ──────────────────
     n_expiries = len(prem_by_expiry)
     n_strikes = len(prem_by_strike)
@@ -964,6 +1009,8 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         put_confirmation=put_confirmation,
         call_oi_trend_pct=call_trend,
         put_oi_trend_pct=put_trend,
+        call_is_context=call_is_context,
+        put_is_context=put_is_context,
         call_sessions=call_sessions,
         put_sessions=put_sessions,
         settlement_mode=settlement_mode,

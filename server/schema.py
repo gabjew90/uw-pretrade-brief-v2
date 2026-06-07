@@ -76,6 +76,9 @@ class StrikeOIHistory(BaseModel):
     dte: int = 0                                # days-to-expiry of `expiry` (ET); <0 = expired
     in_aggregate: bool = False                  # is this strike in the near-dated cluster that
                                                 # drives the side's headline % (vs a far-dated LEAP)
+    is_context: bool = False                    # CONTEXT entry: this side had no opening flow, so
+                                                # this is its settled OI at the OTHER (flow) side's
+                                                # strike — shown for comparison, NOT a confirmation
     sessions: list[OISessionBar] = Field(default_factory=list)  # oldest→newest (SETTLED days only)
     delta_oi: int = 0           # newest-settled vs prior settled session OI change
     premium_usd: float = 0.0    # flow premium at this (strike, side) — the "money" ranking
@@ -108,6 +111,10 @@ class Tile2(BaseModel):
     put_confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
     call_oi_trend_pct: float = 0.0
     put_oi_trend_pct: float = 0.0
+    # CONTEXT side: had no opening flow, so its OI is shown at the FLOW side's strikes
+    # for comparison (decoupled from opening flow), NOT as a confirmation of a bet.
+    call_is_context: bool = False
+    put_is_context: bool = False
     # Aggregate OI per settled session, summed across each side's flow-hit cluster
     # (the primary "did it build" visual — the verdict above is derived from this).
     call_sessions: list[OISessionBar] = Field(default_factory=list)

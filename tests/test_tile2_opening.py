@@ -33,6 +33,29 @@ def test_tile2_confirmation_anchors_to_flow_side_not_aggregate():
     assert t2.flow_side == "call"                 # observed side recorded for the frontend anchor
 
 
+def test_tile2_context_oi_for_no_flow_side():
+    """Settled OI is DECOUPLED from opening flow: a side with no opening flow still
+    shows its settled OI at the FLOW side's strikes, as CONTEXT (not a confirmation).
+    Puts-only flow → the call side shows call OI at the put-flow strike, flagged
+    context; flow_side/confirmation (the verdict input) stay the put side's."""
+    fa = FlowAlert(created_at="2026-06-03T14:00:00Z", strike=100.0, type="put",
+                   total_premium=1_000_000, total_ask_side_prem=1_000_000, total_bid_side_prem=0,
+                   has_singleleg=True, has_multileg=False, expiry="2026-06-12", volume_oi_ratio=2.0)
+    oi = [{"date": "2026-06-02", "strikes": {100.0: 0}, "call": {100.0: 500}, "put": {100.0: 1000}},
+          {"date": "2026-06-03", "strikes": {100.0: 0}, "call": {100.0: 800}, "put": {100.0: 1200}}]
+    t2 = _build_tile2([fa], oi, direction="puts",
+                      now_et=datetime(2026, 6, 6, 12, 0, tzinfo=_ET))   # Saturday → all settled
+    # Put side: real confirmation (flow there); drives the verdict.
+    assert t2.flow_side == "put" and t2.put_is_context is False
+    assert t2.confirmation == t2.put_confirmation == "building"
+    # Call side: NO flow → CONTEXT (call OI at the put-flow strike), not a confirmation.
+    assert t2.call_is_context is True
+    assert t2.call_confirmation == "unconfirmed"        # no bet → never "confirms"
+    assert [b.oi for b in t2.call_sessions] == [500, 800]
+    ctx = [s for s in t2.strikes if s.side == "call" and s.is_context]
+    assert ctx and ctx[0].strike == 100.0 and [b.oi for b in ctx[0].sessions] == [500, 800]
+
+
 def test_tile2_flow_side_empty_when_no_flow():
     """No flow alerts → direction was a gamma guess, so there's no observed flow
     side; flow_side must be "" so the frontend doesn't imply a confirmed side."""

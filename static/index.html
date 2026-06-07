@@ -710,6 +710,13 @@
   /* no-flow side: nothing to view, so it's a static indicator, not a button. */
   .t2-cluster.noflow { cursor: default; opacity: 0.62; }
   .t2-cluster.noflow:hover { border-color: var(--grid); }
+  /* context side: viewable (settled OI shown), but visibly a secondary read. */
+  .t2-cluster.context { border-style: dashed; }
+  .t2-cl-ctx { font-family: var(--ff-mono); font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em;
+               color: var(--text-dim); border: 1px solid var(--grid); border-radius: 3px; padding: 0 4px; }
+  .t2-context-note { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim);
+                     line-height: 1.4; margin: -2px 0 7px; }
+  .t2-context-note b { color: var(--text); }
   /* Aggregate (primary) OI bars */
   .t2-agg { margin: 2px 0 12px; }
   .t2-agg-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
@@ -2574,18 +2581,23 @@ function renderTile2OI(row) {
   if (!strikes.some(s => s.side === viewSide)) viewSide = (strikes[0] || {}).side || viewSide;
   const aggSessions = viewSide === "call" ? (t2.call_sessions || []) : (t2.put_sessions || []);
   const viewConf = viewSide === "call" ? t2.call_confirmation : t2.put_confirmation;
+  const viewIsContext = viewSide === "call" ? t2.call_is_context : t2.put_is_context;
   const viewStrikes = strikes.filter(s => s.side === viewSide);
   // Optional drill-down: a strike the user TAPPED to expand (within the viewed side).
   const sel = state.t2Strike != null ? viewStrikes.find(s => s.strike === state.t2Strike) : null;
   const sess = t2.sessions_available || 0;
   const viewWord = viewSide === "call" ? "Calls" : "Puts";
+  const otherWord = viewSide === "call" ? "put" : "call";
 
   return `${head}
     ${renderT2SettleBadge(t2)}
     ${renderT2ClusterCards(t2, viewSide)}
     <div class="t2-agg">
-      <div class="t2-agg-title">${viewWord} cluster — aggregate OI · last ${sess} settled session${sess === 1 ? "" : "s"}</div>
-      ${renderT2AggBars(aggSessions, viewConf,
+      <div class="t2-agg-title">${viewIsContext
+          ? `${viewWord} OI @ ${otherWord}-flow strikes (context) · last ${sess} settled session${sess === 1 ? "" : "s"}`
+          : `${viewWord} cluster — aggregate OI · last ${sess} settled session${sess === 1 ? "" : "s"}`}</div>
+      ${viewIsContext ? `<div class="t2-context-note">No ${viewWord.toLowerCase()} flow opened this session — showing ${viewWord.toLowerCase()} <b>settled OI</b> at the ${otherWord}-flow strikes, for comparison. This is context, <b>not</b> a confirmation.</div>` : ""}
+      ${renderT2AggBars(aggSessions, viewIsContext ? "context" : viewConf,
           viewStrikes.length === 0
             ? `no opening ${viewSide === "call" ? "call" : "put"} flow this session — nothing to confirm`
             : `bars fill over the trading week (${sess}/2 settled session${sess === 1 ? "" : "s"})`)}
@@ -2634,15 +2646,20 @@ function renderT2ClusterCards(t2, viewSide) {
   const card = (side) => {
     const conf = side === "call" ? t2.call_confirmation : t2.put_confirmation;
     const pct = (side === "call" ? t2.call_oi_trend_pct : t2.put_oi_trend_pct) || 0;
+    const isContext = side === "call" ? t2.call_is_context : t2.put_is_context;
+    const other = side === "call" ? "put" : "call";
     const sideStrikes = strikes.filter(s => s.side === side);
-    const total = sideStrikes.length;                          // all flow-hit strikes
+    const total = sideStrikes.length;                          // strikes shown (flow or context)
     const inAgg = sideStrikes.filter(s => s.in_aggregate).length || total;  // near-dated cluster
     const isFlow = t2.flow_side === side;
-    const noFlow = total === 0;
-    // "unconfirmed" has TWO distinct causes — never collapse them into "warming"
-    // (which reads as a market state). No opening flow on this side ≠ thin history.
+    const noFlow = total === 0;   // truly nothing — no flow AND no context to show
     let m, sub;
-    if (conf === "unconfirmed") {
+    if (isContext) {
+      // Settled OI shown for a side that had NO opening flow — context, not a bet.
+      m = {t: "Context", c: "var(--text-dim)", d: "gray", a: "·"};
+      sub = `${side} OI at the ${total} ${other}-flow strike${total === 1 ? "" : "s"} · ${pct >= 0 ? "+" : ""}${Math.round(pct)}%`;
+    } else if (conf === "unconfirmed") {
+      // "unconfirmed" has TWO distinct causes — never collapse them into "warming".
       if (noFlow) {
         m = {t: "No flow", c: "var(--axis)", d: "gray", a: "·"};
         sub = "no opening flow on this side";
@@ -2659,14 +2676,17 @@ function renderT2ClusterCards(t2, viewSide) {
         : `${total} strike${total === 1 ? "" : "s"}`;
       sub = `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${breadth}`;
     }
-    // A side with NO flow has nothing to view — don't let it toggle into a dead panel.
-    const cls = `t2-cluster ${isFlow ? "flowside" : ""} ${side === viewSide ? "viewing" : ""} ${noFlow ? "noflow" : ""}`;
-    const act = noFlow ? "" : `onclick="setT2ViewSide('${side}')"`;
-    const ttl = noFlow ? "No opening flow on this side — nothing to view" : `Show the ${side} cluster's aggregate OI`;
-    return `<button class="${cls}" ${act} ${noFlow ? "disabled" : ""} title="${ttl}">
+    // Clickable when there's something to view (a flow cluster OR a context read).
+    const clickable = total > 0;
+    const cls = `t2-cluster ${isFlow ? "flowside" : ""} ${side === viewSide ? "viewing" : ""} ${noFlow ? "noflow" : ""} ${isContext ? "context" : ""}`;
+    const act = clickable ? `onclick="setT2ViewSide('${side}')"` : "";
+    const ttl = !clickable ? "No opening flow on this side — nothing to view"
+      : isContext ? `Show ${side} settled OI at the ${other}-flow strikes (context)`
+      : `Show the ${side} cluster's aggregate OI`;
+    return `<button class="${cls}" ${act} ${clickable ? "" : "disabled"} title="${ttl}">
       <div class="t2-cl-top">
         <span class="t2-cl-side ${side}">${side === "call" ? "CALLS" : "PUTS"}</span>
-        ${isFlow ? `<span class="t2-cl-flow">flow side</span>` : ""}
+        ${isFlow ? `<span class="t2-cl-flow">flow side</span>` : isContext ? `<span class="t2-cl-ctx">context</span>` : ""}
       </div>
       <div class="t2-cl-verdict" style="color:${m.c}"><span class="gate-dot ${m.d}"></span>${m.a} ${m.t}</div>
       <div class="t2-cl-sub">${sub}</div>
@@ -2768,9 +2788,11 @@ function renderOiSingleStrike(s) {
   const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";
   const deltaColor = s.delta_oi > 0 ? "var(--ok)" : s.delta_oi < 0 ? "var(--neg)" : "var(--axis)";
   const trendBadge = s.trend === "building" ? "↑ building" : s.trend === "unwinding" ? "↓ unwinding" : "→ flat";
-  // When the strike is outside the near-dated cluster, say so — it's NOT in the
-  // side's headline % (an expired weekly or a far-dated LEAP shown for completeness).
-  const excluded = s.in_aggregate ? "" :
+  // Context entry (this side had no opening flow — OI shown at a flow-side strike),
+  // or a strike outside the near-dated cluster (expired / far-dated LEAP): say which.
+  const excluded = s.is_context
+    ? `<div class="t2-single-excl">context — no ${s.side} flow opened; this is ${s.side} settled OI at this strike</div>`
+    : s.in_aggregate ? "" :
     `<div class="t2-single-excl">${s.dte < 0 ? "expired" : "far-dated"} — not in the near-dated confirmation</div>`;
   return `
     <div class="t2-single">
