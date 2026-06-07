@@ -70,15 +70,35 @@ def test_build_composite_on_fixture(gf):
     c = greek_flow.build_composite(gf)
     assert c["available"] is True
     assert c["net_delta"] < 0                  # 6/5 total_delta net bearish (matches down day)
-    assert c["dir_delta"] > 0                  # directional bucket net bullish (diverges)
+    assert c["dir_delta"] > 0                  # directional bucket net bullish (diverges) — the LED read
     assert c["session_date"] == "2026-06-05"
     assert 2 <= len(c["cumsum"]) <= 48         # downsampled curve for the sparkline
     assert c["accumulation"] in ("building", "fading", "reversed", "choppy", "flat")
 
 
+def test_build_composite_curve_follows_directional_lead(gf):
+    """The sparkline/accumulation must track the LED (directional) curve, not the
+    tape — so the curve agrees with the dir_delta headline. The downsampled cumsum's
+    final point therefore matches dir_delta's sign (>0 on 6/5), opposite the bearish
+    total_delta tape."""
+    c = greek_flow.build_composite(gf)
+    assert c["cumsum"][-1] > 0                  # ends bullish — the directional curve
+    assert (c["cumsum"][-1] > 0) == (c["dir_delta"] > 0)
+
+
+def test_build_composite_unavailable_when_directional_degenerate():
+    """Guard is on the LED (directional) series: a flat directional curve renders
+    'unavailable' even if total_delta carries signal — we never assert a directional
+    headline off a dead directional curve."""
+    flat_dir = {"data": [{"timestamp": f"2026-06-05T13:3{i}:00Z",
+                          "dir_delta_flow": "0", "total_delta_flow": str(1000 * i)}
+                         for i in range(5)]}
+    assert greek_flow.build_composite(flat_dir)["available"] is False
+
+
 def test_build_composite_degenerate_is_unavailable():
     assert greek_flow.build_composite({"data": []})["available"] is False
-    flat = {"data": [{"timestamp": f"2026-06-05T13:3{i}:00Z", "total_delta_flow": "0"} for i in range(5)]}
+    flat = {"data": [{"timestamp": f"2026-06-05T13:3{i}:00Z", "dir_delta_flow": "0"} for i in range(5)]}
     assert greek_flow.build_composite(flat)["available"] is False
 
 

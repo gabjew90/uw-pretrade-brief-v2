@@ -114,20 +114,27 @@ def _downsample(xs: list[float], n: int = 48) -> list[float]:
 
 
 def build_composite(payload) -> dict:
-    """Tile 1's net-delta composite (display-only). Headline = total_delta_flow
-    (tape-consistent net delta); dir_delta_flow is the directional-conviction lens.
-    Returns available=False when the tape curve is degenerate (→ 'unavailable',
-    never a silent 'flat')."""
-    if is_degenerate(payload, "total_delta_flow"):
+    """Tile 1's net-delta composite (display-only). LEAD = dir_delta_flow (the
+    directional single-leg bets — the strategy-relevant read); total_delta_flow is
+    the 'all-flow incl. hedges' cross-read. The sparkline + accumulation path follow
+    the LED (directional) curve so the headline and the curve agree. Returns
+    available=False when the directional curve is degenerate (→ 'unavailable', never
+    a silent 'flat').
+
+    NB sign convention: the 6/5 event anchor pins total_delta_flow's sign
+    (negative=bearish) but dir_delta_flow ran the OTHER way at that minute, so the
+    DIRECTIONAL sign is NOT independently validated — the render leads cautiously and
+    stands down on divergence rather than asserting a confident directional call."""
+    if is_degenerate(payload, "dir_delta_flow"):
         return {"available": False}
-    cd_total = cumdelta(payload, "total_delta_flow")
-    state, eff = accumulation_read(cd_total)
+    cd_dir = cumdelta(payload, "dir_delta_flow")
+    state, eff = accumulation_read(cd_dir)
     return {
         "available": True,
-        "net_delta": round(cd_total[-1]),                     # tape net (headline)
-        "dir_delta": round(session_net(payload, "dir_delta_flow")),  # conviction lens
+        "dir_delta": round(cd_dir[-1]),                              # directional bets (headline/led)
+        "net_delta": round(session_net(payload, "total_delta_flow")),  # all-flow incl. hedges (secondary)
         "accumulation": state,
         "efficiency": eff,
-        "cumsum": _downsample(cd_total, 48),
+        "cumsum": _downsample(cd_dir, 48),
         "session_date": session_date(payload),
     }

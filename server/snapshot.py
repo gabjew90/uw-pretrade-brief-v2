@@ -14,11 +14,11 @@ import contextvars
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date as _date, datetime, timedelta, timezone
+from datetime import date as _date, datetime, time as _time, timedelta, timezone
 from functools import partial
 from typing import Any
 
-from server import gates, gex, greek_flow as greek_flow_mod, insights, market_regime, storage, uw, universe
+from server import gates, gex, greek_flow as greek_flow_mod, insights, market_hours, market_regime, storage, uw, universe
 from server import verdict as verdict_mod
 from server.schema import (DarkPool, ExpirySegment, Flow, FlowAlert, GreekFlow, Insights,
                             NewsItem, OHLCBar, OI, OISessionBar, OIStrike, Regime,
@@ -762,7 +762,7 @@ _HOLD_WINDOW_DAYS = 45   # "near-dated" for Tile 2 confirmation: weeklies + fron
 
 
 def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
-                 direction: str = "calls") -> Tile2:
+                 direction: str = "calls", *, now_et: datetime | None = None) -> Tile2:
     """Assemble Tile 2's positioning-reality model from:
       - flow_alerts: opening read (volume_oi_ratio) + per-strike premium + expiry
       - oi_history: oldest→newest daily OI snapshots from our parquet archive
@@ -826,24 +826,55 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     else:
         focus_ks = []
 
-    # Settlement boundary in ET (NOT UTC midnight — that flips ~4h early at 8pm ET).
-    # A session's OI publishes ~9:15 AM ET the next morning, so as of now the most
-    # recent SETTLED date is yesterday (after 9:15 ET) or the day before (before it).
-    # Anything newer than that cutoff is "forming" (today's live vol/OI), never a bar.
+    # Settlement is keyed to the TRADING calendar, not calendar "today" (which flips
+    # ~4h early in UTC AND invents phantom weekend "sessions" — the OI archive's
+    # partition date is the CAPTURE date, so a weekend page-load writes a Sat/Sun
+    # partition holding Friday's carried-forward OI). A session's OI publishes
+    # ~9:15 AM ET the NEXT TRADING day, so:
+    #   - a weekend/holiday is never a forming session (no live vol/OI);
+    #   - over a weekend the unsettled session is FRIDAY's flow, settling Monday.
     from zoneinfo import ZoneInfo
-    _now_et = datetime.now(ZoneInfo("America/New_York"))
-    _settle_t = _now_et.replace(hour=9, minute=15, second=0, microsecond=0)
-    settled_cutoff = _now_et.date() - timedelta(days=1 if _now_et >= _settle_t else 2)
-    settled = [s for s in oi_history if _safe_date(s["date"]) and _safe_date(s["date"]) <= settled_cutoff]
+    _ET = ZoneInfo("America/New_York")
+    _now_et = now_et or datetime.now(_ET)
+    _SETTLE_T = _time(9, 15)
+
+    def _settled_by(sess: _date) -> bool:
+        """A trading session's OI has published once ~9:15 ET the next trading day
+        has passed."""
+        publish = datetime.combine(market_hours.next_trading_day(sess), _SETTLE_T, tzinfo=_ET)
+        return _now_et >= publish
+
+    # Only real trading-day partitions are sessions; weekend/holiday captures are
+    # carried-forward duplicates of the last session, never distinct bars.
+    _trading = [s for s in oi_history
+                if (sd := _safe_date(s["date"])) and market_hours.is_trading_day(sd)]
+    settled = [s for s in _trading if _settled_by(_safe_date(s["date"]))]
     settled_dates = [s["date"] for s in settled]
-    # Settlement mode for the Tile 2 label: "forming" while the latest session's OI
-    # hasn't published yet (today, or the evening after close), then "settled" once
-    # it lands as a bar. Drives the FORMING/SETTLED badge.
-    _all_dates = [s["date"] for s in oi_history if _safe_date(s["date"])]
-    _forming = [d for d in _all_dates if _safe_date(d) > settled_cutoff]
-    settlement_mode = "forming" if _forming else "settled"
-    forming_date = max(_forming) if _forming else ""
     settled_through = max(settled_dates) if settled_dates else ""
+
+    # The forming session = the trading day the displayed FLOW belongs to (max ET
+    # date among the alerts), if its OI hasn't published yet. Fall back to the latest
+    # trading-day partition, then to the most recent trading day as of now.
+    _flow_dates = sorted({d for a in flow_alerts
+                          if (dt := _parse_iso(a.created_at)) is not None
+                          and (d := dt.astimezone(_ET).date())})
+    if _flow_dates:
+        flow_session = _flow_dates[-1]
+    elif _trading:
+        flow_session = max(_safe_date(s["date"]) for s in _trading)
+    else:
+        _today = _now_et.date()
+        flow_session = _today if market_hours.is_trading_day(_today) \
+            else market_hours.prev_trading_day(_today)
+
+    if market_hours.is_trading_day(flow_session) and not _settled_by(flow_session):
+        settlement_mode = "forming"
+        forming_date = flow_session.isoformat()
+        settles_on = market_hours.next_trading_day(flow_session).isoformat()
+    else:
+        settlement_mode = "settled"
+        forming_date = ""
+        settles_on = ""
 
     strike_hist: list[StrikeOIHistory] = []
     for (k, side) in focus_ks:
@@ -948,6 +979,7 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         settlement_mode=settlement_mode,
         settled_through=settled_through,
         forming_date=forming_date,
+        settles_on=settles_on,
         sessions_available=n_settled,   # settled days that actually bar
         strikes=strike_hist,
         expiry_distribution=expiry_dist,

@@ -13,7 +13,7 @@ ET conversion uses zoneinfo (tzdata is a pinned dependency so this resolves
 inside the slim container).
 """
 from __future__ import annotations
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 _ET = ZoneInfo("America/New_York")
@@ -39,6 +39,22 @@ def is_trading_day(d: date) -> bool:
     if d.weekday() >= 5:                  # Sat=5, Sun=6
         return False
     return d.isoformat() not in _HOLIDAYS
+
+
+def next_trading_day(d: date) -> date:
+    """The first trading day strictly after `d` (skips weekends + holidays)."""
+    d += timedelta(days=1)
+    while not is_trading_day(d):
+        d += timedelta(days=1)
+    return d
+
+
+def prev_trading_day(d: date) -> date:
+    """The most recent trading day strictly before `d` (skips weekends + holidays)."""
+    d -= timedelta(days=1)
+    while not is_trading_day(d):
+        d -= timedelta(days=1)
+    return d
 
 
 def market_is_open(now_utc: datetime | None = None) -> bool:

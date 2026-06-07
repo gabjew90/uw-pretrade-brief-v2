@@ -109,13 +109,15 @@ class Tile2(BaseModel):
     # (the primary "did it build" visual — the verdict above is derived from this).
     call_sessions: list[OISessionBar] = Field(default_factory=list)
     put_sessions: list[OISessionBar] = Field(default_factory=list)
-    # Settlement state (drives Tile 2's FORMING/SETTLED badge). "forming" = the
-    # latest session's OI hasn't published yet (today's live vol/OI, provisional);
-    # "settled" = it landed as a bar and confirms (or kills) that session's flow.
-    # Flipped on the ET ~9:15am publish boundary, not UTC midnight.
+    # Settlement state (drives Tile 2's FORMING/SETTLED badge). Keyed to the TRADING
+    # calendar, NOT calendar "today": a weekend/holiday is never a forming session.
+    # "forming" = the flow's trading session whose OI hasn't published yet (it
+    # confirms ~9:15am ET the NEXT trading day = settles_on); "settled" = it landed
+    # as a bar and confirms (or kills) that session's flow.
     settlement_mode: Literal["forming", "settled"] = "settled"
     settled_through: str = ""            # newest settled bar date (ISO)
-    forming_date: str = ""              # the provisional session date, "" when none
+    forming_date: str = ""              # the unsettled trading-session date, "" when none
+    settles_on: str = ""               # next trading day its OI publishes (ISO), "" when settled
     sessions_available: int = 0         # settled days available (target 5)
     strikes: list[StrikeOIHistory] = Field(default_factory=list)
     expiry_distribution: list[ExpirySegment] = Field(default_factory=list)
@@ -198,15 +200,17 @@ class OHLCBar(BaseModel):
 
 class GreekFlow(BaseModel):
     """Tile 1 net-delta composite (display-only, deep-dive only). Per-minute greek
-    FLOW aggregated over the session. Headline = net_delta (total_delta_flow, the
-    net delta the tape actually traded); dir_delta is the directional-conviction
-    lens (diverges from the tape). See spec 2026-06-06-tile1-greek-flow-delta."""
+    FLOW aggregated over the session. LEAD = dir_delta (directional single-leg bets,
+    the strategy-relevant read); net_delta (total_delta_flow, all flow incl. hedges)
+    is the secondary cross-read. The directional sign is NOT independently validated,
+    so the render leads cautiously and stands down on divergence rather than
+    asserting a confident call. See spec 2026-06-06-tile1-greek-flow-delta."""
     available: bool = False
-    net_delta: float = 0.0      # Σ total_delta_flow — net delta built (headline). +=bullish
-    dir_delta: float = 0.0      # Σ dir_delta_flow — directional-conviction lens (caution on divergence)
+    dir_delta: float = 0.0      # Σ dir_delta_flow — directional bets (headline/LED). +=bullish
+    net_delta: float = 0.0      # Σ total_delta_flow — all-flow incl. hedges (secondary cross-read)
     accumulation: Literal["building", "fading", "reversed", "choppy", "flat"] = "flat"
     efficiency: float = 0.0     # |final| / max|cumsum| — path cleanliness (0-1)
-    cumsum: list[float] = Field(default_factory=list)  # downsampled net-delta curve (sparkline)
+    cumsum: list[float] = Field(default_factory=list)  # downsampled DIRECTIONAL curve (sparkline)
     session_date: str = ""      # ET date of the data
     provisional: bool = False   # True when live & early in the session (read not yet trustworthy)
 

@@ -1,4 +1,10 @@
-# Tile 1 Greek-Flow Delta Composite — Design (rev 4)
+# Tile 1 Greek-Flow Delta Composite — Design (rev 5)
+
+**rev 5 (2026-06-06, post-review):** field choice REVERSED — `dir_delta_flow`
+(directional bets) now LEADS the headline; `total_delta_flow` is the demoted
+"all-flow incl. hedges" secondary; render stands down on divergence and flags the
+unvalidated directional sign. See §Field choice. (`build_composite` now leads the
+curve/accumulation/degeneracy-guard off `dir_delta_flow`; render rewritten.)
 
 **Status:** **PHASE 1 SHIPPED** (main 8badd10) — fetch wiring, `build_composite`,
 `schema.GreekFlow`, `build_single_row` integration, Tile 1 render (headline +
@@ -58,11 +64,23 @@ total_vega_flow` (decimal strings).
    So the core needs ONE endpoint: `greek-flow`. net-prem-ticks' $-premium series is
    optional later context, not required — drops us to one extra call.
 
-## Field choice — RESOLVED: `total_delta_flow` leads (operator, 2026-06-06)
+## Field choice — REVERSED in rev 5: `dir_delta_flow` LEADS (operator, 2026-06-06)
 
-Decision: the plain-language headline ("net delta built") is **`total_delta_flow`**
-(tape-consistent); **`dir_delta_flow` is the directional-conviction caution lens**,
-surfaced via its divergence from the headline/premium. Rationale below.
+**rev 5 (current):** the operator reversed the rev-4 decision. The headline now
+LEADS with **`dir_delta_flow`** (the directional single-leg bets — the
+strategy-relevant read); **`total_delta_flow` is demoted to a labeled "all-flow
+incl. hedges" secondary cross-read**. The sparkline + accumulation path follow the
+DIRECTIONAL curve so the curve agrees with the headline. Critically, the directional
+SIGN is **not** independently validated (the 6/5 event pinned *total*'s sign, but
+*dir* ran the other way that minute — see Blocker #1), so the render leads cautiously
+("sign still being calibrated") and **stands down on divergence**: when the
+directional bets disagree with the broader tape OR the premium lean, it surfaces
+"directional bets and the broader tape disagree — low conviction" instead of a
+confident directional headline. The 6/5 example (dir +5.1M vs total −97M, puts-lead
+premium) is exactly that stand-down case → the verdict correctly lands on Stand down.
+
+The rev-4 reasoning (kept for the record) was the opposite — `total_delta_flow`
+leads, `dir_delta_flow` is the caution lens:
 
 The 3:32 PM event check (below) surfaced that `dir_delta_flow` and `total_delta_flow`
 behave very differently, so which one is the user-facing "net delta built" is a real

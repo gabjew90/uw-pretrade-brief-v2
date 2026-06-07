@@ -1,6 +1,9 @@
 """Tile 2 positioning-reality: cluster confirmation anchored to the flow side,
 never the name-wide call+put aggregate. (The count-based opening_pct was dropped —
 opening intensity lives as per-strike vol/OI + Tile 1's $-weighted opening-$ headline.)"""
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from server.snapshot import _build_tile2
 from server.schema import FlowAlert
 
@@ -94,22 +97,50 @@ def _fa_oi(type_, strike, expiry="2026-06-12"):
                      has_singleleg=True, has_multileg=False, expiry=expiry, volume_oi_ratio=2.0)
 
 
-def test_tile2_settlement_forming_for_todays_session():
-    """A session dated TODAY (ET) hasn't settled — mode must be 'forming' (its OI
-    publishes ~9:15am ET next session), driven off ET not UTC."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    oi = [{"date": today, "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}}]
-    t2 = _build_tile2([_fa_oi("call", 105.0)], oi, direction="calls")
+_ET = ZoneInfo("America/New_York")
+
+
+def _fa_on(date_iso, type_="call", strike=105.0):
+    """A flow alert created at 14:00 UTC on a given ET date (so its ET session date
+    is unambiguous)."""
+    return FlowAlert(created_at=f"{date_iso}T14:00:00Z", strike=strike, type=type_,
+                     total_premium=1_000_000, total_ask_side_prem=0, total_bid_side_prem=0,
+                     has_singleleg=True, has_multileg=False, expiry="2026-06-12", volume_oi_ratio=2.0)
+
+
+def test_tile2_settlement_forming_until_next_trading_day_publish():
+    """The flow's trading session is FORMING until its OI publishes ~9:15am ET the
+    NEXT trading day. Friday 2026-06-05 flow, evaluated Friday 8pm ET → still
+    forming, settling Monday 2026-06-08 (not Saturday)."""
+    t2 = _build_tile2([_fa_on("2026-06-05")], [], direction="calls",
+                      now_et=datetime(2026, 6, 5, 20, 0, tzinfo=_ET))
     assert t2.settlement_mode == "forming"
-    assert t2.forming_date == today
+    assert t2.forming_date == "2026-06-05"
+    assert t2.settles_on == "2026-06-08"        # Monday, skipping the weekend
 
 
-def test_tile2_settlement_settled_for_old_sessions():
-    oi = [{"date": "2020-01-02", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
-          {"date": "2020-01-03", "strikes": {105.0: 1100}, "call": {105.0: 1100}, "put": {}}]
-    t2 = _build_tile2([_fa_oi("call", 105.0)], oi, direction="calls")
+def test_tile2_settlement_weekend_is_not_a_session():
+    """Over the weekend the unsettled session is FRIDAY's flow — never Saturday or
+    Sunday (a non-trading 'today'). Even with a phantom Sunday OI partition (a
+    carried-forward capture), the forming date must be Friday and settles Monday."""
+    oi = [{"date": "2026-06-05", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
+          {"date": "2026-06-07", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}}]  # Sun phantom
+    t2 = _build_tile2([_fa_on("2026-06-05")], oi, direction="calls",
+                      now_et=datetime(2026, 6, 7, 12, 0, tzinfo=_ET))   # Sunday noon
+    assert t2.settlement_mode == "forming"
+    assert t2.forming_date == "2026-06-05"      # Friday, NOT Sunday Jun 7
+    assert t2.settles_on == "2026-06-08"        # Monday
+    # The Sunday phantom partition is not a settled bar.
+    assert "2026-06-07" not in t2.settled_through
+
+
+def test_tile2_settlement_settled_after_publish():
+    """Once the next trading day's 9:15 ET passes, the session is settled."""
+    oi = [{"date": "2026-06-02", "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}},
+          {"date": "2026-06-03", "strikes": {105.0: 1100}, "call": {105.0: 1100}, "put": {}}]
+    t2 = _build_tile2([_fa_on("2026-06-03")], oi, direction="calls",
+                      now_et=datetime(2026, 6, 5, 12, 0, tzinfo=_ET))   # Fri, well after Thu publish
     assert t2.settlement_mode == "settled"
-    assert t2.settled_through == "2020-01-03"
+    assert t2.settled_through == "2026-06-03"
     assert t2.forming_date == ""
+    assert t2.settles_on == ""

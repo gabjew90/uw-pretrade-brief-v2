@@ -2011,9 +2011,11 @@ function renderT1Balance(row) {
   const leadCol = callPct >= putPct ? "var(--ok)" : "var(--neg)";
   // Breadcrumb makes the nesting explicit so the three figures don't read as one
   // broken-down total: session flow ⊃ opening ⊃ the call/put split.
+  // "total flow" (full session), NOT "shown" — "shown" is reserved for the ≥min-$
+  // box below so the two numbers stop colliding under one word.
   const breadcrumb = isOpening
-    ? `${fmtP(totAll)} shown → ${fmtP(tot)} opening → <span class="call">${callPct}% calls</span> / <span class="put">${putPct}% puts</span>`
-    : `${fmtP(totAll)} shown flow → no opening prints → ${callPct}/${putPct} by total $`;
+    ? `${fmtP(totAll)} total flow → ${fmtP(tot)} opening → <span class="call">${callPct}% calls</span> / <span class="put">${putPct}% puts</span>`
+    : `${fmtP(totAll)} total flow → no opening prints → ${callPct}/${putPct} by total $`;
   return `
     <div class="flow-balance">
       <div class="fb-top">
@@ -2029,11 +2031,13 @@ function renderT1Balance(row) {
     </div>`;
 }
 
-/* Net-delta composite (spec 2026-06-06-tile1-greek-flow-delta). Headline =
- * total_delta_flow (net delta the tape traded), plain-language. Stands DOWN when it
- * diverges from the opening-$ premium lean (so it can't contradict the rest of the
- * tile). dir_delta_flow is the directional-conviction caution lens. Deep-dive only;
- * renders nothing when unavailable (no fabricated curve). */
+/* Net-delta composite (spec 2026-06-06-tile1-greek-flow-delta, rev 5). LEAD =
+ * dir_delta (directional single-leg bets, the strategy-relevant read); net_delta
+ * (total_delta_flow, all flow incl. hedges) is the secondary cross-read. The
+ * directional SIGN is not independently validated, so the headline leads cautiously
+ * and STANDS DOWN on divergence — when the directional bets disagree with the
+ * broader tape or the premium lean, it surfaces the disagreement instead of a
+ * confident call. Deep-dive only; nothing when unavailable (no fabricated curve). */
 function _t1DeltaSpark(cum, net) {
   if (!cum || cum.length < 2) return "";
   const W = 140, H = 26, pad = 2;
@@ -2050,31 +2054,36 @@ function renderT1DeltaFlow(row) {
   const gf = row.greek_flow;
   if (!gf || !gf.available) return "";
   const fmtSh = n => { const a = Math.abs(n); return a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(0)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : `${Math.round(a)}`; };
-  const net = gf.net_delta || 0;
-  const netBull = net > 0;
+  const dir = gf.dir_delta || 0;        // directional single-leg bets — the LED read
+  const total = gf.net_delta || 0;      // all-flow incl. hedges/spreads — secondary cross-read
+  const dirBull = dir > 0;
+  const totalBull = total > 0;
   const chosenBull = row.direction !== "puts";   // opening-$ premium lean
-  const headlineDiverges = netBull !== chosenBull;
-  const dirBull = (gf.dir_delta || 0) > 0;
-  const dirDiverges = (gf.dir_delta || 0) !== 0 && dirBull !== netBull;
+  // Divergence = the directional bets disagree with the broader tape OR the premium
+  // lean. Either way conviction is low; the lone directional headline stands down.
+  const vsTotal = total !== 0 && dirBull !== totalBull;
+  const vsPrem = dir !== 0 && dirBull !== chosenBull;
+  const diverges = dir !== 0 && (vsTotal || vsPrem);
   const acc = gf.accumulation || "";
   const prov = gf.provisional ? ` · <span class="t1d-prov">provisional — early session</span>` : "";
-  const spark = _t1DeltaSpark(gf.cumsum, net);
-  const netWord = netBull ? "bullish" : "bearish";
-  const sideWord = netBull ? "upside" : "downside";
-  // Coherence guard: when net delta opposes the premium lean, the headline stands
-  // down and leads with the disagreement (no confident claim against the tile).
-  if (headlineDiverges) {
+  const spark = _t1DeltaSpark(gf.cumsum, dir);
+  const dirWord = dirBull ? "bullish" : "bearish";
+  const totWord = totalBull ? "bullish" : "bearish";
+  const dirSide = dirBull ? "upside" : "downside";
+  if (diverges) {
+    // Stand down: don't assert a side. Show both numbers neutrally and name the split.
     return `<div class="t1-delta diverge">
-      <div class="t1d-lead">⚠ net delta is <b>${netWord}</b> (≈${fmtSh(net)} sh ${sideWord}) — disagrees with the <b>${chosenBull ? "calls" : "puts"}</b> premium lean</div>
+      <div class="t1d-lead">⚠ directional bets and the broader tape disagree — <b>low conviction</b></div>
       ${spark}
-      <div class="t1d-sub">net options delta traded today · ${acc}${prov}</div>
+      <div class="t1d-sub">directional bets ≈${fmtSh(dir)} sh ${dirSide} (${acc}) · all-flow incl. hedges ${totWord} (≈${fmtSh(total)} sh)${prov}</div>
     </div>`;
   }
-  const dirNote = dirDiverges ? ` · <span class="t1d-caution">but directional bets lean ${dirBull ? "bullish" : "bearish"}</span>` : "";
+  // Agree: lead with the directional read, but flag the unvalidated sign (small +
+  // calibrating ⇒ measured, not a confident green). Total shown as confirming.
   return `<div class="t1-delta">
-    <div class="t1d-lead" style="color:${netBull ? "var(--ok)" : "var(--neg)"}">Net delta <b>${netWord}</b> · ≈${fmtSh(net)} sh ${sideWord}</div>
+    <div class="t1d-lead" style="color:${dirBull ? "var(--ok)" : "var(--neg)"}">Directional bets lean <b>${dirWord}</b> · ≈${fmtSh(dir)} sh ${dirSide}</div>
     ${spark}
-    <div class="t1d-sub">net options delta traded today · <b>${acc}</b>${dirNote}${prov}</div>
+    <div class="t1d-sub">directional single-leg bets · <b>${acc}</b> · all-flow incl. hedges agrees (≈${fmtSh(total)} sh) · <span class="t1d-caution">sign still being calibrated</span>${prov}</div>
   </div>`;
 }
 
@@ -2503,7 +2512,7 @@ function renderTile2OI(row) {
   const strikes = t2.strikes || [];   // each: {strike, side, expiry, premium_usd, sessions, ...}
   if (strikes.length === 0) {
     return `${head}
-      <div class="t2-empty">No flow-targeted strikes for ${row.ticker} yet — first cycle still warming.</div>`;
+      <div class="t2-empty">No opening-flow strikes for ${row.ticker} yet.</div>`;
   }
 
   // Which side's AGGREGATE bars + per-strike to view. Defaults to the flow side;
@@ -2537,10 +2546,10 @@ function renderTile2OI(row) {
 /* Headline: BOTH side clusters, ALWAYS shown — the call-vs-put comparison IS the
  * signal, so the operator's direction toggle never changes it (observed evidence).
  * Each aggregates that side's flow-hit strike cluster (5-session OI trend). */
-/* FORMING vs SETTLED mode badge. FORMING = the latest session's OI hasn't
- * published yet (today's live vol/OI, provisional) → confirmation pending. SETTLED
- * = it landed as a bar and confirms (or kills) that session's flow. Flips on the
- * ET ~9:15am publish boundary (server-computed), not UTC midnight. */
+/* FORMING vs SETTLED mode badge. Keyed to the TRADING calendar (server-computed),
+ * never calendar "today": a weekend/holiday is never a forming session. FORMING =
+ * the flow's trading session whose OI hasn't published yet → it confirms ~9:15am ET
+ * the NEXT trading day (settles_on). SETTLED = it landed as a bar (final). */
 function _t2FmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T12:00:00Z");
@@ -2549,8 +2558,9 @@ function _t2FmtDate(iso) {
 function renderT2SettleBadge(t2) {
   if (t2.settlement_mode === "forming") {
     const d = _t2FmtDate(t2.forming_date);
-    return `<div class="t2-settle forming">● FORMING${d ? " · " + d : " · today"} — live vol/OI, not yet settled
-      <span class="t2-settle-sub">OI confirms ~9:15am ET next session</span></div>`;
+    const on = _t2FmtDate(t2.settles_on);
+    return `<div class="t2-settle forming">● FORMING${d ? " · " + d + " flow" : ""} — OI not yet published
+      <span class="t2-settle-sub">${on ? "confirms " + on + " ~9:15am ET" : "confirms ~9:15am ET next trading day"}</span></div>`;
   }
   const d = _t2FmtDate(t2.settled_through);
   return `<div class="t2-settle settled">● SETTLED${d ? " · confirms " + d : ""}
@@ -2562,18 +2572,29 @@ function renderT2ClusterCards(t2, viewSide) {
     building:    {t: "Building",  c: "var(--ok)",   d: "green",  a: "↑"},
     unwinding:   {t: "Unwinding", c: "var(--neg)",  d: "red",    a: "↓"},
     flat:        {t: "Flat",      c: "var(--axis)", d: "yellow", a: "→"},
-    unconfirmed: {t: "Warming",   c: "var(--axis)", d: "yellow", a: "·"},
   };
   const strikes = t2.strikes || [];
+  const sess = t2.sessions_available || 0;
   const card = (side) => {
     const conf = side === "call" ? t2.call_confirmation : t2.put_confirmation;
     const pct = (side === "call" ? t2.call_oi_trend_pct : t2.put_oi_trend_pct) || 0;
     const n = strikes.filter(s => s.side === side).length;
-    const m = map[conf] || map.unconfirmed;
     const isFlow = t2.flow_side === side;
-    const sub = conf === "unconfirmed"
-      ? (n ? "archive warming" : "no flow this side")
-      : `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${n} strike${n === 1 ? "" : "s"}`;
+    // "unconfirmed" has TWO distinct causes — never collapse them into "warming"
+    // (which reads as a market state). No opening flow on this side ≠ thin history.
+    let m, sub;
+    if (conf === "unconfirmed") {
+      if (n === 0) {
+        m = {t: "No flow", c: "var(--axis)", d: "gray", a: "·"};
+        sub = "no opening flow on this side";
+      } else {
+        m = {t: "Pending", c: "var(--warn)", d: "yellow", a: "·"};
+        sub = `awaiting settled OI · ${sess}/2 sessions`;
+      }
+    } else {
+      m = map[conf];
+      sub = `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${n} strike${n === 1 ? "" : "s"}`;
+    }
     return `<button class="t2-cluster ${isFlow ? "flowside" : ""} ${side === viewSide ? "viewing" : ""}"
                     onclick="setT2ViewSide('${side}')" title="Show the ${side} cluster's aggregate OI">
       <div class="t2-cl-top">
@@ -2611,7 +2632,7 @@ function _t2BarH(oi, lo, hi) {
 function _t2BarsSvg(sessions, col) {
   const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B`
                   : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
-  if (!sessions.length) return `<div class="t2-bars-warming">settled bars build over the week (archive warming)</div>`;
+  if (!sessions.length) return `<div class="t2-bars-warming">no settled sessions yet — bars fill over the trading week</div>`;
   const ois = sessions.map(b => b.oi);
   const lo = Math.min(...ois), hi = Math.max(...ois);
   return sessions.map(b => {
