@@ -585,6 +585,16 @@
   .t1d-caution { color: var(--warn); }
   .t1d-prov { color: var(--warn); }
   .t1d-spark { margin: 4px 0 1px; }
+  .t1d-lead { line-height: 1.4; }
+  .t1d-graphnote { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+  .t1d-details { margin-top: 5px; }
+  .t1d-details > summary { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); cursor: pointer; list-style: none; }
+  .t1d-details > summary::-webkit-details-marker { display: none; }
+  .t1d-details > summary::before { content: "▸ "; }
+  .t1d-details[open] > summary::before { content: "▾ "; }
+  .t1d-details[open] > summary { color: var(--text); }
+  .t1d-nums { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.4; }
+  .t1d-note { opacity: 0.8; margin-top: 2px; }
   .flow-asof { font-family: var(--ff-mono); font-size: 9px; color: var(--warn); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
   .flow-trunc { color: var(--neg); }
   .flow-stat-scope { text-transform: none; letter-spacing: 0; color: var(--text-dim); font-size: 8px; }
@@ -2065,25 +2075,41 @@ function renderT1DeltaFlow(row) {
   const vsPrem = dir !== 0 && dirBull !== chosenBull;
   const diverges = dir !== 0 && (vsTotal || vsPrem);
   const acc = gf.accumulation || "";
-  const prov = gf.provisional ? ` · <span class="t1d-prov">provisional — early session</span>` : "";
+  const prov = gf.provisional ? `<div class="t1d-graphnote"><span class="t1d-prov">provisional — early session, read not yet settled</span></div>` : "";
   const spark = _t1DeltaSpark(gf.cumsum, dir);
-  const dirWord = dirBull ? "bullish" : "bearish";
-  const totWord = totalBull ? "bullish" : "bearish";
+  const dirWord = dirBull ? "up" : "down";
   const dirSide = dirBull ? "upside" : "downside";
+  const totSide = totalBull ? "upside" : "downside";
+  // "broader flow" = the all-flow tape if it carries a sign, else the premium lean.
+  const broadWord = (total !== 0 ? totalBull : chosenBull) ? "up" : "down";
+  // Plain-language one-liner for the sparkline, keyed to the accumulation path.
+  const accLine = {
+    building: "built steadily one way through the day — some conviction",
+    fading:   "spiked, then drifted back toward flat — fading conviction",
+    reversed: "flipped to the other side late in the day",
+    choppy:   "wandered up and down — no steady conviction",
+    flat:     "barely moved",
+  }[acc] || "tracks those bets through the day";
+  // Raw share figures tucked behind an expander — the box's job here is the read,
+  // not the delta arithmetic. "all-flow" includes hedges/spreads, not just bets.
+  const details = `<details class="t1d-details"><summary>show the numbers</summary>
+    <div class="t1d-nums">clear directional bets ≈${fmtSh(dir)} sh ${dirSide} · all-flow incl. hedges ≈${fmtSh(total)} sh ${totSide}
+    <div class="t1d-note">“all-flow” counts hedges &amp; spreads too, not just outright bets — that’s why the two can point opposite ways.</div></div></details>`;
   if (diverges) {
-    // Stand down: don't assert a side. Show both numbers neutrally and name the split.
+    // Stand down: one plain sentence (the caution), graph labelled, numbers tucked away.
     return `<div class="t1-delta diverge">
-      <div class="t1d-lead">⚠ directional bets and the broader tape disagree — <b>low conviction</b></div>
+      <div class="t1d-lead">⚠ <b>Mixed read.</b> The clear directional bets lean slightly ${dirWord}, but the overall flow leans ${broadWord} — they disagree, so there’s no confident direction here.</div>
       ${spark}
-      <div class="t1d-sub">directional bets ≈${fmtSh(dir)} sh ${dirSide} (${acc}) · all-flow incl. hedges ${totWord} (≈${fmtSh(total)} sh)${prov}</div>
+      <div class="t1d-graphnote">the graph tracks whether those directional bets piled up one way — here it ${accLine}.</div>
+      ${details}${prov}
     </div>`;
   }
-  // Agree: lead with the directional read, but flag the unvalidated sign (small +
-  // calibrating ⇒ measured, not a confident green). Total shown as confirming.
+  // Agree: one plain sentence, still flagging the unvalidated directional sign.
   return `<div class="t1-delta">
-    <div class="t1d-lead" style="color:${dirBull ? "var(--ok)" : "var(--neg)"}">Directional bets lean <b>${dirWord}</b> · ≈${fmtSh(dir)} sh ${dirSide}</div>
+    <div class="t1d-lead" style="color:${dirBull ? "var(--ok)" : "var(--neg)"}">The directional bets lean <b>${dirWord === "up" ? "bullish" : "bearish"}</b>, and the overall flow agrees — a ${dirWord === "up" ? "modest upside" : "modest downside"} lean.</div>
     ${spark}
-    <div class="t1d-sub">directional single-leg bets · <b>${acc}</b> · all-flow incl. hedges agrees (≈${fmtSh(total)} sh) · <span class="t1d-caution">sign still being calibrated</span>${prov}</div>
+    <div class="t1d-graphnote">the graph tracks whether those bets piled up one way — here it ${accLine}. <span class="t1d-caution">(direction sign still being calibrated)</span></div>
+    ${details}${prov}
   </div>`;
 }
 
@@ -2532,7 +2558,10 @@ function renderTile2OI(row) {
     ${renderT2ClusterCards(t2, viewSide)}
     <div class="t2-agg">
       <div class="t2-agg-title">${viewWord} cluster — aggregate OI · last ${sess} settled session${sess === 1 ? "" : "s"}</div>
-      ${renderT2AggBars(aggSessions, viewConf)}
+      ${renderT2AggBars(aggSessions, viewConf,
+          viewStrikes.length === 0
+            ? `no opening ${viewSide === "call" ? "call" : "put"} flow this session — nothing to confirm`
+            : `bars fill over the trading week (${sess}/2 settled session${sess === 1 ? "" : "s"})`)}
     </div>
     <div class="t2-minis-wrap">
       <div class="t2-minis-title">By strike <span class="t2-minis-hint">(tap to expand)</span></div>
@@ -2615,9 +2644,9 @@ function setT2ViewSide(side) {
 
 /* Aggregate OI bars for a cluster — the PRIMARY "did it build" visual (the verdict
  * card is derived from this). Colored by the cluster's confirmation. */
-function renderT2AggBars(sessions, conf) {
+function renderT2AggBars(sessions, conf, emptyMsg) {
   const col = conf === "building" ? "#9ECE6A" : conf === "unwinding" ? "#F7768E" : "#5a6378";
-  return `<div class="t2-bars t2-bars-single">${_t2BarsSvg(sessions, col)}</div>`;
+  return `<div class="t2-bars t2-bars-single">${_t2BarsSvg(sessions, col, emptyMsg)}</div>`;
 }
 /* Bar height that AMPLIFIES the day-to-day spread: OI over a week is often within a
  * narrow band (e.g. 900–1100), so a raw oi/max makes every bar look ~full. Scale to
@@ -2629,10 +2658,10 @@ function _t2BarH(oi, lo, hi) {
 }
 /* Shared 5-bar OI markup (settled sessions, oldest→newest) used by the aggregate
  * and the per-strike drill-down. */
-function _t2BarsSvg(sessions, col) {
+function _t2BarsSvg(sessions, col, emptyMsg) {
   const fmtK = n => n >= 1e12 ? `${(n / 1e12).toFixed(1)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B`
                   : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
-  if (!sessions.length) return `<div class="t2-bars-warming">no settled sessions yet — bars fill over the trading week</div>`;
+  if (!sessions.length) return `<div class="t2-bars-warming">${emptyMsg || "bars fill over the trading week"}</div>`;
   const ois = sessions.map(b => b.oi);
   const lo = Math.min(...ois), hi = Math.max(...ois);
   return sessions.map(b => {
