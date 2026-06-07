@@ -1,8 +1,11 @@
 # Tile 1 Greek-Flow Delta Composite — Design (rev 4)
 
-**Status:** spec under review. **Both hard blockers are now CLEARED** with golden-
-fixture tests (`tests/test_greek_flow.py` + `server/greek_flow.py` + captured
-fixture) — the rest (fetch wiring, render, verdict) is still to build. rev 4: pinned
+**Status:** **PHASE 1 SHIPPED** (main 8badd10) — fetch wiring, `build_composite`,
+`schema.GreekFlow`, `build_single_row` integration, Tile 1 render (headline +
+sparkline + divergence stand-down + dir-conviction caution), contract + golden
+fixture. Both hard blockers CLEARED with golden-fixture tests. **Deferred:** verdict
+modifier (until thresholds eyeballed over real sessions); vega flow; net-prem-ticks
+$-curve. rev 4: pinned
 the sign convention via a known-direction EVENT (no clean-session wait needed), and
 the probe reversed the field choice — `total_delta_flow` (tape-consistent) should
 lead the headline, `dir_delta_flow` (directional-conviction, diverges from the tape)
