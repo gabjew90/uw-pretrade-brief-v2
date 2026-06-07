@@ -142,6 +142,21 @@ def test_tile2_settlement_weekend_shows_all_days_no_forming():
     assert t2.sessions_available == 5             # all five weekdays, Sunday phantom dropped
 
 
+def test_tile2_settlement_caps_to_five_sessions():
+    """The read window is widened to survive weekend/holiday gaps, so when more than
+    five settled trading sessions are present the display caps to the most recent 5."""
+    oi = [{"date": d, "strikes": {105.0: 1000}, "call": {105.0: 1000}, "put": {}}
+          for d in ["2026-05-26", "2026-05-27", "2026-05-28", "2026-05-29",
+                    "2026-06-01", "2026-06-02", "2026-06-03"]]   # 7 trading days
+    t2 = _build_tile2([_fa_on("2026-06-03")], oi, direction="calls",
+                      now_et=datetime(2026, 6, 6, 12, 0, tzinfo=_ET))   # Saturday → nothing forming
+    assert t2.sessions_available == 5
+    assert t2.settled_through == "2026-06-03"
+    # oldest two dropped, newest five kept
+    assert [b.date for b in t2.call_sessions] == [
+        "2026-05-28", "2026-05-29", "2026-06-01", "2026-06-02", "2026-06-03"]
+
+
 def test_tile2_settlement_premarket_trading_day_not_yet_forming():
     """Before the 9:15 ET open on a trading day, today's session hasn't begun, so
     nothing is forming yet — the prior settled sessions stand."""

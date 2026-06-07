@@ -33,7 +33,7 @@ def main() -> int:
     args = ap.parse_args()
 
     url = f"{args.url}/admin/export?token={args.token}&days={args.days}"
-    print(f"downloading archive from {args.url} (last {args.days} days)…")
+    print(f"downloading archive from {args.url} (last {args.days} days)...")
     try:
         with urllib.request.urlopen(url, timeout=120) as resp:
             blob = resp.read()
@@ -46,7 +46,7 @@ def main() -> int:
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
         tar.extractall(dest)
     n = sum(1 for _ in dest.rglob("*") if _.is_file())
-    print(f"unpacked {len(blob)//1024} KiB → {dest} ({n} files)")
+    print(f"unpacked {len(blob)//1024} KiB -> {dest} ({n} files)")
     print(f"\nrun the dashboard offline:\n"
           f"  DATA_DIR={dest} REPLAY=1 uvicorn server.main:app --port 8000")
     return 0

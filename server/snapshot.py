@@ -578,9 +578,10 @@ async def _build_dashboard_row(ticker: str, *, flow_info: dict, loop, event_with
     # Tile 2: positioning reality check. 5-session OI from our own parquet
     # archive (tier-independent); per-strike delta from spot_exposures. Confirms
     # OI growth at the flow's strikes on the DIRECTION's side (not the aggregate).
-    # Fetch 6 sessions so that, after dropping today (provisional, not settled),
-    # up to 5 SETTLED sessions remain to bar.
-    oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 6))
+    # Fetch 9 partitions so that, after dropping non-trading-day captures (weekend /
+    # holiday carried-forward dupes) and today's provisional snapshot, ~5 SETTLED
+    # trading sessions still remain to bar — even across a weekend + a holiday.
+    oi_history = await _in_ctx(loop, partial(storage.read_oi_history, ticker, 9))
     tile2 = _build_tile2(flow_alerts_detail, oi_history, direction)
     # Tile 3: real per-strike net dealer gamma for the structural ladder, from
     # the spot-exposures payload already fetched above (no extra UW call).
@@ -844,9 +845,11 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     forming_date = _today.isoformat() if forming_active else ""
 
     # Real trading-day partitions, minus today's still-forming (provisional) snapshot.
+    # Cap to the most recent 5 SETTLED sessions (oldest→newest) — the read window is
+    # widened to survive weekend/holiday gaps, so trim back to the 5-session target.
     _trading = [s for s in oi_history
                 if (sd := _safe_date(s["date"])) and market_hours.is_trading_day(sd)]
-    settled = [s for s in _trading if s["date"] != forming_date]
+    settled = [s for s in _trading if s["date"] != forming_date][-5:]
     settled_dates = [s["date"] for s in settled]
     settled_through = max(settled_dates) if settled_dates else ""
 
