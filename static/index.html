@@ -572,6 +572,9 @@
   .flow-balance .fb-legend { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); margin-top: 4px; }
   .flow-balance .fb-legend .call { color: #639922; }
   .flow-balance .fb-legend .put { color: #E24B4A; }
+  .flow-balance .fb-crumb { font-family: var(--ff-mono); font-size: 10px; color: var(--text); margin-top: 5px; }
+  .flow-balance .fb-crumb .call { color: #9ECE6A; font-weight: 700; }
+  .flow-balance .fb-crumb .put { color: #F7768E; font-weight: 700; }
   .flow-asof { font-family: var(--ff-mono); font-size: 9px; color: var(--warn); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
   .flow-stat-scope { text-transform: none; letter-spacing: 0; color: var(--text-dim); font-size: 8px; }
   .flow-stats {
@@ -1990,10 +1993,11 @@ function renderT1Balance(row) {
   const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
   const lead = callPct >= putPct ? "calls" : "puts";
   const leadCol = callPct >= putPct ? "var(--ok)" : "var(--neg)";
-  // "opening $" is the subset of the session's total flow that's opening (vol/OI>1).
-  // The stat box below shows the SHOWN (filtered) premium, a different scope — so
-  // spell out this denominator to avoid two unexplained "totals".
-  const ofTotal = isOpening ? ` · ${fmtP(tot)} opening of ${fmtP(totAll)} session flow` : "";
+  // Breadcrumb makes the nesting explicit so the three figures don't read as one
+  // broken-down total: session flow ⊃ opening ⊃ the call/put split.
+  const breadcrumb = isOpening
+    ? `${fmtP(totAll)} session → ${fmtP(tot)} opening → <span class="call">${callPct}% calls</span> / <span class="put">${putPct}% puts</span>`
+    : `${fmtP(totAll)} session flow → no opening prints → ${callPct}/${putPct} by total $`;
   return `
     <div class="flow-balance">
       <div class="fb-top">
@@ -2004,7 +2008,8 @@ function renderT1Balance(row) {
         <div class="fb-call" style="width:${callPct}%">${callPct >= 12 ? callPct + "%" : ""}</div>
         <div class="fb-put" style="width:${putPct}%">${putPct >= 12 ? putPct + "%" : ""}</div>
       </div>
-      <div class="fb-legend">opening = volume/OI&gt;1 (net-new positions), $-weighted by side — sets direction${ofTotal}</div>
+      <div class="fb-crumb">${breadcrumb}</div>
+      <div class="fb-legend">opening = volume/OI&gt;1 (net-new); the <strong>shown $</strong> box below is a separate <em>size</em> filter, not part of this split.</div>
     </div>`;
 }
 
@@ -2020,12 +2025,11 @@ function _t1SessionStamp(row) {
   return `as of ${lbl} · last session`;
 }
 
-function renderTile1Flow(row) {
-  const g = row.gates.flow;
-  // Stats reflect what's VISIBLE: on a full row, derive from the filtered set
-  // (side + min-$) so they move with the toggle/slider and match the bubbles.
-  // On a light row the chart isn't shown yet, so use the grid aggregate.
-  let nAlerts, totalPrem, askPct;
+/* The "shown" stat row — the side + min-$ filtered subset that's actually on the
+ * chart. Re-rendered on its own when the min-$ slider moves (so it never goes stale
+ * against the slider). A DIFFERENT scope than the balance's "session flow". */
+function renderT1StatsRow(row) {
+  let nAlerts, totalPrem, askPct, minK = 0;
   if (row.is_light) {
     const fd = row.flow || {alerts: 0, premium_usd: 0};
     nAlerts = fd.alerts || 0; totalPrem = fd.premium_usd || 0;
@@ -2037,24 +2041,25 @@ function renderTile1Flow(row) {
     const ask = vis.alerts.reduce((s, a) => s + (a.total_ask_side_prem || 0), 0);
     const bid = vis.alerts.reduce((s, a) => s + (a.total_bid_side_prem || 0), 0);
     askPct = (ask + bid) > 0 ? ask / (ask + bid) * 100 : 0;
+    minK = _t1EffMinK(row);
   }
-  const premLabel = totalPrem >= 1e6
-    ? `$${(totalPrem / 1e6).toFixed(1)}M`
-    : `$${Math.round(totalPrem / 1e3)}k`;
-  // Ask-side % is tier-unreliable (execution_side often empty on Basic) — show it
-  // only WHEN populated, demoted to a small "if it's there" stat, not the headline.
+  const premLabel = totalPrem >= 1e6 ? `$${(totalPrem / 1e6).toFixed(1)}M` : `$${Math.round(totalPrem / 1e3)}k`;
   const askPopulated = askPct > 0 && nAlerts > 0;
   const askColor = askPct >= 75 ? "var(--ok)" : "var(--text)";
   const askStat = askPopulated ? `
-      <div class="flow-stat">
-        <span class="lbl">Ask-side %</span>
-        <span class="val" style="color:${askColor}">${askPct.toFixed(0)}%</span>
-      </div>` : "";
-  // Filtered/shown set respects the side + min-$ filters, so it's a DIFFERENT scope
-  // than the balance's "session flow" — label it "shown" to avoid two unlabeled totals.
-  const minK = row.is_light ? 0 : _t1EffMinK(row);
-  const shownNote = (!row.is_light && (minK > 0 || (state.t1Side && state.t1Side !== "all")))
-    ? ` <span class="flow-stat-scope">(${state.t1Side !== "all" ? state.t1Side + ", " : ""}${minK > 0 ? "≥" + _fmtK(minK) : "all sizes"})</span>` : "";
+      <div class="flow-stat"><span class="lbl">Ask-side %</span>
+        <span class="val" style="color:${askColor}">${askPct.toFixed(0)}%</span></div>` : "";
+  const sideF = (state.t1Side && state.t1Side !== "all") ? state.t1Side + ", " : "";
+  const shownNote = (!row.is_light && (minK > 0 || sideF))
+    ? ` <span class="flow-stat-scope">(${sideF}${minK > 0 ? "≥" + _fmtK(minK) : "all sizes"})</span>` : "";
+  return `
+      <div class="flow-stat"><span class="lbl">Alerts (shown)</span><span class="val">${nAlerts}</span></div>
+      <div class="flow-stat"><span class="lbl">Shown $${shownNote}</span><span class="val">${premLabel}</span></div>
+      ${askStat}`;
+}
+
+function renderTile1Flow(row) {
+  const g = row.gates.flow;
   const stamp = _t1SessionStamp(row);
   return `
     <h3>
@@ -2063,17 +2068,7 @@ function renderTile1Flow(row) {
     </h3>
     ${renderT1Balance(row)}
     ${stamp ? `<div class="flow-asof">${stamp}</div>` : ""}
-    <div class="flow-stats">
-      <div class="flow-stat">
-        <span class="lbl">Alerts (shown)</span>
-        <span class="val">${nAlerts}</span>
-      </div>
-      <div class="flow-stat">
-        <span class="lbl">Shown $${shownNote}</span>
-        <span class="val">${premLabel}</span>
-      </div>
-      ${askStat}
-    </div>
+    <div class="flow-stats" id="t1-stats">${renderT1StatsRow(row)}</div>
     <div class="flow-legend-row">
       <span class="legend-item"><span class="legend-swatch call"></span>call bought</span>
       <span class="legend-item"><span class="legend-swatch put"></span>put bought</span>
@@ -2282,6 +2277,11 @@ function onT1Min(v) {
   const lbl = document.getElementById("t1-min-lbl");
   if (lbl) lbl.textContent = state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all";
   _t1Rerender();   // chart only — keep the slider element intact mid-drag
+  // Also refresh the SHOWN $ stat row so it never goes stale vs the slider (it's
+  // a separate element from the slider, so this doesn't interrupt the drag).
+  const row = ROWS.find(r => r.ticker === state.selected);
+  const stats = document.getElementById("t1-stats");
+  if (row && stats) stats.innerHTML = renderT1StatsRow(row);
 }
 
 /* Tile 1 chart per the build spec: scatter of single-leg alert bubbles plotted
