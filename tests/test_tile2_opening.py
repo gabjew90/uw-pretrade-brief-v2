@@ -27,10 +27,31 @@ def test_tile2_confirmation_anchors_to_flow_side_not_aggregate():
         {"date": "2020-01-02", "strikes": {105.0: 9800, 95.0: 9000},
          "call": {105.0: 800}, "put": {95.0: 9000}},
     ]
-    t2 = _build_tile2(alerts, oi_history, direction="calls")
+    # Pinned clock: flow expiry 2026-06-12 must be near-dated (≤14 DTE) vs `now`.
+    t2 = _build_tile2(alerts, oi_history, direction="calls",
+                      now_et=datetime(2026, 6, 9, 12, 0, tzinfo=_ET))
     assert t2.confirmation == "unwinding"        # follows the call side, not the aggregate
     assert t2.oi_trend_5d_pct < 0
     assert t2.flow_side == "call"                 # observed side recorded for the frontend anchor
+
+
+def test_tile2_no_fallback_to_far_dated():
+    """A weekly tool must NOT confirm a near-term bet using far-dated OI. Even if a
+    LEAP strike's OI doubles, with no NEAR-dated cluster the side reads 'unconfirmed'
+    (no fallback to far-dated) — far-dated OI is a different horizon + disproportion-
+    ately non-directional, so confirming on it would manufacture a wrong signal."""
+    fa = FlowAlert(created_at="2026-06-03T14:00:00Z", strike=100.0, type="call",
+                   total_premium=5_000_000, total_ask_side_prem=5_000_000, total_bid_side_prem=0,
+                   has_singleleg=True, has_multileg=False, expiry="2027-06-18", volume_oi_ratio=2.0)  # LEAP
+    oi = [{"date": "2026-06-02", "strikes": {100.0: 0}, "call": {100.0: 1000}, "put": {}},
+          {"date": "2026-06-03", "strikes": {100.0: 0}, "call": {100.0: 2000}, "put": {}}]  # OI doubled
+    t2 = _build_tile2([fa], oi, direction="calls",
+                      now_et=datetime(2026, 6, 6, 12, 0, tzinfo=_ET))
+    assert t2.call_confirmation == "unconfirmed"     # NOT 'building' off the LEAP
+    assert t2.call_oi_trend_pct == 0.0
+    # the LEAP strike exists but is NOT in the near-dated cluster
+    cs = [s for s in t2.strikes if s.side == "call"]
+    assert cs and all(not s.in_aggregate for s in cs)
 
 
 def test_tile2_dominant_side_does_not_crowd_out_the_other():
@@ -98,7 +119,8 @@ def test_tile2_computes_both_side_clusters():
         {"date": "2020-01-02", "strikes": {105.0: 2000, 95.0: 1000},
          "call": {105.0: 1200}, "put": {95.0: 800}},
     ]
-    t2 = _build_tile2(alerts, oi_history, direction="calls")
+    t2 = _build_tile2(alerts, oi_history, direction="calls",
+                      now_et=datetime(2026, 6, 9, 12, 0, tzinfo=_ET))   # expiry near-dated vs now
     assert t2.call_confirmation == "building" and t2.call_oi_trend_pct == 20.0
     assert t2.put_confirmation == "unwinding" and t2.put_oi_trend_pct == -20.0
     # flow_side is calls → top-level confirmation mirrors the call cluster

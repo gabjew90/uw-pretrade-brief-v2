@@ -101,7 +101,7 @@ class Tile2(BaseModel):
     # the disagreement between them is the signal (never toggle it away). "" = no
     # flow observed (gamma-only direction).
     flow_side: Literal["call", "put", ""] = ""
-    near_dated_pct: float = 0.0         # % of flow $ in the hold window (≤45 DTE) — relevance check
+    near_dated_pct: float = 0.0         # % of flow $ in near expiries you'd trade (≤14 DTE) — relevance
     oi_trend_5d_pct: float = 0.0        # flow-side cluster OI change (first→last settled session)
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
     # BOTH clusters always — the call-vs-put comparison IS the signal, shown

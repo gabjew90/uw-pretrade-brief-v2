@@ -757,9 +757,17 @@ def _median(xs: list[float]) -> float:
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
 
 
-_HOLD_WINDOW_DAYS = 45   # "near-dated" for Tile 2 confirmation: weeklies + front
-                         # monthly. Far-dated OI (LEAPS/quarterlies) rarely reflects
-                         # the opening flow we're confirming. Fallback if none match.
+# Two DIFFERENT ideas — kept separate (they used to be conflated under one 45d const):
+#   - HOLD length = how long you're in a weekly trade (1-5 days). It drives the
+#     macro-event veto, which lives in market_regime as a boolean "is there an
+#     upcoming high-impact event" — NOT a day-window here.
+#   - NEAR-EXPIRY window = which expiries you'd actually BUY for that hold: this week
+#     + next week, ~<=14 DTE. Tile 2 confirms ONLY in this window. Far-dated OI
+#     (monthlies/quarterlies/LEAPS) is a different horizon AND disproportionately
+#     non-directional (covered calls, collars, calendar legs), so counting it would
+#     manufacture WRONG confirmation — the exact false positive Tile 2 exists to
+#     catch. NO fallback to far-dated: no near-dated cluster => honest "unconfirmed".
+_NEAR_EXPIRY_DAYS = 14
 
 
 def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
@@ -909,35 +917,37 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     # closing (noise). Probabilistic — a call-strike build can still be a covered
     # call or spread leg — so it corroborates, not proves. (_dte defined above.)
 
-    # Near-dated relevance: share of flow $ in the hold window (this/next week-ish).
-    # Far-dated flow is parked where it can't matter for a weekly. Replaces the full
-    # expiry table in Tile 2 — the detailed breakdown belongs to Tile 4 (expiry choice).
-    near_prem = sum(p for e, p in prem_by_expiry.items() if 0 <= _dte(e) <= _HOLD_WINDOW_DAYS)
+    # Near-expiry relevance: share of flow $ in expiries you'd actually trade on a
+    # weekly hold (this/next week, <=_NEAR_EXPIRY_DAYS DTE). Far-dated flow is parked
+    # where it can't matter for a weekly. Replaces the full expiry table in Tile 2 —
+    # the detailed breakdown belongs to Tile 4 (expiry choice).
+    near_prem = sum(p for e, p in prem_by_expiry.items() if 0 <= _dte(e) <= _NEAR_EXPIRY_DAYS)
     near_dated_pct = round(near_prem / total_prem * 100, 1) if total_prem else 0.0
 
     n_settled = len(settled)
 
     def _cluster_confirm(side: str) -> tuple[str, float, list[OISessionBar]]:
-        """(confirmation, trend_pct, aggregate_sessions) for one side's flow-hit
-        cluster, near-dated, first→last settled session. The aggregate series sums
-        the cluster's OI per settled session (index-aligned — all strikes carry the
-        same settled dates) so the frontend can show the summed progression, not
-        just the verdict. 'unconfirmed' when <2 settled or no cluster."""
-        cl = [s for s in strike_hist if s.side == side and len(s.sessions) >= 2]
-        near = [s for s in cl if 0 <= _dte(s.expiry) <= _HOLD_WINDOW_DAYS]
-        cl = near or cl
-        if not cl:
-            return "unconfirmed", 0.0, []
-        # Mark which strikes actually drive this side's headline % (the near-dated
-        # cluster), so the frontend can show honest breadth + flag the far-dated rest.
-        for s in cl:
+        """(confirmation, trend_pct, aggregate_sessions) for one side's NEAR-EXPIRY
+        (<=_NEAR_EXPIRY_DAYS DTE) flow-hit cluster, first→last settled session.
+        NO fallback to far-dated: far-dated OI can't confirm a near-term bet and is
+        disproportionately non-directional, so confirming on it would manufacture a
+        wrong signal. Returns 'unconfirmed' when there's no near-dated cluster
+        (far-dated-only or no flow) or when settled history is too thin (<2)."""
+        near = [s for s in strike_hist
+                if s.side == side and 0 <= _dte(s.expiry) <= _NEAR_EXPIRY_DAYS]
+        if not near:
+            return "unconfirmed", 0.0, []          # no near-dated positioning to confirm
+        # Mark the near-dated cluster (drives the headline % + breadth count) even when
+        # settled history is thin — lets the frontend tell "far-only" from "pending".
+        for s in near:
             s.in_aggregate = True
+        cl = [s for s in near if len(s.sessions) >= 2]
+        if not cl or n_settled < 2:
+            return "unconfirmed", 0.0, []          # near-dated exists but no settled bars yet
         ndays = len(cl[0].sessions)
         agg = [OISessionBar(date=cl[0].sessions[i].date,
                             oi=sum(s.sessions[i].oi for s in cl), provisional=False)
                for i in range(ndays)]
-        if n_settled < 2:
-            return "unconfirmed", 0.0, agg
         first, last = agg[0].oi, agg[-1].oi
         pct = round((last - first) / first * 100, 1) if first > 0 else 0.0
         state = "building" if pct >= 5 else "unwinding" if pct <= -5 else "flat"

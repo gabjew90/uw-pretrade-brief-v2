@@ -2600,7 +2600,9 @@ function renderTile2OI(row) {
       ${renderT2AggBars(aggSessions, viewIsContext ? "context" : viewConf,
           viewStrikes.length === 0
             ? `no opening ${viewSide === "call" ? "call" : "put"} flow this session — nothing to confirm`
-            : `bars fill over the trading week (${sess}/2 settled session${sess === 1 ? "" : "s"})`)}
+            : viewStrikes.filter(s => s.in_aggregate).length === 0
+              ? `all ${viewSide === "call" ? "call" : "put"} flow is far-dated — nothing near-term to confirm`
+              : `bars fill over the trading week (${sess}/2 settled session${sess === 1 ? "" : "s"})`)}
     </div>
     <div class="t2-minis-wrap">
       <div class="t2-minis-title">By strike <span class="t2-minis-hint">(tap to expand)</span></div>
@@ -2650,14 +2652,20 @@ function renderT2ClusterCards(t2, viewSide) {
     const other = side === "call" ? "put" : "call";
     const sideStrikes = strikes.filter(s => s.side === side);
     const total = sideStrikes.length;                          // strikes shown (flow or context)
-    const inAgg = sideStrikes.filter(s => s.in_aggregate).length || total;  // near-dated cluster
+    const inAgg = sideStrikes.filter(s => s.in_aggregate).length;  // near-dated (≤14 DTE) cluster
     const isFlow = t2.flow_side === side;
-    const noFlow = total === 0;   // truly nothing — no flow AND no context to show
+    const noFlow = total === 0;          // no flow AND no context to show
+    const farOnly = total > 0 && inAgg === 0 && !isContext;  // flow exists but all far-dated
     let m, sub;
     if (isContext) {
       // Settled OI shown for a side that had NO opening flow — context, not a bet.
       m = {t: "Context", c: "var(--text-dim)", d: "gray", a: "·"};
       sub = `${side} OI at the ${total} ${other}-flow strike${total === 1 ? "" : "s"} · ${pct >= 0 ? "+" : ""}${Math.round(pct)}%`;
+    } else if (farOnly) {
+      // Flow is all far-dated (monthly/LEAP) — a weekly tool can't confirm a
+      // near-term bet on it, so we DON'T (no fallback). Honest "can't verify".
+      m = {t: "Far-dated", c: "var(--axis)", d: "gray", a: "·"};
+      sub = `all flow far-dated — nothing near-term to confirm`;
     } else if (conf === "unconfirmed") {
       // "unconfirmed" has TWO distinct causes — never collapse them into "warming".
       if (noFlow) {
@@ -2820,7 +2828,7 @@ function renderT2ExpiryRelevance(t2) {
              : pct >= 30 ? "partly near-term, partly parked further out"
              : "mostly parked in far-dated expiries — won't move on a short-term trade";
   return `<div class="t2-relevance">
-    <span style="color:${c};font-weight:700">${pct.toFixed(0)}%</span> of flow $ expires within ~45 days — ${tail}.</div>`;
+    <span style="color:${c};font-weight:700">${pct.toFixed(0)}%</span> of flow $ expires within ~2 weeks (the weeklies you'd trade) — ${tail}.</div>`;
 }
 
 /* Gemini synthesis of the POSITIONING reality (row.insights.positioning) — narrates
