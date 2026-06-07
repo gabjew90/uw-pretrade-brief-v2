@@ -55,7 +55,11 @@ total_vega_flow` (decimal strings).
    So the core needs ONE endpoint: `greek-flow`. net-prem-ticks' $-premium series is
    optional later context, not required — drops us to one extra call.
 
-## Field choice — OPEN DECISION (the event probe reframed this)
+## Field choice — RESOLVED: `total_delta_flow` leads (operator, 2026-06-06)
+
+Decision: the plain-language headline ("net delta built") is **`total_delta_flow`**
+(tape-consistent); **`dir_delta_flow` is the directional-conviction caution lens**,
+surfaced via its divergence from the headline/premium. Rationale below.
 
 The 3:32 PM event check (below) surfaced that `dir_delta_flow` and `total_delta_flow`
 behave very differently, so which one is the user-facing "net delta built" is a real
