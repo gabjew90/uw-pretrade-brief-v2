@@ -860,6 +860,14 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         settlement_mode = "settled"
         settles_on = ""
 
+    # Days-to-expiry off the ET date (consistent with the settlement boundary), used
+    # both to tag each strike and for the near-dated cluster filter below.
+    def _dte(e: str) -> int:
+        try:
+            return (_date.fromisoformat(e) - _today).days
+        except (TypeError, ValueError):
+            return -9999
+
     strike_hist: list[StrikeOIHistory] = []
     for (k, side) in focus_ks:
         bars = [OISessionBar(date=s["date"], oi=int((s.get(side) or {}).get(k, 0)),
@@ -876,6 +884,7 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
             strike=k,
             side=side,
             expiry=top_exp,
+            dte=_dte(top_exp),
             sessions=bars,
             delta_oi=delta_oi,
             premium_usd=prem_ks.get((k, side), 0.0),
@@ -894,14 +903,7 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
     # call+put aggregate (contaminated: covered calls, LEAPS, hedges) and never a
     # single strike (idiosyncratic). Building = the flow opened; shrinking = it was
     # closing (noise). Probabilistic — a call-strike build can still be a covered
-    # call or spread leg — so it corroborates, not proves.
-    today = _date.today()
-
-    def _dte(e: str) -> int:
-        try:
-            return (_date.fromisoformat(e) - today).days
-        except (TypeError, ValueError):
-            return -9999
+    # call or spread leg — so it corroborates, not proves. (_dte defined above.)
 
     # Near-dated relevance: share of flow $ in the hold window (this/next week-ish).
     # Far-dated flow is parked where it can't matter for a weekly. Replaces the full
@@ -922,6 +924,10 @@ def _build_tile2(flow_alerts: list[FlowAlert], oi_history: list[dict],
         cl = near or cl
         if not cl:
             return "unconfirmed", 0.0, []
+        # Mark which strikes actually drive this side's headline % (the near-dated
+        # cluster), so the frontend can show honest breadth + flag the far-dated rest.
+        for s in cl:
+            s.in_aggregate = True
         ndays = len(cl[0].sessions)
         agg = [OISessionBar(date=cl[0].sessions[i].date,
                             oi=sum(s.sessions[i].oi for s in cl), provisional=False)

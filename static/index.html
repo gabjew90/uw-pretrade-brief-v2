@@ -707,6 +707,9 @@
   .t2-cluster.flowside { background: rgba(122,162,247,0.06); }
   /* viewing = the BLUE border that moves to whichever card you tap. */
   .t2-cluster.viewing { border-color: #7AA2F7; box-shadow: 0 0 0 1px #7AA2F7; }
+  /* no-flow side: nothing to view, so it's a static indicator, not a button. */
+  .t2-cluster.noflow { cursor: default; opacity: 0.62; }
+  .t2-cluster.noflow:hover { border-color: var(--grid); }
   /* Aggregate (primary) OI bars */
   .t2-agg { margin: 2px 0 12px; }
   .t2-agg-title { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
@@ -737,6 +740,11 @@
   .t2-mini-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .t2-mini { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 5px; background: var(--panel-2, var(--bg-2)); border: 1px solid var(--grid); cursor: pointer; font-family: var(--ff-mono); }
   .t2-mini.on { border-color: #7AA2F7; }
+  /* far-dated / expired strikes: shown for completeness but dimmed + tagged, since
+     they're NOT in the near-dated confirmation %. */
+  .t2-mini.far { opacity: 0.5; border-style: dashed; }
+  .t2-mini-tag { font-size: 7.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+                 color: var(--axis); border: 1px solid var(--grid); border-radius: 3px; padding: 0 3px; }
   .t2-mini-k { font-size: 10px; font-weight: 700; color: var(--title); }
   .t2-mini-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 16px; }
   .t2-mini-bar { width: 3px; border-radius: 1px; background: var(--axis); }
@@ -758,6 +766,8 @@
   .t2-bar-oi { font-family: var(--ff-mono); font-size: 8px; color: var(--axis); white-space: nowrap; }
   .t2-single-foot { display: flex; justify-content: space-between; margin-top: 8px;
     font-family: var(--ff-mono); font-size: 11px; color: var(--text-dim); }
+  .t2-single-excl { font-family: var(--ff-mono); font-size: 9.5px; color: var(--warn);
+    margin: 2px 0 6px; letter-spacing: 0.02em; }
   .t2-empty, .t2-lowconv {
     padding: 22px 14px; text-align: center; color: var(--axis);
     font-family: var(--ff-mono); font-size: 11px; line-height: 1.5;
@@ -2559,7 +2569,9 @@ function renderTile2OI(row) {
   // Which side's AGGREGATE bars + per-strike to view. Defaults to the flow side;
   // tapping a cluster card switches it. Navigation only — both verdicts stay in
   // the cards, so this never changes the read (observed evidence).
-  const viewSide = state.t2ViewSide || t2.flow_side || strikes[0].side || "call";
+  let viewSide = state.t2ViewSide || t2.flow_side || strikes[0].side || "call";
+  // Never resolve to a side with no flow-hit strikes (nothing to view there).
+  if (!strikes.some(s => s.side === viewSide)) viewSide = (strikes[0] || {}).side || viewSide;
   const aggSessions = viewSide === "call" ? (t2.call_sessions || []) : (t2.put_sessions || []);
   const viewConf = viewSide === "call" ? t2.call_confirmation : t2.put_confirmation;
   const viewStrikes = strikes.filter(s => s.side === viewSide);
@@ -2622,13 +2634,16 @@ function renderT2ClusterCards(t2, viewSide) {
   const card = (side) => {
     const conf = side === "call" ? t2.call_confirmation : t2.put_confirmation;
     const pct = (side === "call" ? t2.call_oi_trend_pct : t2.put_oi_trend_pct) || 0;
-    const n = strikes.filter(s => s.side === side).length;
+    const sideStrikes = strikes.filter(s => s.side === side);
+    const total = sideStrikes.length;                          // all flow-hit strikes
+    const inAgg = sideStrikes.filter(s => s.in_aggregate).length || total;  // near-dated cluster
     const isFlow = t2.flow_side === side;
+    const noFlow = total === 0;
     // "unconfirmed" has TWO distinct causes — never collapse them into "warming"
     // (which reads as a market state). No opening flow on this side ≠ thin history.
     let m, sub;
     if (conf === "unconfirmed") {
-      if (n === 0) {
+      if (noFlow) {
         m = {t: "No flow", c: "var(--axis)", d: "gray", a: "·"};
         sub = "no opening flow on this side";
       } else {
@@ -2637,10 +2652,18 @@ function renderT2ClusterCards(t2, viewSide) {
       }
     } else {
       m = map[conf];
-      sub = `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${n} strike${n === 1 ? "" : "s"}`;
+      // Honest breadth: the % is the NEAR-DATED cluster only. Say so when the flow
+      // also hit far-dated strikes (LEAPS) that aren't in the number.
+      const breadth = inAgg < total
+        ? `${inAgg} of ${total} strikes near-dated`
+        : `${total} strike${total === 1 ? "" : "s"}`;
+      sub = `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% OI · ${breadth}`;
     }
-    return `<button class="t2-cluster ${isFlow ? "flowside" : ""} ${side === viewSide ? "viewing" : ""}"
-                    onclick="setT2ViewSide('${side}')" title="Show the ${side} cluster's aggregate OI">
+    // A side with NO flow has nothing to view — don't let it toggle into a dead panel.
+    const cls = `t2-cluster ${isFlow ? "flowside" : ""} ${side === viewSide ? "viewing" : ""} ${noFlow ? "noflow" : ""}`;
+    const act = noFlow ? "" : `onclick="setT2ViewSide('${side}')"`;
+    const ttl = noFlow ? "No opening flow on this side — nothing to view" : `Show the ${side} cluster's aggregate OI`;
+    return `<button class="${cls}" ${act} ${noFlow ? "disabled" : ""} title="${ttl}">
       <div class="t2-cl-top">
         <span class="t2-cl-side ${side}">${side === "call" ? "CALLS" : "PUTS"}</span>
         ${isFlow ? `<span class="t2-cl-flow">flow side</span>` : ""}
@@ -2694,6 +2717,8 @@ function _t2BarsSvg(sessions, col, emptyMsg) {
  * full 5-bar detail. (`strikes` is already filtered to the viewed side.) */
 function renderT2StrikeMinis(strikes) {
   if (!strikes.length) return `<div class="t2-mini-empty">no flow-hit strikes on this side</div>`;
+  // Near-dated cluster strikes (the ones in the headline %) first; far-dated after.
+  const ordered = [...strikes].sort((a, b) => (b.in_aggregate ? 1 : 0) - (a.in_aggregate ? 1 : 0));
   const mini = (s) => {
     const sessions = s.sessions || [];
     const ois = sessions.map(b => b.oi);
@@ -2704,12 +2729,17 @@ function renderT2StrikeMinis(strikes) {
     const arrow = s.trend === "building" ? "↑" : s.trend === "unwinding" ? "↓" : "→";
     const aCol = s.trend === "building" ? "var(--ok)" : s.trend === "unwinding" ? "var(--neg)" : "var(--axis)";
     const on = state.t2Strike === s.strike;
-    return `<button class="t2-mini ${on ? "on" : ""}" onclick="toggleT2Strike(${s.strike})">
+    // Flag strikes NOT in the near-dated confirmation: expired, or far-dated LEAPS.
+    const far = !s.in_aggregate;
+    const tag = !far ? "" : (s.dte < 0 ? "exp'd" : s.dte > 365 ? "LEAP" : "far");
+    return `<button class="t2-mini ${on ? "on" : ""} ${far ? "far" : ""}" onclick="toggleT2Strike(${s.strike})"
+                    title="${far ? "not in the near-dated confirmation" : "in the near-dated confirmation"}">
       <span class="t2-mini-k">$${s.strike}</span>
+      ${tag ? `<span class="t2-mini-tag">${tag}</span>` : ""}
       <span class="t2-mini-bars ${s.side}">${bars}</span>
       <span class="t2-mini-d" style="color:${aCol}">${arrow}</span></button>`;
   };
-  return `<div class="t2-mini-list">${strikes.map(mini).join("")}</div>`;
+  return `<div class="t2-mini-list">${ordered.map(mini).join("")}</div>`;
 }
 
 function _t2Rerender() {
@@ -2738,6 +2768,10 @@ function renderOiSingleStrike(s) {
   const deltaLbl = s.delta_oi > 0 ? `+${fmtK(s.delta_oi)}` : s.delta_oi < 0 ? `−${fmtK(Math.abs(s.delta_oi))}` : "0";
   const deltaColor = s.delta_oi > 0 ? "var(--ok)" : s.delta_oi < 0 ? "var(--neg)" : "var(--axis)";
   const trendBadge = s.trend === "building" ? "↑ building" : s.trend === "unwinding" ? "↓ unwinding" : "→ flat";
+  // When the strike is outside the near-dated cluster, say so — it's NOT in the
+  // side's headline % (an expired weekly or a far-dated LEAP shown for completeness).
+  const excluded = s.in_aggregate ? "" :
+    `<div class="t2-single-excl">${s.dte < 0 ? "expired" : "far-dated"} — not in the near-dated confirmation</div>`;
   return `
     <div class="t2-single">
       <div class="t2-single-head">
@@ -2746,6 +2780,7 @@ function renderOiSingleStrike(s) {
         <span class="t2-prem">${s.premium_usd > 0 ? fmtPrem(s.premium_usd) + " flow" : ""}</span>
         <span class="t2-trend" style="color:${col}">${trendBadge}</span>
       </div>
+      ${excluded}
       <div class="t2-bars t2-bars-single">${bars}</div>
       <div class="t2-single-foot">
         <span style="color:${deltaColor}">ΔOI ${deltaLbl}</span>

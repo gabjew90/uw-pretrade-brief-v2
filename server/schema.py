@@ -73,6 +73,9 @@ class StrikeOIHistory(BaseModel):
     strike: float
     side: Literal["call", "put", ""] = ""       # which side's OI these bars are
     expiry: str = ""                            # top expiry by $ for this strike+side (label)
+    dte: int = 0                                # days-to-expiry of `expiry` (ET); <0 = expired
+    in_aggregate: bool = False                  # is this strike in the near-dated cluster that
+                                                # drives the side's headline % (vs a far-dated LEAP)
     sessions: list[OISessionBar] = Field(default_factory=list)  # oldest→newest (SETTLED days only)
     delta_oi: int = 0           # newest-settled vs prior settled session OI change
     premium_usd: float = 0.0    # flow premium at this (strike, side) — the "money" ranking
