@@ -1,9 +1,13 @@
-# Tile 1 Greek-Flow Delta Composite — Design (rev 3)
+# Tile 1 Greek-Flow Delta Composite — Design (rev 4)
 
-**Status:** spec for review (not yet implemented). rev 2 added a live probe that
-resolved the data questions; rev 3 fixes the sign-calibration fixture (must be a
-clean one-sided session, not divergent 6/5) and makes the delta headline stand down
-on divergence so the tile stays coherent.
+**Status:** spec under review. **Both hard blockers are now CLEARED** with golden-
+fixture tests (`tests/test_greek_flow.py` + `server/greek_flow.py` + captured
+fixture) — the rest (fetch wiring, render, verdict) is still to build. rev 4: pinned
+the sign convention via a known-direction EVENT (no clean-session wait needed), and
+the probe reversed the field choice — `total_delta_flow` (tape-consistent) should
+lead the headline, `dir_delta_flow` (directional-conviction, diverges from the tape)
+becomes the caution lens. **One OPEN DECISION for the operator: confirm that field
+choice (see §Field choice).**
 **Goal:** Add a live "is directional **delta** being *built* this session, and is it
 *accumulating* or *round-tripping*?" reading to Tile 1, so the open-state decision
 rests on a real-time composite — not premium/side alone.
@@ -51,14 +55,28 @@ total_vega_flow` (decimal strings).
    So the core needs ONE endpoint: `greek-flow`. net-prem-ticks' $-premium series is
    optional later context, not required — drops us to one extra call.
 
-## Field choice
+## Field choice — OPEN DECISION (the event probe reframed this)
 
-Lead with **`dir_delta_flow`** — it's literally "directional delta flow" (single-leg
-directional bets), matching "directional delta being built," and excludes the
-hedge/spread noise in `total_delta_flow`. Compute `total_delta_flow` too and expose
-it only as a secondary "all-positioning" cross-read; when the two oppose (as on
-6/5), that's information, not an error. Thresholds need multi-session calibration
-before any verdict wiring — phase 1 is display-only precisely to gather that.
+The 3:32 PM event check (below) surfaced that `dir_delta_flow` and `total_delta_flow`
+behave very differently, so which one is the user-facing "net delta built" is a real
+choice, not a given:
+
+- **`dir_delta_flow`** = directional-bet bucket. On 6/5 it summed **+5.1M (bullish)**
+  and was **+230k at the 19:32 put-sweep minute** — i.e. it diverges from both the
+  tape and the price (down day). It's "what the directional/conviction players are
+  doing," genuinely informative but it does NOT track the net delta actually traded.
+- **`total_delta_flow`** = all options delta. Summed **−96.7M (bearish, matches the
+  down day)** and was **−724k at the 19:32 bearish minute (matches the print)**.
+  It's the net delta the tape actually built.
+
+For a **novice-readable** "net delta being built" headline, `total_delta_flow` is the
+honest, tape-consistent number. `dir_delta_flow` is better as a *secondary*
+"directional-conviction lean" lens, where its divergence from total/premium is the
+signal. **Recommendation: lead the headline on `total_delta_flow`; surface
+`dir_delta_flow` divergence as the caution lens.** (Reverses rev-2's "lead with dir".)
+Flag for the operator — this changes what the headline asserts. Either way the sign
+convention is shared and pinned (below); thresholds need multi-session calibration,
+which is why phase 1 is display-only.
 
 ## Data wiring
 
@@ -116,25 +134,28 @@ divergence-veto so it can never manufacture false multi-signal confidence.
 - Provenance **live**; on a weekend it's the last session's **final** cumsum, frozen
   under the existing "as of <last session>" stamp (per-session; no fetch when closed).
 
-## Hard golden-fixture blockers (before the read is trusted)
+## Hard golden-fixture blockers — BOTH CLEARED (tests/test_greek_flow.py vs the
+## captured 6/5 fixture tests/fixtures/uw_greek_flow_SPY.json, 405 rows)
 
-1. **Sign + aggregation — calibrate on a CLEAN one-sided session, never a divergent
-   one.** Assert `sum(dir_delta_flow)` has the expected sign on a day of
-   *unambiguous* directional flow — overwhelming ask-side CALL buying, where premium
-   AND delta must both be clearly bullish → a correct convention yields a strongly
-   positive sum ("positive = bullish" pinned). **Do NOT calibrate on 6/5**: it's
-   divergent (opening-$ puts-lead/bearish vs dir-delta sum +5.1M/bullish), so it
-   cannot separate "convention correct + true divergence" from "convention inverted +
-   delta actually agrees" — the field under test is the only evidence of which way
-   delta leaned. Keep 6/5 as the **divergence-test** fixture (perfect for that), not
-   the calibration one. **Dependency:** until sign is pinned on a clean session the
-   divergence-veto can fire backwards, so the read stays display-only (phase 1
-   already is — just stating it).
-2. **Curve population**: assert the per-minute series is real and the **cumsum is
-   non-degenerate** (not all-zero / not flat) — a flat/empty array must render
-   "unavailable," never a silent permanent "flat." (Same silent-death class as the
-   iv/rv key bugs; the v1 net_premium=0 fallback in unusualwhales.md §3d is the
-   cautionary precedent.)
+1. **Sign convention — CLEARED via a known-direction EVENT, not a session sum.**
+   (Better than the rev-3 "clean session" plan, and weekend-independent.) Anchor:
+   19:32 UTC (3:32 PM ET) on 6/5 had ~$6.6M ask-side PUT buying (727P/719P at ask) —
+   unambiguously bearish. Assert the net-delta field at that minute is negative →
+   pins "negative = bearish, positive = bullish." **Probed result:
+   `total_delta_flow` @ 19:32 = −724,802 (negative) ✓ — convention is NOT inverted.**
+   IMPORTANT finding: `dir_delta_flow` @ 19:32 = **+230,558 (positive)** — the
+   directional bucket netted bullish despite the bearish prints (the $6.6M was ~20%
+   of the minute's 50.7k volume). So `dir_delta_flow` ≠ the tape; that drove the
+   §Field-choice reversal toward `total_delta_flow` for the headline. Both facts are
+   locked as regression tests.
+   - *Corroboration available (not required):* `date=` works on greek-flow (probed —
+     pulled 06-03), so a clean one-sided session is reachable to double-confirm
+     `total_delta_flow` sign; optional follow-up, the event check already stands.
+2. **Curve population — CLEARED.** `is_degenerate()` flags empty/flat (all-equal,
+   incl. all-zero) → render "unavailable," never a silent permanent "flat." Test
+   asserts the 6/5 cumsum has ≥400 rows and actually moves (max≠min). (Same
+   silent-death class as the iv/rv key bugs; v1 net_premium=0 fallback in
+   unusualwhales.md §3d is the precedent.)
 
 ## Budget / provenance
 
