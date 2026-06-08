@@ -16,12 +16,20 @@ from __future__ import annotations
 
 from typing import Callable
 
-from server.models import Conviction, DealerGamma, Flow, Provenance, Signal, Skew
+from server.models import (Conviction, Cost, DealerGamma, Flow, Provenance, Signal,
+                            Skew)
 from server.services import provenance as prov
 
 # 25Δ RR magnitude below which skew is "neutral" (no lean). v2 default; operator-deferred
 # pending Phase-2 RR-magnitude review (SPY rides ~0.03–0.05, so 0.02 is a low gate).
 _SKEW_THR = 0.02
+
+# Cost gate thresholds (v2 GATE_THRESHOLDS; operator-deferred). IV rank bands + the
+# don't-buy-premium-into-a-known-vol-event rule.
+_IVR_GREEN_MAX = 60      # ivr <= 60 → ok (premium not rich)
+_IVR_YELLOW_MAX = 80     # 60 < ivr <= 80 → caution
+_EARNINGS_DAYS_MIN = 7   # earnings inside 7 days → block
+_IVR_TARGET_DTE = 30     # IV-rank horizon (standard 30d); operator-deferred
 
 REGISTRY: dict[str, Callable[..., Signal]] = {}
 
@@ -202,3 +210,41 @@ def derive_skew(canon: dict, *, asof: str | None = None) -> Skew:
     else:
         lean = "call_skew" if rr > 0 else "put_skew"
     return Skew(rr25=rr, lean=lean, provenance=prov.derived(latest.provenance))
+
+
+@register("cost")
+def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
+    """Non-directional cost/risk guard. Earnings or a macro event inside the hold window
+    BLOCKS (don't buy premium into a known vol event) regardless of IV; otherwise the IV
+    rank (interpolated-iv `percentile`, at ~30d) bands ok/caution/block. Missing IV with no
+    event → `caution` (conservative, never a silent ok). PURE. `days_to_earnings` and
+    `event_within_hold` are inputs (computed upstream from earnings + clock/regime).
+    Ported from `e1d6c5e:server/gates.py::_cost_gate`."""
+    iv = canon.get("iv_term") or []
+    dte = canon.get("days_to_earnings")
+    event = bool(canon.get("event_within_hold"))
+
+    if dte is not None and dte < _EARNINGS_DAYS_MIN:
+        return Cost(guard="block", days_to_earnings=dte, event_within_hold=event,
+                    reason=f"earnings in {dte}d — don't buy premium into it",
+                    provenance=prov.derived())
+    if event:
+        return Cost(guard="block", days_to_earnings=dte, event_within_hold=True,
+                    reason="macro event inside the hold window",
+                    provenance=prov.derived())
+    if not iv:
+        return Cost(guard="caution", days_to_earnings=dte, event_within_hold=event,
+                    reason="IV rank unavailable — proceeding cautiously",
+                    provenance=prov.unavailable("no interpolated-iv"))
+
+    row = min(iv, key=lambda p: abs((p.days or 0) - _IVR_TARGET_DTE))
+    ivr = round((row.percentile or 0.0) * 100, 1)
+    src = prov.derived(row.provenance)
+    if ivr <= _IVR_GREEN_MAX:
+        guard, reason = "ok", f"IV rank {ivr:.0f} — premium not rich"
+    elif ivr <= _IVR_YELLOW_MAX:
+        guard, reason = "caution", f"IV rank {ivr:.0f} — elevated premium"
+    else:
+        guard, reason = "block", f"IV rank {ivr:.0f} — premium rich, poor cost/move"
+    return Cost(guard=guard, ivr=ivr, days_to_earnings=dte, event_within_hold=event,
+                reason=reason, provenance=src)

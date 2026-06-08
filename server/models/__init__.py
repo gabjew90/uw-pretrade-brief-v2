@@ -130,6 +130,20 @@ class Flow(Signal):
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
 
 
+class IVTermPoint(BaseModel):
+    """One point of the interpolated-IV term structure. `percentile` is the IV RANK
+    (0–1; 0.50 = median vs the ticker's own history) — the cost gate's input.
+    `implied_move_perc` is the expected move for that horizon. Strings coerced."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    days: int
+    percentile: Optional[float] = None         # IV rank, 0..1
+    volatility: Optional[float] = None
+    implied_move_perc: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class SkewPoint(BaseModel):
     """One day's 25Δ risk-reversal (from historical-risk-reversal-skew). `risk_reversal`
     is the VENDOR convention = put_IV − call_IV (positive = put-skew). Derive sign-corrects
@@ -194,7 +208,14 @@ class Skew(Signal):
 
 
 class Cost(Signal):
-    """IV-rank / event / expected-move-vs-cost guard. Fields TBD."""
+    """Non-directional GUARD (decide spec): is it expensive/risky to buy premium now?
+    `guard=block` (rich IV, or earnings/macro event in the hold window) → Stand down;
+    `caution` → contributes to Mixed; `ok` → no objection. Never a direction."""
+    guard: Literal["ok", "caution", "block"] = "ok"
+    ivr: Optional[float] = None                 # IV rank 0–100
+    days_to_earnings: Optional[int] = None
+    event_within_hold: bool = False             # macro (FOMC/CPI/jobs) inside the hold window
+    reason: str = ""
 
 
 class Regime(Signal):

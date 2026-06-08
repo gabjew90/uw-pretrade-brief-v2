@@ -18,7 +18,8 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from server.models import FlowAlert, GammaStrike, GreekFlowPoint, SkewPoint
+from server.models import (FlowAlert, GammaStrike, GreekFlowPoint, IVTermPoint,
+                            SkewPoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -155,4 +156,21 @@ def normalize_rr_skew(raw: RawRecord) -> list[SkewPoint]:
             out.append(SkewPoint.model_validate({**r, "provenance": p}))
         except ValidationError as e:
             raise NormalizeError(f"rr-skew row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_interpolated-iv")
+def normalize_interpolated_iv(raw: RawRecord) -> list[IVTermPoint]:
+    """Raw interpolated-iv payload → validated `list[IVTermPoint]` (the IV term structure;
+    `percentile` is the IV rank the cost gate reads). Empty is a legitimate []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[IVTermPoint] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"interpolated-iv row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(IVTermPoint.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"interpolated-iv row {i} failed validation: {e}") from e
     return out
