@@ -18,9 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.config import settings
 from server.models import ViewModel
-from server.pipeline.decide import decide
-from server.pipeline.derive import derive_all
-from server.pipeline.present import present
+from server.pipeline.orchestrate import build_view
 from server.services import clock
 from server.services.governor import governor
 
@@ -51,17 +49,11 @@ def health() -> dict:
 
 @app.get("/api/view/{ticker}", response_model=ViewModel)
 def view(ticker: str) -> ViewModel:
-    """Run the pipeline for one ticker and return the view model. With no signals
-    registered yet this returns an empty-but-well-formed view model (proves the wiring
-    end-to-end)."""
-    ticker = ticker.upper()
-    asof = clock.session_date().isoformat()
-    # ingest + normalize happen per signal's needs once wired; for the skeleton we run
-    # derive over an empty canonical map so the contract is exercised.
-    canon: dict = {}
-    signals = derive_all(canon, asof=asof)
-    verdict = decide(signals)
-    return present(ticker, signals, verdict, as_of=asof)
+    """Run the full pipeline for one ticker and return the view model. Ingest is
+    governor-gated (live, or bronze in REPLAY); on failure the view degrades honestly
+    (direction `unavailable`, never guessed). The browser renders this and computes
+    nothing (the one rule)."""
+    return build_view(ticker)
 
 
 @app.get("/")

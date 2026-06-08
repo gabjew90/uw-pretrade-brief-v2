@@ -113,6 +113,7 @@ class Flow(Signal):
     direction_basis: Literal["opening_flow", "total_flow", "gamma_fallback", "unavailable"] = "unavailable"
     call_prem: float = 0.0
     put_prem: float = 0.0
+    truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
 
 
 class Positioning(Signal):
@@ -154,7 +155,8 @@ class Element(BaseModel):
     surface: Any = None                     # the glanceable value (string/number/struct)
     detail: Any = None                      # tap payload (secondary numbers, graphs)
     provenance: Provenance = Field(default_factory=Provenance)
-    tone: Literal["up", "down", "neutral", "warn"] = "neutral"
+    # the ONLY sentiment cue the frontend acts on; it never reads signal values to render
+    tone: Literal["positive", "cautionary", "negative", "neutral", "unavailable"] = "neutral"
 
 
 class ViewModel(BaseModel):

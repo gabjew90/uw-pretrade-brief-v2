@@ -58,6 +58,7 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
         return Flow(direction=None, direction_basis="unavailable",
                     provenance=prov.unavailable("no flow alerts"))
     src: Provenance = prov.derived(alerts[0].provenance)
+    truncated = any(getattr(a, "truncated", False) for a in alerts)
 
     def _prem(side: str, opening_only: bool) -> float:
         return sum(float(a.total_premium or 0.0) for a in alerts
@@ -66,14 +67,14 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     open_call, open_put = _prem("call", True), _prem("put", True)
     if open_call or open_put:
         return Flow(direction="calls" if open_call >= open_put else "puts",
-                    direction_basis="opening_flow",
+                    direction_basis="opening_flow", truncated=truncated,
                     call_prem=open_call, put_prem=open_put, provenance=src)
 
     tot_call, tot_put = _prem("call", False), _prem("put", False)
     if tot_call or tot_put:
         return Flow(direction="calls" if tot_call >= tot_put else "puts",
-                    direction_basis="total_flow",
+                    direction_basis="total_flow", truncated=truncated,
                     call_prem=tot_call, put_prem=tot_put, provenance=src)
 
-    return Flow(direction=None, direction_basis="unavailable",
+    return Flow(direction=None, direction_basis="unavailable", truncated=truncated,
                 provenance=prov.unavailable("zero premium on both sides"))
