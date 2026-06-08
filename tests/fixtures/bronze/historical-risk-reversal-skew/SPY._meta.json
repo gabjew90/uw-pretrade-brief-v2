@@ -1,0 +1,11 @@
+{
+  "fetched_at": "2026-06-08T15:04:02.493014+00:00",
+  "path": "/stock/SPY/historical-risk-reversal-skew",
+  "params": {
+    "expiry": "2026-07-10",
+    "delta": 25
+  },
+  "row_count": 8,
+  "content_hash": "df72934381824c71",
+  "critical": false
+}

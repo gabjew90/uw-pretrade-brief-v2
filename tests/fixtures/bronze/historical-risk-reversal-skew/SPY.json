@@ -1,0 +1,52 @@
+{
+  "data": [
+    {
+      "date": "2026-05-28",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.00728493821185899"
+    },
+    {
+      "date": "2026-05-29",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.0288025879719179"
+    },
+    {
+      "date": "2026-06-01",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.03319490697047681"
+    },
+    {
+      "date": "2026-06-02",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.03374125153999971"
+    },
+    {
+      "date": "2026-06-03",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.0350727830238988"
+    },
+    {
+      "date": "2026-06-04",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.03105167564167631"
+    },
+    {
+      "date": "2026-06-05",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.0513929637874524"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "delta": 25,
+      "risk_reversal": "0.0439598815277423"
+    }
+  ]
+}

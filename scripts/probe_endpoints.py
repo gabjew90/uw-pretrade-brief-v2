@@ -22,13 +22,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on path
 
-from scripts.uw_probe_targets import build_targets, resolve_expiries, unwrap_rows  # noqa: E402
+from scripts.uw_probe_targets import build_targets, make_getj, resolve_expiries, unwrap_rows  # noqa: E402
 from server.services.uw_client import UWError, get  # noqa: E402
+
+getj = make_getj(get)
 
 
 def main() -> int:
     ticker = (sys.argv[1] if len(sys.argv) > 1 else "SPY").upper()
-    near, far = resolve_expiries(ticker, get)
+    near, far = resolve_expiries(ticker, getj)
     targets = build_targets(ticker, near, far)
 
     print(f"=== UW data-health probe — ticker={ticker}  near={near}  ~30d={far} ===")
@@ -36,7 +38,7 @@ def main() -> int:
     for tgt in targets:
         crit = "*" if tgt.critical else " "
         try:
-            payload = get(tgt.path, tgt.params or None)
+            payload = getj(tgt.path, tgt.params or None)
         except (UWError, ValueError) as e:
             print(f" {crit}ERROR  {tgt.label:32} {e}")
             errors += 1

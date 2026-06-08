@@ -1,0 +1,11 @@
+{
+  "fetched_at": "2026-06-08T15:03:52.127895+00:00",
+  "path": "/option-trades/flow-alerts",
+  "params": {
+    "ticker_symbol": "SPY",
+    "limit": 500
+  },
+  "row_count": 500,
+  "content_hash": "b102f2b8cbbf1f83",
+  "critical": true
+}

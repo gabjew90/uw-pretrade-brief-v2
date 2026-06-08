@@ -21,6 +21,15 @@ from typing import Callable, Optional
 FLOW_ALERTS_MAX = 500
 
 
+def make_getj(get):
+    """Wrap `uw_client.get` (which returns a UWResponse) into a callable that returns
+    the raw JSON payload — the shape the v2 `fetch_*` helpers returned and which
+    `unwrap_rows` expects. `getj(path, params=None) -> dict|list`."""
+    def getj(path, params=None):
+        return get(path, params or None).json
+    return getj
+
+
 def unwrap_rows(payload) -> list:
     """UW responses are usually {"data": [...]} or a bare list. Normalize to a list."""
     if isinstance(payload, dict):
@@ -29,11 +38,12 @@ def unwrap_rows(payload) -> list:
     return payload if isinstance(payload, list) else []
 
 
-def resolve_expiries(ticker: str, get) -> tuple[str, str]:
+def resolve_expiries(ticker: str, getj) -> tuple[str, str]:
     """A near-term and a ~30d expiry that actually EXIST for `ticker`, from
-    greek-exposure/expiry; falls back to computed Fridays. `get` is uw_client.get."""
+    greek-exposure/expiry; falls back to computed Fridays. `getj` returns JSON
+    (see make_getj)."""
     try:
-        rows = unwrap_rows(get(f"/stock/{ticker.upper()}/greek-exposure/expiry"))
+        rows = unwrap_rows(getj(f"/stock/{ticker.upper()}/greek-exposure/expiry"))
         exps = sorted({r.get("expiry") for r in rows if r.get("expiry")})
         if exps:
             d0 = datetime.now(tz=timezone.utc).date()

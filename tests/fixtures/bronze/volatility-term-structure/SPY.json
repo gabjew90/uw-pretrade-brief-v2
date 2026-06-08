@@ -1,0 +1,328 @@
+{
+  "data": [
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-08",
+      "volatility": "0.2110767057232955",
+      "dte": 0,
+      "implied_move": "2.609523811966113",
+      "implied_move_perc": "0.003501940928473711"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-09",
+      "volatility": "0.169456627589393",
+      "dte": 1,
+      "implied_move": "4.94700224109277",
+      "implied_move_perc": "0.00663880112604963"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-10",
+      "volatility": "0.1681043662505946",
+      "dte": 2,
+      "implied_move": "6.62149984026471",
+      "implied_move_perc": "0.00888601084366406"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-11",
+      "volatility": "0.165638169553934",
+      "dte": 3,
+      "implied_move": "7.85825118012448",
+      "implied_move_perc": "0.01054572330791304"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-12",
+      "volatility": "0.1665921022742213",
+      "dte": 4,
+      "implied_move": "9.04826741399458",
+      "implied_move_perc": "0.01214271755595387"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-15",
+      "volatility": "0.1448804355310897",
+      "dte": 7,
+      "implied_move": "10.29349581264555",
+      "implied_move_perc": "0.01381380617940516"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-16",
+      "volatility": "0.146545411681195",
+      "dte": 8,
+      "implied_move": "11.10950259018808",
+      "implied_move_perc": "0.01490888210610886"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-17",
+      "volatility": "0.1555749969637547",
+      "dte": 9,
+      "implied_move": "12.49079945387442",
+      "implied_move_perc": "0.01676257374775139"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-18",
+      "volatility": "0.161083437806971",
+      "dte": 10,
+      "implied_move": "13.61635406067496",
+      "implied_move_perc": "0.01827306090057835"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-22",
+      "volatility": "0.1463704371592372",
+      "dte": 14,
+      "implied_move": "14.59468408621152",
+      "implied_move_perc": "0.01958597359790049"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-26",
+      "volatility": "0.1508435553879275",
+      "dte": 18,
+      "implied_move": "17.02510880324419",
+      "implied_move_perc": "0.02284743486777316"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-06-30",
+      "volatility": "0.1471970899169827",
+      "dte": 22,
+      "implied_move": "18.34676649430632",
+      "implied_move_perc": "0.0246212444230854"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-07-02",
+      "volatility": "0.1511113709664199",
+      "dte": 24,
+      "implied_move": "19.66388811777352",
+      "implied_move_perc": "0.02638881329885329"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-07-10",
+      "volatility": "0.1488006525228716",
+      "dte": 32,
+      "implied_move": "22.33300900638459",
+      "implied_move_perc": "0.02997075662459685"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-07-17",
+      "volatility": "0.1500881744202586",
+      "dte": 39,
+      "implied_move": "24.85263610605922",
+      "implied_move_perc": "0.03335208023251278"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-07-24",
+      "volatility": "0.1510970095739416",
+      "dte": 46,
+      "implied_move": "27.16033208013518",
+      "implied_move_perc": "0.03644899361229157"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-07-31",
+      "volatility": "0.1542683283625063",
+      "dte": 53,
+      "implied_move": "29.75555794337681",
+      "implied_move_perc": "0.03993177028205595"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-08-21",
+      "volatility": "0.1583730909657324",
+      "dte": 74,
+      "implied_move": "36.07162143900715",
+      "implied_move_perc": "0.0484078874859187"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-08-31",
+      "volatility": "0.1592663472907103",
+      "dte": 84,
+      "implied_move": "38.64036454380679",
+      "implied_move_perc": "0.0518551244616013"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-09-18",
+      "volatility": "0.1638423447911954",
+      "dte": 102,
+      "implied_move": "43.78973532387044",
+      "implied_move_perc": "0.0587655474312503"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-09-30",
+      "volatility": "0.1631787924224034",
+      "dte": 114,
+      "implied_move": "46.0997500008704",
+      "implied_move_perc": "0.0618655724956659"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-10-16",
+      "volatility": "0.1667786248600627",
+      "dte": 130,
+      "implied_move": "50.3051337718126",
+      "implied_move_perc": "0.0675091708784859"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-10-30",
+      "volatility": "0.1697424972898002",
+      "dte": 144,
+      "implied_move": "53.8775201862012",
+      "implied_move_perc": "0.0723032908183493"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-11-20",
+      "volatility": "0.173357627645299",
+      "dte": 165,
+      "implied_move": "58.8964037169247",
+      "implied_move_perc": "0.0790386007259175"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-11-30",
+      "volatility": "0.1732497432708641",
+      "dte": 175,
+      "implied_move": "60.6121044173351",
+      "implied_move_perc": "0.0813410601982596"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-12-18",
+      "volatility": "0.176853014043738",
+      "dte": 193,
+      "implied_move": "64.9659371874199",
+      "implied_move_perc": "0.0871838761976219"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2026-12-31",
+      "volatility": "0.1757242822643173",
+      "dte": 206,
+      "implied_move": "66.6845535796237",
+      "implied_move_perc": "0.0894902485098821"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2027-01-15",
+      "volatility": "0.1781553956581363",
+      "dte": 221,
+      "implied_move": "70.0161886032269",
+      "implied_move_perc": "0.0939612816082813"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2027-03-19",
+      "volatility": "0.1849711836599668",
+      "dte": 284,
+      "implied_move": "82.3609351800417",
+      "implied_move_perc": "0.1105278533201483"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2027-03-31",
+      "volatility": "0.1843905357005203",
+      "dte": 296,
+      "implied_move": "83.814240839934",
+      "implied_move_perc": "0.1124781803101804"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2027-06-17",
+      "volatility": "0.1919917655429724",
+      "dte": 374,
+      "implied_move": "98.0380099086488",
+      "implied_move_perc": "0.1315663883040538"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2027-09-17",
+      "volatility": "0.1950677798791233",
+      "dte": 466,
+      "implied_move": "111.1197813196759",
+      "implied_move_perc": "0.1491220426749637"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2027-12-17",
+      "volatility": "0.1985948789291625",
+      "dte": 557,
+      "implied_move": "123.6062613153071",
+      "implied_move_perc": "0.1658788197371129"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2028-01-21",
+      "volatility": "0.1992421393966228",
+      "dte": 592,
+      "implied_move": "127.8156705798098",
+      "implied_move_perc": "0.1715278203067929"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2028-06-16",
+      "volatility": "0.2030116899341465",
+      "dte": 739,
+      "implied_move": "145.3395256136908",
+      "implied_move_perc": "0.1950447227624816"
+    },
+    {
+      "date": "2026-06-08",
+      "ticker": "SPY",
+      "expiry": "2028-12-15",
+      "volatility": "0.207370907240488",
+      "dte": 921,
+      "implied_move": "165.4878301451273",
+      "implied_move_perc": "0.2220836198200754"
+    }
+  ]
+}

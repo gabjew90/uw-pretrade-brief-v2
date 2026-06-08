@@ -1,0 +1,252 @@
+{
+  "data": [
+    {
+      "type": "report",
+      "time": "2026-06-12T14:00:00Z",
+      "prev": "44.8",
+      "event": "Consumer sentiment (prelim)",
+      "reported_period": "June",
+      "forecast": "4"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-11T12:30:00Z",
+      "prev": "4.4%",
+      "event": "Core PPI year over year",
+      "reported_period": null,
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-11T12:30:00Z",
+      "prev": "6.0%",
+      "event": "PPI year over year",
+      "reported_period": null,
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-11T12:30:00Z",
+      "prev": "0.6%",
+      "event": "Core PPI",
+      "reported_period": "May",
+      "forecast": "0.4%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-11T12:30:00Z",
+      "prev": "1.4%",
+      "event": "Producer price index",
+      "reported_period": "May",
+      "forecast": "0.6%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-11T12:30:00Z",
+      "prev": "225000",
+      "event": "Initial jobless claims",
+      "reported_period": "June",
+      "forecast": "220000"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-10T18:00:00Z",
+      "prev": "-316000000000",
+      "event": "Monthly U.S. federal budget",
+      "reported_period": "May",
+      "forecast": "-277000000000"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-10T12:30:00Z",
+      "prev": "2.8%",
+      "event": "Core CPI year over year",
+      "reported_period": null,
+      "forecast": "2.9%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-10T12:30:00Z",
+      "prev": "0.4%",
+      "event": "Core CPI",
+      "reported_period": "May",
+      "forecast": "0.3%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-10T12:30:00Z",
+      "prev": "3.8%",
+      "event": "CPI year over year",
+      "reported_period": null,
+      "forecast": "4.2%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-10T12:30:00Z",
+      "prev": "0.6%",
+      "event": "Consumer price index",
+      "reported_period": "May",
+      "forecast": "0.5%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-09T14:00:00Z",
+      "prev": "1.3%",
+      "event": "Wholesale inventories",
+      "reported_period": "April",
+      "forecast": "0.5%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-09T14:00:00Z",
+      "prev": "4020000",
+      "event": "Existing home sales",
+      "reported_period": "May",
+      "forecast": "4050000"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-09T12:30:00Z",
+      "prev": "-60300000000",
+      "event": "U.S. trade balance",
+      "reported_period": "April",
+      "forecast": "-56000000000"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-09T10:00:00Z",
+      "prev": "95.9",
+      "event": "NFIB optimism index",
+      "reported_period": "May",
+      "forecast": "96.1"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-18T12:30:00Z",
+      "prev": "-0.4%",
+      "event": "Philadelphia Fed manufacturing survey",
+      "reported_period": "June",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-18T12:30:00Z",
+      "prev": null,
+      "event": "Initial jobless claims",
+      "reported_period": "June",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-17T18:30:00Z",
+      "prev": null,
+      "event": "Fed Chair Warsh press conference",
+      "reported_period": null,
+      "forecast": null
+    },
+    {
+      "type": "FOMC",
+      "time": "2026-06-17T18:00:00Z",
+      "prev": null,
+      "event": "FOMC interest-rate decision",
+      "reported_period": null,
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-17T14:00:00Z",
+      "prev": "0.9%",
+      "event": "Business inventories",
+      "reported_period": "April",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-17T14:00:00Z",
+      "prev": "37",
+      "event": "Home builder confidence index",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-17T14:00:00Z",
+      "prev": "1.4%",
+      "event": "Pending home sales",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-17T12:30:00Z",
+      "prev": null,
+      "event": "Retail sales minus autos",
+      "reported_period": "May",
+      "forecast": "0.7%"
+    },
+    {
+      "type": "report",
+      "time": "2026-06-17T12:30:00Z",
+      "prev": "0.5%",
+      "event": "U.S. retail sales",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-16T12:30:00Z",
+      "prev": "1440000",
+      "event": "Building permits",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-16T12:30:00Z",
+      "prev": "1470000",
+      "event": "Housing starts",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-16T12:30:00Z",
+      "prev": "0.8%",
+      "event": "Import price index minus fuel",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-16T12:30:00Z",
+      "prev": "1.9%",
+      "event": "Import price index",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-15T13:15:00Z",
+      "prev": "76.1",
+      "event": "Capacity utilization",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-15T13:15:00Z",
+      "prev": "0.7%",
+      "event": "Industrial production",
+      "reported_period": "May",
+      "forecast": null
+    },
+    {
+      "type": "report",
+      "time": "2026-06-15T12:30:00Z",
+      "prev": "19.6",
+      "event": "Empire State manufacturing survey",
+      "reported_period": "June",
+      "forecast": null
+    }
+  ]
+}

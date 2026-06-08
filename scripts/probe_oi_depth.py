@@ -14,9 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.uw_probe_targets import unwrap_rows  # noqa: E402
+from scripts.uw_probe_targets import make_getj, unwrap_rows  # noqa: E402
 from server.services import clock  # noqa: E402
 from server.services.uw_client import UWError, get  # noqa: E402
+
+getj = make_getj(get)
 
 
 def _snap_trading_day(d):
@@ -25,7 +27,7 @@ def _snap_trading_day(d):
 
 def _rows_for(ticker, date=None):
     params = {"date": date} if date else None
-    return unwrap_rows(get(f"/stock/{ticker}/oi-per-strike", params))
+    return unwrap_rows(getj(f"/stock/{ticker}/oi-per-strike", params))
 
 
 def main() -> int:
@@ -69,7 +71,7 @@ def main() -> int:
             last_ok = offset
         elif first_empty is None:
             first_empty = offset
-    print(f"lookback_depth_days: last_ok≈{last_ok}  first_empty≈{first_empty}")
+    print(f"lookback_depth_days: last_ok~{last_ok}  first_empty_or_403~{first_empty}")
     return 0
 
 

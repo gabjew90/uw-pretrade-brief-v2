@@ -1,0 +1,10 @@
+{
+  "fetched_at": "2026-06-08T15:04:04.465303+00:00",
+  "path": "/stock/SPY/greeks",
+  "params": {
+    "expiry": "2026-07-10"
+  },
+  "row_count": 177,
+  "content_hash": "1ddb391c8337750d",
+  "critical": false
+}

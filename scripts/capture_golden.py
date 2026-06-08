@@ -24,9 +24,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root on path
 
-from scripts.uw_probe_targets import build_targets, resolve_expiries, unwrap_rows  # noqa: E402
+from scripts.uw_probe_targets import build_targets, make_getj, resolve_expiries, unwrap_rows  # noqa: E402
 from server.services.uw_client import UWError, get  # noqa: E402
 
+getj = make_getj(get)
 OUT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "bronze"
 
 
@@ -50,7 +51,7 @@ def main() -> int:
         args = args[:i]
     ticker = (args[0] if args else "SPY").upper()
 
-    near, far = resolve_expiries(ticker, get)
+    near, far = resolve_expiries(ticker, getj)
     targets = build_targets(ticker, near, far)
     if only:
         targets = [t for t in targets if t.label.lower() in only]
@@ -59,7 +60,7 @@ def main() -> int:
     written = failed = 0
     for tgt in targets:
         try:
-            resp = get(tgt.path, tgt.params or None)
+            resp = getj(tgt.path, tgt.params or None)
         except (UWError, ValueError) as e:
             print(f"  FAIL  {tgt.label:32} {e}")
             failed += 1

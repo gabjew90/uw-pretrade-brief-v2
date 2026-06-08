@@ -14,8 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.uw_probe_targets import FLOW_ALERTS_MAX, unwrap_rows  # noqa: E402
+from scripts.uw_probe_targets import FLOW_ALERTS_MAX, make_getj, unwrap_rows  # noqa: E402
 from server.services.uw_client import UWError, get  # noqa: E402
+
+getj = make_getj(get)
 
 
 def _ts(row):
@@ -26,7 +28,7 @@ def main() -> int:
     ticker = (sys.argv[1] if len(sys.argv) > 1 else "SPY").upper()
     path = "/option-trades/flow-alerts"
     try:
-        rows = unwrap_rows(get(path, {"ticker_symbol": ticker, "limit": FLOW_ALERTS_MAX}))
+        rows = unwrap_rows(getj(path, {"ticker_symbol": ticker, "limit": FLOW_ALERTS_MAX}))
     except (UWError, ValueError) as e:
         print(f"ERROR: {e}")
         return 1
@@ -51,7 +53,7 @@ def main() -> int:
     older_more = "unknown"
     if oldest:
         try:
-            more = unwrap_rows(get(path, {"ticker_symbol": ticker,
+            more = unwrap_rows(getj(path, {"ticker_symbol": ticker,
                                           "limit": FLOW_ALERTS_MAX, "older_than": oldest}))
             older_more = f"yes ({len(more)} more)" if more else "no"
         except (UWError, ValueError) as e:

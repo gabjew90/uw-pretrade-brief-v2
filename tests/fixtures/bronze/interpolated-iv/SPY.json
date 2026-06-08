@@ -1,0 +1,67 @@
+{
+  "data": [
+    {
+      "date": "2026-06-08",
+      "days": 1,
+      "percentile": "0.497",
+      "volatility": "0.169",
+      "implied_move_perc": "0.006"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 5,
+      "percentile": "0.725",
+      "volatility": "0.159",
+      "implied_move_perc": "0.013"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 7,
+      "percentile": "0.555",
+      "volatility": "0.144",
+      "implied_move_perc": "0.013"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 14,
+      "percentile": "0.567",
+      "volatility": "0.146",
+      "implied_move_perc": "0.019"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 30,
+      "percentile": "0.497",
+      "volatility": "0.149",
+      "implied_move_perc": "0.029"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 60,
+      "percentile": "0.549",
+      "volatility": "0.156",
+      "implied_move_perc": "0.042"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 90,
+      "percentile": "0.491",
+      "volatility": "0.161",
+      "implied_move_perc": "0.054"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 180,
+      "percentile": "0.485",
+      "volatility": "0.174",
+      "implied_move_perc": "0.083"
+    },
+    {
+      "date": "2026-06-08",
+      "days": 365,
+      "percentile": "0.701",
+      "volatility": "0.191",
+      "implied_move_perc": "0.129"
+    }
+  ]
+}

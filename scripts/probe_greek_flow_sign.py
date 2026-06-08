@@ -18,8 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.uw_probe_targets import unwrap_rows  # noqa: E402
+from scripts.uw_probe_targets import make_getj, unwrap_rows  # noqa: E402
 from server.services.uw_client import UWError, get  # noqa: E402
+
+getj = make_getj(get)
 
 
 def _f(x):
@@ -39,8 +41,8 @@ def main() -> int:
 
     params = {"date": date} if date else None
     try:
-        gf = unwrap_rows(get(f"/stock/{ticker}/greek-flow", params))
-        npt = unwrap_rows(get(f"/stock/{ticker}/net-prem-ticks", params))
+        gf = unwrap_rows(getj(f"/stock/{ticker}/greek-flow", params))
+        npt = unwrap_rows(getj(f"/stock/{ticker}/net-prem-ticks", params))
     except (UWError, ValueError) as e:
         print(f"ERROR: {e}")
         return 1
@@ -81,8 +83,8 @@ def main() -> int:
         print(f"sign cross-check: {'AGREE' if agree else 'DISAGREE'} (greek-flow vs net-prem-ticks)")
 
     print("\nOPERATOR: confirm this session was clean/one-sided, then read the sign:")
-    print("  if the known direction was CALL-buying and series_sum is POSITIVE → positive = call-side.")
-    print("  if the known direction was PUT-buying and series_sum is NEGATIVE → negative = put-side.")
+    print("  if the known direction was CALL-buying and series_sum is POSITIVE -> positive = call-side.")
+    print("  if the known direction was PUT-buying and series_sum is NEGATIVE -> negative = put-side.")
     return 0
 
 

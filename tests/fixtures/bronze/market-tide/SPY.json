@@ -1,0 +1,138 @@
+{
+  "data": [
+    {
+      "timestamp": "2026-06-08T09:30:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-22266772.0000",
+      "net_put_premium": "-6855662.0000",
+      "net_volume": -34756
+    },
+    {
+      "timestamp": "2026-06-08T09:35:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-18203040.0000",
+      "net_put_premium": "-27768078.0000",
+      "net_volume": -62853
+    },
+    {
+      "timestamp": "2026-06-08T09:40:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "7303292.0000",
+      "net_put_premium": "-26240393.0000",
+      "net_volume": -31820
+    },
+    {
+      "timestamp": "2026-06-08T09:45:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "7187595.0000",
+      "net_put_premium": "-33208705.0000",
+      "net_volume": -29684
+    },
+    {
+      "timestamp": "2026-06-08T09:50:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "20766362.0000",
+      "net_put_premium": "-41045541.0000",
+      "net_volume": 44245
+    },
+    {
+      "timestamp": "2026-06-08T09:55:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-9506076.0000",
+      "net_put_premium": "-16762837.0000",
+      "net_volume": -24850
+    },
+    {
+      "timestamp": "2026-06-08T10:00:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-3216627.0000",
+      "net_put_premium": "-29235890.0000",
+      "net_volume": -17983
+    },
+    {
+      "timestamp": "2026-06-08T10:05:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-16198634.0000",
+      "net_put_premium": "-47718184.0000",
+      "net_volume": -3802
+    },
+    {
+      "timestamp": "2026-06-08T10:10:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-1708797.0000",
+      "net_put_premium": "-68371464.0000",
+      "net_volume": 53288
+    },
+    {
+      "timestamp": "2026-06-08T10:15:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "-16238073.0000",
+      "net_put_premium": "-60281926.0000",
+      "net_volume": -134745
+    },
+    {
+      "timestamp": "2026-06-08T10:20:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "59710.0000",
+      "net_put_premium": "-61606693.0000",
+      "net_volume": -106650
+    },
+    {
+      "timestamp": "2026-06-08T10:25:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "42052702.0000",
+      "net_put_premium": "-80997754.0000",
+      "net_volume": -15261
+    },
+    {
+      "timestamp": "2026-06-08T10:30:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "59871741.0000",
+      "net_put_premium": "-95543207.0000",
+      "net_volume": 52910
+    },
+    {
+      "timestamp": "2026-06-08T10:35:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "81419921.0000",
+      "net_put_premium": "-99309024.0000",
+      "net_volume": 122890
+    },
+    {
+      "timestamp": "2026-06-08T10:40:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "60679840.0000",
+      "net_put_premium": "-101634901.0000",
+      "net_volume": 88098
+    },
+    {
+      "timestamp": "2026-06-08T10:45:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "95975436.0000",
+      "net_put_premium": "-114096665.0000",
+      "net_volume": 176041
+    },
+    {
+      "timestamp": "2026-06-08T10:50:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "126771351.0000",
+      "net_put_premium": "-126815435.0000",
+      "net_volume": 241003
+    },
+    {
+      "timestamp": "2026-06-08T10:55:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "150971973.0000",
+      "net_put_premium": "-131909666.0000",
+      "net_volume": 339682
+    },
+    {
+      "timestamp": "2026-06-08T11:00:00-04:00",
+      "date": "2026-06-08",
+      "net_call_premium": "162080681.0000",
+      "net_put_premium": "-128800311.0000",
+      "net_volume": 377283
+    }
+  ],
+  "date": "2026-06-08"
+}
