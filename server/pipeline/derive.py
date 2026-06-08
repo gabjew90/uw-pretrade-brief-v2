@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from server.models import Flow, Provenance, Signal
+from server.models import Conviction, Flow, Provenance, Signal
 from server.services import provenance as prov
 
 REGISTRY: dict[str, Callable[..., Signal]] = {}
@@ -78,3 +78,57 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
 
     return Flow(direction=None, direction_basis="unavailable", truncated=truncated,
                 provenance=prov.unavailable("zero premium on both sides"))
+
+
+def _accumulation_read(cumsum: list[float]) -> tuple[str, float]:
+    """Path read on a cumsum curve. efficiency = |final| / max(|cumsum|) (1.0 = clean
+    one-way; «1 = spiked & reverted). Zero-crossing aware. Ported from
+    `e1d6c5e:server/greek_flow.py::accumulation_read`."""
+    if not cumsum:
+        return "flat", 0.0
+    final = cumsum[-1]
+    peak = max(cumsum, key=abs)
+    peak_abs = abs(peak)
+    if peak_abs == 0:
+        return "flat", 0.0
+    eff = abs(final) / peak_abs
+    crossed = (peak > 0 and final < 0) or (peak < 0 and final > 0)
+    if crossed:
+        state = "reversed"
+    elif eff >= 0.7:
+        state = "building"
+    elif eff <= 0.4:
+        state = "fading"
+    else:
+        state = "choppy"
+    return state, round(eff, 2)
+
+
+@register("conviction")
+def derive_conviction(canon: dict, *, asof: str | None = None) -> Conviction:
+    """Greek-flow directional conviction from the per-minute `dir_delta_flow` series.
+    PER-MINUTE → session figure is sum, curve is cumsum (never a last tick). Sign PINNED
+    (Phase 2 finding (a)): positive net = calls/bullish, negative = puts/bearish. A
+    degenerate (empty/flat/all-equal) series is `unavailable` — never a silent 'flat'.
+    PURE. Ported from `e1d6c5e:server/greek_flow.py::build_composite`. SAME flow family as
+    Flow → in the funnel this only matters on DIVERGENCE (signal-honesty §Confluence)."""
+    points = canon.get("greek_flow") or []
+    dseries = [p.dir_delta_flow for p in points]
+    if len(dseries) < 2 or max(dseries) == min(dseries):    # degenerate
+        return Conviction(direction=None,
+                          provenance=prov.unavailable("greek-flow empty or flat"))
+    src: Provenance = prov.derived(points[0].provenance)
+    dir_net = sum(dseries)
+    total_net = sum((p.total_delta_flow or 0.0) for p in points)
+    cum, run = [], 0.0
+    for v in dseries:
+        run += v
+        cum.append(run)
+    state, eff = _accumulation_read(cum)
+    if dir_net == 0:
+        return Conviction(direction=None, dir_delta=0.0, total_delta=round(total_net),
+                          accumulation=state, efficiency=eff,
+                          provenance=prov.unavailable("dir_delta net is zero (no lean)"))
+    return Conviction(direction="calls" if dir_net > 0 else "puts",
+                      dir_delta=round(dir_net), total_delta=round(total_net),
+                      accumulation=state, efficiency=eff, provenance=src)

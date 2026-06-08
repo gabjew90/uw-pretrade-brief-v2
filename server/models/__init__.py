@@ -97,6 +97,20 @@ class FlowAlert(BaseModel):
         return v
 
 
+class GreekFlowPoint(BaseModel):
+    """One per-MINUTE greek-flow row. `dir_delta_flow` is directional (single-leg) delta
+    being traded that minute; `total_delta_flow` is all-flow incl. hedges. PER-MINUTE —
+    the session figure is sum(...), the curve is cumsum(...) (never a last-tick scalar).
+    Sign PINNED Phase 2 (golden-bronze finding (a)): positive dir_delta_flow = bullish/
+    call, negative = bearish/put. Values arrive as decimal strings; coerced here."""
+    model_config = ConfigDict(extra="ignore")
+
+    timestamp: str
+    dir_delta_flow: float
+    total_delta_flow: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 # ── Signals (Derive stage output) — first-class entities, fields per instructions ──
 class Signal(BaseModel):
     """Base for every derived signal: a value + how confident + where it came from.
@@ -114,6 +128,18 @@ class Flow(Signal):
     call_prem: float = 0.0
     put_prem: float = 0.0
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
+
+
+class Conviction(Signal):
+    """Greek-flow directional conviction — SAME flow family as Flow (signal-honesty
+    §Confluence), so in the funnel it only acts on DIVERGENCE vs flow, never as an
+    agreement bonus. `direction` is the sign of the session dir_delta_flow net (pinned:
+    positive=calls/bullish). `accumulation` reads the cumsum path shape."""
+    direction: Optional[Literal["calls", "puts"]] = None
+    dir_delta: float = 0.0          # session net of dir_delta_flow (directional bets)
+    total_delta: float = 0.0        # session net of total_delta_flow (all-flow, secondary)
+    accumulation: Literal["building", "fading", "choppy", "reversed", "flat"] = "flat"
+    efficiency: float = 0.0
 
 
 class Positioning(Signal):

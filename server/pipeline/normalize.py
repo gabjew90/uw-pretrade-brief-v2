@@ -18,7 +18,7 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from server.models import FlowAlert
+from server.models import FlowAlert, GreekFlowPoint
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -45,16 +45,23 @@ def register(endpoint_key: str):
     return deco
 
 
-def _ep_key(endpoint: str) -> str:
-    return endpoint.strip("/").replace("/", "_")
+def _registry_key(endpoint: str, ticker: str | None = None) -> str:
+    """A ticker-AGNOSTIC dispatch key. Per-ticker endpoints carry the symbol in the path
+    (`/stock/SPY/greek-flow`); stripping it lets one parser serve every ticker
+    (`stock_greek-flow`). Cross-ticker paths (`/option-trades/flow-alerts`) are unaffected."""
+    segs = [s for s in endpoint.strip("/").split("/") if s]
+    if ticker:
+        segs = [s for s in segs if s.upper() != ticker.upper()]
+    return "_".join(segs)
 
 
 def normalize(raw: RawRecord) -> list:
     """Dispatch a raw record to its registered parser. Raises if no parser is
     registered (a missing parser is a wiring error, surfaced — not a silent skip)."""
-    parser = REGISTRY.get(_ep_key(raw.endpoint))
+    key = _registry_key(raw.endpoint, raw.ticker)
+    parser = REGISTRY.get(key)
     if parser is None:
-        raise NotImplementedError(f"no normalizer registered for endpoint '{_ep_key(raw.endpoint)}'")
+        raise NotImplementedError(f"no normalizer registered for endpoint '{key}'")
     return parser(raw)
 
 
@@ -92,4 +99,23 @@ def normalize_flow_alerts(raw: RawRecord) -> list[FlowAlert]:
                 f"flow-alerts row {i} missing volume_oi_ratio (the opening-flow direction "
                 "input) — refusing to fabricate a direction from a row without it")
         out.append(fa)
+    return out
+
+
+@register("stock_greek-flow")
+def normalize_greek_flow(raw: RawRecord) -> list[GreekFlowPoint]:
+    """Raw greek-flow payload → validated `list[GreekFlowPoint]`, oldest→newest. Each row
+    is PER-MINUTE; `dir_delta_flow` is required (the conviction input, Phase-2 confirmed).
+    A degenerate/flat series is NOT an error here — Derive decides `unavailable`; Normalize
+    only enforces shape. Empty `{"data":[]}` (pre-market) is a legitimate []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[GreekFlowPoint] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"greek-flow row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(GreekFlowPoint.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"greek-flow row {i} failed validation: {e}") from e
     return out
