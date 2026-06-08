@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from server.models import (Conviction, Cost, DealerGamma, Flow, Provenance, Signal,
-                            Skew)
+from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
+                            Signal, Skew)
 from server.services import provenance as prov
 
 # 25Δ RR magnitude below which skew is "neutral" (no lean). v2 default; operator-deferred
@@ -30,6 +30,10 @@ _IVR_GREEN_MAX = 60      # ivr <= 60 → ok (premium not rich)
 _IVR_YELLOW_MAX = 80     # 60 < ivr <= 80 → caution
 _EARNINGS_DAYS_MIN = 7   # earnings inside 7 days → block
 _IVR_TARGET_DTE = 30     # IV-rank horizon (standard 30d); operator-deferred
+
+# OI cluster trend bands (first→last settled session); operator-deferred.
+_OI_BUILD_PCT = 5.0      # cluster OI up >= +5% → building (corroborates the flow)
+_OI_UNWIND_PCT = -5.0    # cluster OI down <= -5% → unwinding (the 'buying' was closing)
 
 REGISTRY: dict[str, Callable[..., Signal]] = {}
 
@@ -248,3 +252,44 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
         guard, reason = "block", f"IV rank {ivr:.0f} — premium rich, poor cost/move"
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte, event_within_hold=event,
                 reason=reason, provenance=src)
+
+
+@register("positioning")
+def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
+    """OI confirmation of the flow's bet: does the FLOW-SIDE near-dated strike cluster's OI
+    GROW (building) or shrink (unwinding) across settled sessions? Anchored to the flow
+    side + near-dated cluster (tile2-confirmation-principle — aggregate call+put OI is the
+    trap). `unconfirmed` when history is missing/insufficient — and unconfirmed NEVER blocks
+    (archive-decoupled). NOT a direction (confirms the existing side). PURE. Combines with
+    Flow via positioning_leg in decide.
+
+    Inputs (orchestrator-assembled): `flow_side` ('call'/'put'), `flow_strikes` (the
+    near-dated cluster), `oi_sessions` (list of settled sessions oldest→newest, each a
+    list[OISnapshot])."""
+    side = canon.get("flow_side")
+    strikes = set(canon.get("flow_strikes") or [])
+    sessions = canon.get("oi_sessions") or []
+    if side not in ("call", "put") or not strikes or len(sessions) < 2:
+        return Positioning(confirmation="unconfirmed", side=(side if side in ("call", "put") else ""),
+                           cluster_strikes=sorted(strikes),
+                           provenance=prov.unavailable("OI history unconfirmed (archive-decoupled)"))
+
+    def cluster_oi(snaps) -> int:
+        pick = (lambda s: s.call_oi) if side == "call" else (lambda s: s.put_oi)
+        return sum(pick(s) for s in snaps if s.strike in strikes)
+
+    first, last = cluster_oi(sessions[0]), cluster_oi(sessions[-1])
+    if first <= 0:
+        return Positioning(confirmation="unconfirmed", side=side, cluster_strikes=sorted(strikes),
+                           provenance=prov.unavailable("no prior OI at the flow cluster"))
+    trend = (last - first) / first * 100
+    if trend >= _OI_BUILD_PCT:
+        conf = "building"
+    elif trend <= _OI_UNWIND_PCT:
+        conf = "unwinding"
+    else:
+        conf = "flat"
+    provs = [s.provenance for snaps in sessions for s in snaps if snaps]
+    src = prov.derived(*provs) if provs else prov.derived()
+    return Positioning(confirmation=conf, oi_trend_pct=round(trend, 1), side=side,
+                       cluster_strikes=sorted(strikes), provenance=src)

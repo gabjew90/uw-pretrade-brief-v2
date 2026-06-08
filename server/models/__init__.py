@@ -156,6 +156,21 @@ class SkewPoint(BaseModel):
     provenance: Provenance = Field(default_factory=Provenance)
 
 
+class OISnapshot(BaseModel):
+    """One per-strike open-interest row (from oi-per-strike). `call_oi`/`put_oi` are the
+    standing positions at that strike for a session. `provisional=True` = today's OI, not
+    yet settled (settles ~9:15 ET next session — the clock gates this); settled rows are
+    the only ones positioning trends. Strings coerced."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    strike: float
+    call_oi: int = 0
+    put_oi: int = 0
+    provisional: bool = False
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class GammaStrike(BaseModel):
     """One per-strike row of dealer gamma exposure (from spot-exposures/strike). UW
     PRE-SIGNS `put_gamma_oi` negative, so net dealer gamma at a strike is the signed SUM
@@ -183,7 +198,15 @@ class Conviction(Signal):
 
 
 class Positioning(Signal):
-    """OI confirmation of the flow's bet. Fields TBD."""
+    """OI confirmation of the flow's bet — does the flow-side near-dated OI cluster GROW
+    (building) or shrink (unwinding) across settled sessions? NOT a direction (it confirms
+    the EXISTING flow side). `unconfirmed` (missing history) NEVER blocks — archive-
+    decoupled (tile2-confirmation-principle). decide collapses Flow + this via
+    positioning_leg."""
+    confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
+    oi_trend_pct: float = 0.0                    # cluster OI change, first→last settled session
+    side: Literal["call", "put", ""] = ""        # the flow side this confirms
+    cluster_strikes: list[float] = Field(default_factory=list)
 
 
 class DealerGamma(Signal):

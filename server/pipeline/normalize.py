@@ -19,7 +19,7 @@ from typing import Callable
 from pydantic import ValidationError
 
 from server.models import (FlowAlert, GammaStrike, GreekFlowPoint, IVTermPoint,
-                            SkewPoint)
+                            OISnapshot, SkewPoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -173,4 +173,22 @@ def normalize_interpolated_iv(raw: RawRecord) -> list[IVTermPoint]:
             out.append(IVTermPoint.model_validate({**r, "provenance": p}))
         except ValidationError as e:
             raise NormalizeError(f"interpolated-iv row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_oi-per-strike")
+def normalize_oi_per_strike(raw: RawRecord) -> list[OISnapshot]:
+    """Raw oi-per-strike payload → validated `list[OISnapshot]`. `provisional` is stamped
+    by the caller (the clock decides if this session's OI has settled — Phase-2 finding:
+    intraday OI is FORMING, settled via date=). Empty is a legitimate []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[OISnapshot] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"oi-per-strike row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(OISnapshot.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"oi-per-strike row {i} failed validation: {e}") from e
     return out
