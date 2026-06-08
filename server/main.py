@@ -9,6 +9,7 @@ pipeline end-to-end so the wiring is exercisable before signals exist.
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,10 +22,19 @@ from server.pipeline.decide import decide
 from server.pipeline.derive import derive_all
 from server.pipeline.present import present
 from server.services import clock
-
-app = FastAPI(title="UW Pretrade Brief v3")
+from server.services.governor import governor
 
 _STATIC = Path(__file__).resolve().parent.parent / "static"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Restore today's UW call count so a redeploy doesn't reset the daily meter to 0.
+    governor.load_persisted()
+    yield
+
+
+app = FastAPI(title="UW Pretrade Brief v3", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -35,6 +45,7 @@ def health() -> dict:
         "phase": clock.phase().value,
         "session_date": clock.session_date().isoformat(),
         "oi_settled_through": clock.oi_settled_through().isoformat(),
+        "budget": governor.snapshot(),
     }
 
 

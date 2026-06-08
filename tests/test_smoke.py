@@ -31,3 +31,6 @@ def test_app_imports_and_health_shape():
     assert app.title == "UW Pretrade Brief v3"
     h = health()
     assert h["ok"] is True and "phase" in h and "oi_settled_through" in h
+    # governor snapshot is surfaced on /health (budget visibility — the 2026-05-29 lesson)
+    assert "budget" in h
+    assert {"calls_today", "daily_cap", "source"} <= set(h["budget"])
