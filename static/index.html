@@ -608,6 +608,42 @@
   .t1d-details[open] > summary { color: var(--text); }
   .t1d-nums { font-family: var(--ff-mono); font-size: 9px; color: var(--text-dim); margin-top: 3px; line-height: 1.4; }
   .t1d-note { opacity: 0.8; margin-top: 2px; }
+  /* ── Tile 1 VERDICT (novice-first surface: answer + conviction, evidence on tap) ── */
+  .t1-verdict { margin-bottom: 8px; }
+  .t1v-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .t1v-dir { font-family: var(--ff-mono); font-size: 16px; font-weight: 800; letter-spacing: 0.03em; }
+  .t1v-conv { display: inline-flex; align-items: center; gap: 6px; font-family: var(--ff-mono);
+              font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+  .t1v-conv.warn { color: var(--warn); } .t1v-conv.ok { color: var(--ok); } .t1v-conv.neg { color: var(--neg); }
+  .t1v-meter { display: inline-flex; gap: 3px; }
+  .t1v-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--panel-3); border: 1px solid var(--grid); }
+  .t1v-dot.lit.ok { background: var(--ok); border-color: var(--ok); }
+  .t1v-dot.lit.neg { background: var(--neg); border-color: var(--neg); }
+  .t1v-dot.lit.warn { background: var(--warn); border-color: var(--warn); }
+  .t1v-bar { display: flex; height: 22px; border-radius: 5px; overflow: hidden; background: var(--panel-3); }
+  .t1v-up, .t1v-dn { display: flex; align-items: center; justify-content: center;
+                     font-family: var(--ff-mono); font-size: 11px; font-weight: 700; color: #0b0d12; min-width: 0; }
+  .t1v-up { background: #639922; } .t1v-dn { background: #E24B4A; }
+  .t1v-sub { font-family: var(--ff-mono); font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+  .t1v-sub b { color: var(--text); font-weight: 700; }
+  .t1v-details { margin-top: 6px; }
+  .t1v-details > summary { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-dim); cursor: pointer; list-style: none; }
+  .t1v-details > summary::-webkit-details-marker { display: none; }
+  .t1v-details > summary::before { content: "▸ "; }
+  .t1v-details[open] > summary::before { content: "▾ "; }
+  .t1v-details[open] > summary { color: var(--text); }
+  .t1v-detail-body { margin-top: 6px; padding: 8px 10px; border-radius: 5px; background: rgba(255,255,255,0.015); border: 1px solid var(--grid); }
+  .t1v-dl { display: flex; justify-content: space-between; gap: 10px; font-family: var(--ff-mono); font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
+  .t1v-dl b.call { color: #9ECE6A; } .t1v-dl b.put { color: #F7768E; }
+  .t1v-dl-note { font-family: var(--ff-mono); font-size: 9px; color: var(--axis); line-height: 1.4; margin: 2px 0 6px; }
+  .t1v-stats { display: flex; gap: 14px; flex-wrap: wrap; margin: 4px 0 2px; }
+  .t1v-delta { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--grid); }
+  .t1v-delta-h { font-family: var(--ff-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+  .t1v-graphrow { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .t1v-glos { font-family: var(--ff-mono); font-size: 9px; color: var(--text-dim); line-height: 1.35; }
+  .t1v-nums { font-family: var(--ff-mono); font-size: 9px; color: var(--text-dim); margin-top: 4px; line-height: 1.4; }
+  .t1tf-desc { line-height: 1.4; }
+  .t1tf-prem.call { color: #9ECE6A; } .t1tf-prem.put { color: #F7768E; }
   .flow-asof { font-family: var(--ff-mono); font-size: 9px; color: var(--warn); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
   .flow-trunc { color: var(--neg); }
   .flow-stat-scope { text-transform: none; letter-spacing: 0; color: var(--text-dim); font-size: 8px; }
@@ -2023,12 +2059,13 @@ function pill(kind) {
  * and one that actually populates on the Basic tier (unlike ask-side). Both-sides,
  * observed — NOT filtered by the side toggle. Falls back to total flow when no
  * opening (volume/OI>1) prints exist, labeled honestly. */
-function renderT1Balance(row) {
+/* Shared opening-flow premium split — the OBSERVED call/put balance (toggle-
+ * independent: direction must not shift with the operator's side choice or the
+ * min-$ slider). Both the verdict surface and its details read from this so every
+ * figure agrees. Returns null when there's no single-leg flow to read. */
+function _t1OpeningSplit(row) {
   let single = (row.flow_alerts_detail || []).filter(a => a.has_singleleg && !a.has_multileg);
-  if (!single.length) return "";
-  // Scope to the same last session as the chart (so "total flow" is the session
-  // total, not a multi-day pool) — keeps it consistent with the "last session"
-  // stamp. Both-sides, all sizes (direction must not shift with the min-$ slider).
+  if (!single.length) return null;
   const tOf = a => Math.floor(new Date(a.created_at).getTime() / 1000);
   const epochs = [...single.map(tOf).filter(t => !isNaN(t)), ...(row.ohlc || []).map(b => b.t)];
   if (epochs.length) {
@@ -2041,33 +2078,74 @@ function renderT1Balance(row) {
   const base = isOpening ? opn : single;
   const cP = base.filter(a => a.type === "call").reduce((s, a) => s + (a.total_premium || 0), 0);
   const pP = base.filter(a => a.type === "put").reduce((s, a) => s + (a.total_premium || 0), 0);
-  const tot = cP + pP;                                          // OPENING premium (vol/OI>1)
-  const totAll = single.reduce((s, a) => s + (a.total_premium || 0), 0);   // all flow incl. closing
-  if (tot <= 0) return "";
+  const tot = cP + pP;
+  if (tot <= 0) return null;
   const callPct = Math.round(cP / tot * 100);
-  const putPct = 100 - callPct;
+  return {cP, pP, tot, totAll: single.reduce((s, a) => s + (a.total_premium || 0), 0),
+          callPct, putPct: 100 - callPct, isOpening, callLead: callPct >= 50};
+}
+
+/* Conviction meter — a RE-PRESENTATION of existing signals (NO new logic): prefer
+ * the greek-flow delta agreement (the same divergence test the delta box uses);
+ * fall back to how lopsided the opening premium is when there's no delta read for
+ * the name. Returns {dots 1-3, label, tone, sub}. */
+function _t1Conviction(row, sp) {
+  const gf = row.greek_flow;
+  if (gf && gf.available) {
+    const dir = gf.dir_delta || 0, total = gf.net_delta || 0;
+    const dirBull = dir > 0, totalBull = total > 0;
+    const chosenBull = row.direction !== "puts";
+    const diverges = dir !== 0 && ((total !== 0 && dirBull !== totalBull) || dirBull !== chosenBull);
+    if (diverges) return {dots: 1, label: "MIXED", tone: "warn", sub: "signals disagree"};
+    const tone = (sp ? sp.callLead : dirBull) ? "ok" : "neg";
+    if (gf.accumulation === "building") return {dots: 3, label: "STRONG", tone, sub: "signals agree"};
+    if (gf.accumulation === "fading" || gf.accumulation === "reversed")
+      return {dots: 1, label: "WEAK", tone: "warn", sub: "conviction fading"};
+    return {dots: 2, label: "MODERATE", tone, sub: "signals mostly agree"};
+  }
+  // No delta read — judge only by how one-sided the premium is (honest caveat).
+  const imb = sp ? Math.abs(sp.callPct - 50) : 0;
+  const tone = sp && sp.callLead ? "ok" : "neg";
+  if (imb >= 25) return {dots: 2, label: "CLEAR LEAN", tone, sub: "by premium only"};
+  if (imb >= 12) return {dots: 1, label: "SLIGHT LEAN", tone, sub: "by premium only"};
+  return {dots: 1, label: "MIXED", tone: "warn", sub: "fairly balanced"};
+}
+
+/* Tile 1 VERDICT (surface) — answer-before-evidence: a glanceable direction word +
+ * a 3-dot conviction meter + the up/down bar + ONE number ("new bets"). Every
+ * secondary number, the call/put split, the "opening" explanation, the shown/ask
+ * stats, and the delta graph all live behind the "details" tap. */
+function renderT1Verdict(row) {
+  const sp = _t1OpeningSplit(row);
+  if (!sp) return "";
+  const conv = _t1Conviction(row, sp);
   const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
-  const lead = callPct >= putPct ? "calls" : "puts";
-  const leadCol = callPct >= putPct ? "var(--ok)" : "var(--neg)";
-  // Breadcrumb makes the nesting explicit so the three figures don't read as one
-  // broken-down total: session flow ⊃ opening ⊃ the call/put split.
-  // "total flow" (full session), NOT "shown" — "shown" is reserved for the ≥min-$
-  // box below so the two numbers stop colliding under one word.
-  const breadcrumb = isOpening
-    ? `${fmtP(totAll)} total flow → ${fmtP(tot)} opening → <span class="call">${callPct}% calls</span> / <span class="put">${putPct}% puts</span>`
-    : `${fmtP(totAll)} total flow → no opening prints → ${callPct}/${putPct} by total $`;
-  return `
-    <div class="flow-balance">
-      <div class="fb-top">
-        <span class="fb-lead" style="color:${leadCol}">${lead.toUpperCase()} lead</span>
-        <span class="fb-sub"><span class="call">${fmtP(cP)}</span> calls vs <span class="put">${fmtP(pP)}</span> puts ${isOpening ? "(opening $)" : "(total $ — no opening)"}</span>
+  const bull = sp.callLead;
+  const dirWord = bull ? "BETTING UP" : "BETTING DOWN";
+  const arrow = bull ? "↑" : "↓";
+  const dirCol = bull ? "var(--ok)" : "var(--neg)";
+  const meter = [0, 1, 2].map(i => `<span class="t1v-dot ${i < conv.dots ? "lit " + conv.tone : ""}"></span>`).join("");
+  const bar = `<div class="t1v-bar">
+      <div class="t1v-up" style="width:${sp.callPct}%">${sp.callPct >= 14 ? sp.callPct + "%" : ""}</div>
+      <div class="t1v-dn" style="width:${sp.putPct}%">${sp.putPct >= 14 ? sp.putPct + "%" : ""}</div>
+    </div>`;
+  const details = `<details class="t1v-details"><summary>details</summary>
+      <div class="t1v-detail-body">
+        <div class="t1v-dl"><span>New bets (opening)</span><span><b class="call">${fmtP(sp.cP)}</b> up · <b class="put">${fmtP(sp.pP)}</b> down</span></div>
+        <div class="t1v-dl"><span>All flow this session</span><span>${fmtP(sp.totAll)}</span></div>
+        <div class="t1v-dl-note">“new bets” = positions being <em>opened</em> today (volume &gt; existing open interest), not closing out old ones.</div>
+        <div id="t1-stats" class="t1v-stats">${renderT1StatsRow(row)}</div>
+        ${renderT1DeltaDetail(row)}
       </div>
-      <div class="fb-bar">
-        <div class="fb-call" style="width:${callPct}%">${callPct >= 12 ? callPct + "%" : ""}</div>
-        <div class="fb-put" style="width:${putPct}%">${putPct >= 12 ? putPct + "%" : ""}</div>
+    </details>`;
+  return `<div class="t1-verdict">
+      <div class="t1v-top">
+        <span class="t1v-dir" style="color:${dirCol}">${arrow} ${dirWord}</span>
+        <span class="t1v-conv ${conv.tone}">${conv.label}<span class="t1v-meter">${meter}</span></span>
       </div>
-      <div class="fb-crumb">${breadcrumb}</div>
-      <div class="fb-legend">opening = volume/OI&gt;1 (net-new); the <strong>shown $</strong> box below is a separate <em>size</em> filter, not part of this split.</div>
+      ${bar}
+      <div class="t1v-sub"><b>${fmtP(sp.tot)}</b> new bets · ${conv.sub}</div>
+      ${details}
     </div>`;
 }
 
@@ -2090,58 +2168,29 @@ function _t1DeltaSpark(cum, net) {
     <line x1="${pad}" y1="${y(0).toFixed(1)}" x2="${W - pad}" y2="${y(0).toFixed(1)}" stroke="var(--grid)" stroke-width="0.5"/>
     <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.4"/></svg>`;
 }
-function renderT1DeltaFlow(row) {
+/* Delta-flow DETAIL (shown inside the verdict's "details" tap). The conviction it
+ * feeds (agree/disagree) is already surfaced as the verdict meter; here we show the
+ * evidence: a LABELLED running-total graph (grammar established once — "above the
+ * line = net up") + the two plain delta reads. Nothing when unavailable. */
+function renderT1DeltaDetail(row) {
   const gf = row.greek_flow;
   if (!gf || !gf.available) return "";
   const fmtSh = n => { const a = Math.abs(n); return a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(0)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : `${Math.round(a)}`; };
-  const dir = gf.dir_delta || 0;        // directional single-leg bets — the LED read
-  const total = gf.net_delta || 0;      // all-flow incl. hedges/spreads — secondary cross-read
-  const dirBull = dir > 0;
-  const totalBull = total > 0;
-  const chosenBull = row.direction !== "puts";   // opening-$ premium lean
-  // Divergence = the directional bets disagree with the broader tape OR the premium
-  // lean. Either way conviction is low; the lone directional headline stands down.
-  const vsTotal = total !== 0 && dirBull !== totalBull;
-  const vsPrem = dir !== 0 && dirBull !== chosenBull;
-  const diverges = dir !== 0 && (vsTotal || vsPrem);
-  const acc = gf.accumulation || "";
-  const prov = gf.provisional ? `<div class="t1d-graphnote"><span class="t1d-prov">provisional — early session, read not yet settled</span></div>` : "";
+  const dir = gf.dir_delta || 0, total = gf.net_delta || 0;
   const spark = _t1DeltaSpark(gf.cumsum, dir);
-  const dirWord = dirBull ? "up" : "down";
-  const dirSide = dirBull ? "upside" : "downside";
-  const totSide = totalBull ? "upside" : "downside";
-  // "broader flow" = the all-flow tape if it carries a sign, else the premium lean.
-  const broadWord = (total !== 0 ? totalBull : chosenBull) ? "up" : "down";
-  // Plain-language one-liner for the sparkline, keyed to the accumulation path.
   const accLine = {
-    building: "built steadily one way through the day — some conviction",
-    fading:   "spiked, then drifted back toward flat — fading conviction",
-    reversed: "flipped to the other side late in the day",
+    building: "built steadily one way — some conviction",
+    fading:   "spiked, then drifted back toward flat",
+    reversed: "flipped to the other side late",
     choppy:   "wandered up and down — no steady conviction",
     flat:     "barely moved",
-  }[acc] || "tracks those bets through the day";
-  // Raw share figures tucked behind an expander — the box's job here is the read,
-  // not the delta arithmetic. "all-flow" includes hedges/spreads, not just bets.
-  const details = `<details class="t1d-details"><summary>show the numbers</summary>
-    <div class="t1d-nums">clear directional bets ≈${fmtSh(dir)} sh ${dirSide} · all-flow incl. hedges ≈${fmtSh(total)} sh ${totSide}
-    <div class="t1d-note">“all-flow” counts hedges &amp; spreads too, not just outright bets — that’s why the two can point opposite ways.</div></div></details>`;
-  const label = `<span class="t1d-label">Delta flow <span class="t1d-what">· who’s betting on direction</span></span>`;
-  const provNote = gf.provisional ? ` <span class="t1d-prov">· provisional, early session</span>` : "";
-  if (diverges) {
-    // Secondary read, stood down: calm amber rail + "mixed" chip, one plain sentence.
-    return `<div class="t1-delta is-mixed">
-      <div class="t1d-head">${label}<span class="t1d-chip">mixed</span></div>
-      <div class="t1d-read">The clear directional bets lean slightly ${dirWord}, but the overall flow leans ${broadWord} — <b>no clear direction</b>.</div>
-      <div class="t1d-graphrow">${spark}<span class="t1d-glos">running total of those bets — here it ${accLine}${provNote}</span></div>
-      ${details}
-    </div>`;
-  }
-  // Aligned: directional + broad flow agree; chip carries the lean, sign caveat tucked in the gloss.
-  return `<div class="t1-delta is-aligned">
-    <div class="t1d-head">${label}<span class="t1d-chip ${dirWord}">leans ${dirWord}</span></div>
-    <div class="t1d-read">Directional bets lean <b>${dirWord === "up" ? "bullish" : "bearish"}</b> and the overall flow agrees — a modest ${dirWord === "up" ? "upside" : "downside"} lean.</div>
-    <div class="t1d-graphrow">${spark}<span class="t1d-glos">running total of those bets — here it ${accLine} · <span class="t1d-caution">sign still calibrating</span>${provNote}</span></div>
-    ${details}
+  }[gf.accumulation || ""] || "tracks those bets through the day";
+  const prov = gf.provisional ? ` · <span class="t1d-prov">provisional, early session</span>` : "";
+  return `<div class="t1v-delta">
+    <div class="t1v-delta-h">Delta flow <span class="t1d-what">· who’s betting on direction</span></div>
+    <div class="t1v-graphrow">${spark}<span class="t1v-glos"><b>above</b> the line = net up, below = net down — here it ${accLine}${prov}</span></div>
+    <div class="t1v-nums">clear directional bets ≈${fmtSh(dir)} sh ${dir > 0 ? "up" : "down"} · all-flow incl. hedges ≈${fmtSh(total)} sh ${total > 0 ? "up" : "down"}
+      <span class="t1d-note">“all-flow” counts hedges &amp; spreads too — that’s why the two can point opposite ways.</span></div>
   </div>`;
 }
 
@@ -2200,18 +2249,14 @@ function renderTile1Flow(row) {
   const stamp = _t1SessionStamp(row);
   return `
     <h3>
-      <span><span class="gate-dot ${g}"></span>Tile 1: Flow Conviction</span>
+      <span><span class="gate-dot ${g}"></span>What big money's betting</span>
       <button class="help-icon" data-help="tile1">?</button>
     </h3>
-    ${renderT1Balance(row)}
-    ${renderT1DeltaFlow(row)}
+    ${renderT1Verdict(row)}
     ${stamp ? `<div class="flow-asof">${stamp}</div>` : ""}
-    <div class="flow-stats" id="t1-stats">${renderT1StatsRow(row)}</div>
     <div class="flow-legend-row">
-      <span class="legend-item"><span class="legend-swatch call"></span>call bought</span>
-      <span class="legend-item"><span class="legend-swatch put"></span>put bought</span>
-      <span class="legend-item">hollow = sold</span>
-      <span class="legend-item">◯ ring = swept</span>
+      <span class="legend-item"><span class="legend-swatch call"></span>betting up</span>
+      <span class="legend-item"><span class="legend-swatch put"></span>betting down</span>
       <span class="legend-item">bigger = more $</span>
     </div>
     ${row.is_light ? `
@@ -2238,22 +2283,20 @@ function renderT1TopFlows(row) {
   const fmtP = p => p >= 1e6 ? `$${(p / 1e6).toFixed(1)}M` : `$${Math.round(p / 1e3)}k`;
   const et = ts => new Date(ts).toLocaleTimeString("en-US", {timeZone: "America/New_York", hour: "numeric", minute: "2-digit"});
   const rows = top.map(a => {
-    const sum = (a.total_ask_side_prem || 0) + (a.total_bid_side_prem || 0);
-    const askp = sum > 0 ? Math.round((a.total_ask_side_prem || 0) / sum * 100) : null;
-    const tone = askp == null ? "" : askp >= 55 ? "at ask" : askp <= 45 ? "at bid" : "mixed";
-    const tags = `${a.has_sweep ? "swept · " : ""}${a.all_opening_trades || (a.volume_oi_ratio || 0) > 1 ? "opening" : "—"}`;
+    const bull = a.type === "call";
+    // Plain row: time · $premium · ↑/↓ $strike call/put · exp. The ×size / at-ask /
+    // opening jargon moves to the bubble-tap detail + the help glossary.
     return `<tr>
       <td class="t1tf-t">${et(a.created_at)}</td>
-      <td><span class="t1tf-side ${a.type}">$${(+a.strike).toLocaleString()} ${a.type === "call" ? "C" : "P"}</span> <span class="t1tf-exp">${a.expiry || ""}</span></td>
-      <td class="t1tf-prem">${fmtP(a.total_premium)}</td>
-      <td class="t1tf-meta">${a.total_size || 0}× · ${tone || "ask/bid n/a"}</td>
-      <td class="t1tf-tags">${tags}</td>
+      <td class="t1tf-desc"><b class="t1tf-prem ${a.type}">${fmtP(a.total_premium)}</b>
+        <span class="t1tf-side ${a.type}">${bull ? "↑" : "↓"} $${(+a.strike).toLocaleString()} ${bull ? "call" : "put"}</span>
+        <span class="t1tf-exp">· exp ${a.expiry || "?"}</span></td>
     </tr>`;
   }).join("");
-  const sideLbl = state.t1Side === "calls" ? "calls" : state.t1Side === "puts" ? "puts" : "all";
+  const sideLbl = state.t1Side === "calls" ? "up bets" : state.t1Side === "puts" ? "down bets" : "all";
   return `
     <div class="t1-topflows">
-      <div class="t1tf-head">Top ${top.length} flows <span class="t1tf-sub">(${sideLbl}, by premium)</span></div>
+      <div class="t1tf-head">Biggest ${top.length} bets <span class="t1tf-sub">(${sideLbl})</span></div>
       <table class="t1tf-table">${rows}</table>
     </div>`;
 }
@@ -2383,7 +2426,7 @@ function renderT1Controls(row) {
     <div class="t1-controls">
       <div class="t3-grp"><span class="t3-grp-l">Side</span>
         ${seg("all", state.t1Side, "All", "setT1Side")}${seg("calls", state.t1Side, "Calls", "setT1Side")}${seg("puts", state.t1Side, "Puts", "setT1Side")}</div>
-      <div class="t3-grp t1-minwrap"><span class="t3-grp-l">Min&nbsp;$</span>
+      <div class="t3-grp t1-minwrap"><span class="t3-grp-l">Hide&nbsp;under</span>
         <input type="range" id="t1-min" class="t1-slider" min="0" max="${maxK}" step="50"
                value="${Math.min(_t1EffMinK(row), maxK)}" oninput="onT1Min(this.value)">
         <span class="t1-min-lbl" id="t1-min-lbl">${_t1MinLabel(row)}</span></div>
@@ -2393,8 +2436,8 @@ function renderT1Controls(row) {
 // "all" when at 0, explicit "≥ $Xk" once the user drags it.
 function _t1MinLabel(row) {
   const eff = _t1EffMinK(row);
-  if (!eff) return "all";
-  return (state.t1MinK == null ? "auto · ≥ " : "≥ ") + _fmtK(eff);
+  if (!eff) return "showing all";
+  return (state.t1MinK == null ? "auto: under " : "under ") + _fmtK(eff);
 }
 // Re-render ONLY Tile 1's slot (controls + chart). Scoped so a sibling tile that
 // errors on incomplete data can't abort the whole deep-dive render — which made
@@ -2413,7 +2456,7 @@ function setT1Side(s) { state.t1Side = s; _t1RerenderTile(); }   // slot-scoped:
 function onT1Min(v) {
   state.t1MinK = +v;
   const lbl = document.getElementById("t1-min-lbl");
-  if (lbl) lbl.textContent = state.t1MinK ? "≥ " + _fmtK(state.t1MinK) : "all";
+  if (lbl) lbl.textContent = state.t1MinK ? "under " + _fmtK(state.t1MinK) : "showing all";
   _t1Rerender();   // chart only — keep the slider element intact mid-drag
   // Also refresh the SHOWN $ stat row so it never goes stale vs the slider (it's
   // a separate element from the slider, so this doesn't interrupt the drag).
@@ -2525,9 +2568,12 @@ function renderFlowChart(row) {
     const color = a.type === "call" ? "#639922" : "#E24B4A";
     const askBidSum = a.total_ask_side_prem + a.total_bid_side_prem;
     const askDom = askBidSum > 0 ? (a.total_ask_side_prem / askBidSum) >= 0.5 : true;
-    const fill = askBidPopulated ? (askDom ? color : "none") : color;
-    const strokeW = a.has_sweep ? 2.5 : 1.4;
-    const ring = a.has_sweep ? `<circle class="flow-bubble-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 3).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1" opacity="0.55"/>` : "";
+    // Surface = 2 dimensions only (color = up/down, size = $). The sold-vs-bought
+    // (fill) and swept (ring) nuances are kept in the tap detail below, not on the
+    // glanceable chart — a novice reads direction + size, details on tap.
+    const fill = color;
+    const strokeW = 1.4;
+    const ring = "";
     const tET = fmtET(epoch);
     const premLbl = a.total_premium >= 1e6 ? `$${(a.total_premium / 1e6).toFixed(1)}M` : `$${Math.round(a.total_premium / 1e3)}k`;
     const askPctAlert = askBidSum > 0 ? Math.round((a.total_ask_side_prem / askBidSum) * 100) : null;
@@ -3724,9 +3770,9 @@ const TOOLTIPS = {
     provenance: "⚠️ Today: the regime label + detail text are operator-set env vars (REGIME, REGIME_DETAIL_TEXT) — not live-derived. To make this LIVE we'd add SPY/VIX via /api/market/oi-change and macro calendar via /api/market/economic-calendar (Advanced-tier).",
   },
   tile1: {
-    title: "Tile 1: Flow Conviction",
-    whatItIs: "Flow Conviction — what big money is betting on this stock right now. Each dot is one large options bet.\n\n<strong>The dots</strong>\n🟢 Green = betting up (calls) · 🔴 Red = betting down (puts)\nHeight = the price they're targeting\nBigger = more money\nSolid = bought aggressively · Hollow = actually sold (flip the meaning)\nRing = rushed to fill (urgency)\n\n<strong>The lines</strong>\nGray = the stock's price through the day\nDashed = where it's trading now",
-    whyHere: "<strong>How to read it</strong>\nBig solid green dots clustered above the line = bullish conviction\nSame in red below the line = bearish\nTop \"ask-side %\" is the tell — above ~75% = real buying\n\nBest time: mid-morning to midday. Skip the first and last hour. Skip entirely if dots are mixed colors or mostly hollow.",
+    title: "What big money's betting",
+    whatItIs: "The big options bets on this stock right now, and which way they lean.\n\n<strong>The verdict (top)</strong>\nBETTING UP / DOWN = which way the new money leans.\nThe dots = conviction: 3 lit = strong, 1 lit = weak/mixed.\nThe bar = share of new-bet money, up vs down.\n\n<strong>The chart dots</strong>\n🟢 Green = up bet (call) · 🔴 Red = down bet (put)\nHeight = the price they're targeting · Bigger = more money\nTap a dot for the exact trade (bought vs sold, urgency, contract).\n\n<strong>The lines</strong>\nGray = the stock's price through the day · Dashed = where it trades now.",
+    whyHere: "<strong>How to read it</strong>\nBig dots clustered on one side + a full 3-dot meter = real conviction.\nMixed colors or a 1-dot meter = no clear edge — skip.\nBest time: mid-morning to midday; skip the first and last hour.\n\n<strong>Plain words</strong>\n• opening / new bets — money opening fresh positions today, not closing out old ones.\n• ask-side — how aggressively buyers are paying up; higher = more urgent.\n• swept — one order rushed across several exchanges at once = urgency.\n• volume vs OI (e.g. 17439×) — today's volume was thousands× the existing open interest = a brand-new position.\n• MIXED / conviction — whether the signals agree (strong) or fight each other (mixed/weak).\n• choppy (the graph) — the directional bets wandered up and down instead of building one way = no clear conviction.",
     threshold: "Gate 1 passes (green) if the ticker's bullish flow rank is in the top 15% of today's universe; yellow up to top 35%; red beyond.",
     provenance: "Data (live):\n/api/option-trades/flow-alerts — the dots + top numbers\n/api/stock/{ticker}/ohlc/{candle_size} — the price line",
   },
