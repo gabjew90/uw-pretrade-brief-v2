@@ -122,7 +122,37 @@ partition into one file, reducing DuckDB scan overhead.
 **Idempotent:** a crashed compaction leaves orphan part files; the next run re-merges
 them. The DuckDB read layer handles multiple part files per partition correctly.
 
-### 7. Deploy unchanged — Dockerfile + railway.toml
+### 7. Replay-as-backtest — re-derive gold from bronze (the architecture's payoff)
+
+This is **distinct from §4**. §4 asserts *determinism* (same bronze → same ViewModel,
+no drift). This asserts the *payoff* of an immutable bronze + pure derive: you can
+**re-derive history**. Because bronze is the raw log and derive/decide are pure, replaying
+N past sessions' bronze through the *current* derive/decide code reconstructs what every
+signal and verdict **would have said** then — a diffable signal history, with zero new
+UW calls. This is what makes "improve a signal, see how it would have called the last two
+weeks" possible, and it is the reason bronze is immutable.
+
+**Deliverable (`scripts/backtest_replay.py`):**
+```python
+# For each session date D in the requested range (default: last N=10 trading days):
+#   1. Point ingest at bronze partitions for D (cached_only / REPLAY semantics).
+#   2. Run normalize -> derive_all -> decide for each ticker, at D's as_of (clock injected).
+#   3. Emit a gold row per (date, ticker): {signals: {...values...}, verdict, provenance}.
+# Write the re-derived gold to a SEPARATE namespace (e.g. gold/backtest/run-<label>/),
+#   NEVER overwriting live gold — re-derivation is a read of bronze, not a mutation.
+# Produce signal_history.jsonl: one line per (date, ticker) with the signal values +
+#   verdict action, so two runs (e.g. before/after a derive change) are line-diffable.
+```
+
+**Why a separate namespace:** re-derived gold is a hypothesis ("what the *current* code
+would have said"), not the historical record. Writing it under `gold/backtest/<label>/`
+keeps the immutable-bronze / append-only-gold invariant intact and lets the operator diff
+`run-baseline` vs `run-newskew` without polluting production gold.
+
+**Acceptance is below (§Acceptance, the backtest items).** This is a **Phase 6
+deliverable**, mirrored in the build plan's Phase 6 acceptance.
+
+### 8. Deploy unchanged — Dockerfile + railway.toml
 
 The existing deploy artifacts are correct and deployed green. This spec does not change them.
 
@@ -154,6 +184,16 @@ CI tests run in a `python:3.11` GitHub Actions runner (or Railway's build step) 
       request-handling code.
 - [ ] `Dockerfile` and `railway.toml` are unchanged (a diff against the current file
       shows no modification).
+- [ ] **Replay-as-backtest:** `scripts/backtest_replay.py` re-derives N (default 10)
+      sessions of gold from the committed/captured bronze **with no live UW calls**
+      (REPLAY/cached_only), writing to a `gold/backtest/<label>/` namespace that leaves
+      production gold untouched, and emits a line-diffable `signal_history.jsonl`
+      (one row per date×ticker: signal values + verdict). Distinct from the §4 parity
+      check — this asserts re-derivation across *history*, not determinism on one session.
+- [ ] **Backtest diffability:** running the backtest twice across the same bronze with an
+      intentionally changed derive function yields a non-empty, human-readable diff of
+      `signal_history.jsonl` confined to the affected signal (proves a signal change's
+      historical impact is observable without new data).
 
 ## Definition of done (universal — from the plan)
 

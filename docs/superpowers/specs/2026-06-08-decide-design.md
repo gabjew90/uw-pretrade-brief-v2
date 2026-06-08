@@ -91,6 +91,41 @@ decide(signals: dict[str, Signal]) -> Verdict
   confirming value. The funnel must default to the conservative path for each
   unavailable input (skew → neutral; cost → caution; structural → yellow; OI → flat).
 
+## Combination STRUCTURE — locked invariants (architecture, NOT deferred with thresholds)
+
+These are structural rules, fixed regardless of operator threshold tuning. The funnel
+must NOT be rebuilt as a naive AND/OR of independent gates — that re-double-counts the
+flow family and treats corroboration as confirmation (the exact v2 trap). Lock:
+
+- **Flow and OI are ONE family.** Positioning already collapses them (opening-flow
+  direction + OI confirmation). They are never counted as two independent greens.
+- **Greek-flow conviction is the SAME flow family** — opening-$, delta flow, and
+  net-prem-ticks are one signed-flow read, correlated by construction (signal-honesty
+  §Confluence in `e1d6c5e:docs/superpowers/specs/2026-06-04-signal-honesty-design.md`).
+  So **agreement within the flow family adds nothing**; only **divergence** is new
+  information and acts as a caution. No agreement bonus from a same-family signal.
+- **Skew is the orthogonal directional leg** (vol surface — a different mechanism), so it
+  can carry independent information — but asymmetrically: **opposition vetoes/caps;
+  agreement is subordinate corroboration, never a peer green, never an upgrade.**
+- **Structural (dealer gamma) and Cost are guards, not direction** — they cap/veto
+  (POS-gamma caps structural at yellow; cost block → Stand down); they never add a green.
+- General rule the combiner MUST obey: **divergence vetoes; agreement never promotes.**
+  Only opposition between orthogonal legs (or within-family divergence) moves the
+  verdict; concordance among correlated signals must not stack.
+
+Only the numeric thresholds (what counts as oppose/agree/building) are operator-deferred;
+the family membership + the divergence-veto-not-agreement-bonus rule are NOT.
+
+## Honest-degrade — gated as BEHAVIOR, not just modeled as a type
+
+`provenance.quality=unavailable` existing on a Signal is necessary but not sufficient.
+The funnel must make degradation OBSERVABLE in the verdict:
+- An unavailable input is NAMED in `reasons` (the verdict says *why* it's degraded).
+- An unavailable **core** input (flow/positioning) makes `Favorable` impossible — the
+  verdict degrades to `Mixed`/`Stand down`, never silently treated as neutral-green.
+- An unavailable **non-core** input (skew/regime) takes its conservative path (neutral)
+  AND is still named in `reasons` so the user sees coverage was partial.
+
 ## Keepers to port from v2
 
 - **`positioning_leg(direction_basis, flow_gate, oi_confirmation) -> str`** from
@@ -129,6 +164,12 @@ decide(signals: dict[str, Signal]) -> Verdict
 - [ ] No `datetime.now()`, no `import requests`, no `import storage` in `decide.py`
       (CI purity lint asserts this, same pattern as Derive).
 - [ ] `Verdict.provenance` is `Provenance.worst(*consumed_signal_provenances)`.
+- [ ] **Honest-degrade gated:** injecting an `unavailable` core signal (flow/positioning)
+      makes `overall` ≠ `Favorable` AND adds a `reason` naming the missing input;
+      injecting an `unavailable` non-core signal (skew/regime) still names it in `reasons`.
+- [ ] **No same-family stacking:** two concordant flow-family signals (opening-$ bullish
+      AND greek-flow conviction bullish) do NOT yield a higher verdict than one alone;
+      only their *divergence* changes the outcome (assert agreement adds no promotion).
 
 ## Definition of done (universal)
 
@@ -147,6 +188,10 @@ records accessed directly) · REPLAY-reproducible: same signal map → identical
 - `_DELTA_TOL` for derived RR25 (currently `0.10` in v2's `derive_rr25`) — deferred
   to operator's skew-positioning brief.
 - Whether `regime=stand_down` becomes a hard gate or remains advisory — deferred.
+- **NOT deferred:** the combination *structure* (signal families, divergence-veto-not-
+  agreement-bonus, skew asymmetry) — see "Combination STRUCTURE". Only the numbers are
+  deferred, never the orthogonality rules (or the agent may build a naive AND/OR
+  combiner that re-double-counts the flow family).
 
 ## Open questions / flags
 

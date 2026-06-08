@@ -137,6 +137,11 @@ model)→rendered by the dumb frontend.
 - [ ] Golden-fixture value test + invariant test (e.g. GEX flip sign, greek-flow sign).
 - [ ] Registered in derive; consumed by name in decide; an unused signal is a visible
       unused input (assert in a decide test).
+- [ ] **Honest-degrade gated:** an `unavailable` value for this signal is named in the
+      verdict's reasons; if it is a core signal, the verdict cannot be `Favorable`.
+- [ ] **No same-family stacking:** the combiner obeys the locked decide-spec structure —
+      concordant flow-family signals do not stack into a higher verdict; only divergence
+      moves it (assert for conviction vs flow).
 - **Checkpoint:** each signal reviewed as it lands (subagent-driven, two-stage review).
 
 ### Phase 5 — Frontend as a view-model renderer
@@ -153,12 +158,19 @@ A component tree that renders the ViewModel; surface/tap progressive disclosure 
 ### Phase 6 — Ops / CI
 **Spec:** `2026-06-08-ops-ci-design.md`
 Hyphenated-path lint; golden tests gating deploy; REPLAY=1 offline mode; the
-no-client-computation CI check; nightly bronze backup to object storage; compaction
+no-client-computation CI check; **replay-as-backtest (re-derive N sessions of gold from
+bronze → diffable signal history)**; nightly bronze backup to object storage; compaction
 cron (separate from runtime).
 
 **Acceptance:**
 - [ ] CI runs golden tests + path lint + no-client-compute check; red blocks deploy.
-- [ ] REPLAY=1 produces an identical view model offline in CI.
+- [ ] REPLAY=1 produces an identical view model offline in CI (determinism on one session).
+- [ ] **Replay-as-backtest:** `scripts/backtest_replay.py` re-derives N (default 10)
+      sessions of gold from captured bronze with **no live UW calls**, writes them to a
+      `gold/backtest/<label>/` namespace (production gold untouched), and emits a
+      line-diffable `signal_history.jsonl`. A re-run with a changed derive fn yields a
+      readable diff confined to the affected signal. This is the payoff of immutable
+      bronze + pure derive — distinct from the determinism check above.
 - [ ] Backup + compaction documented and scheduled (cron, not in the request path).
 
 ---
@@ -179,10 +191,13 @@ evidenced answer in the Phase 2 spec.
 3. **flow-alerts truncation.** Find the record/time limit; determine whether a pulled
    "session" is the full day or only the last N alerts (v2 saw 118→394 between loads;
    cap 500, paginate via `older_than`).
-4. **OI live-vs-settled.** Confirm what `oi-per-strike` returns intraday vs with `date=`
-   and the settlement publish time, so the clock's OI cadence is correct. **(Confirmed
-   in review: `oi-per-strike` IS `date=` backfillable — uw history `e1d6c5e:backfill.py`;
-   verify the exact lookback depth, which is a doc-comment, not code-proven.)**
+4. **OI live-vs-settled + lookback depth.** Confirm what `oi-per-strike` returns intraday
+   vs with `date=` and the settlement publish time, so the clock's OI cadence is correct.
+   **(Confirmed in review: `oi-per-strike` IS `date=` backfillable — uw history
+   `e1d6c5e:backfill.py`.)** Also **measure the actual lookback ceiling**: v2's tier probe
+   observed 7 trading days (earliest 2026-05-13), which is account-age-dependent and may
+   have grown — probe progressively older `date=` until it 404s/empties and set the
+   governor's lookback bound to the measured value (see §Operator flags #3).
 5. **Hyphenated paths return 200** for every endpoint used (underscore = silent 404).
 
 ---
@@ -193,8 +208,18 @@ evidenced answer in the Phase 2 spec.
 - Derive functions are pure; golden-fixture tests assert a **sane non-None value** (not
   just field presence), plus property/invariant tests (e.g. direction/GEX/greek-flow sign).
 - Provenance (source / as_of / quality) attached to every value and rendered.
+- **Honest-degrade is GATED as behavior, not just modeled as a type:** an `unavailable`
+  signal is named in the verdict's `reasons`, and an unavailable *core* input (flow/
+  positioning) makes `Favorable` impossible — never silently treated as neutral-green
+  (decide spec; asserted by an inject-unavailable test).
+- **Combination STRUCTURE is locked architecture, not deferred with the thresholds:** the
+  signal families (Flow+OI+greek-flow conviction = one flow family; skew orthogonal) and
+  the rule **"divergence vetoes; agreement never promotes"** are fixed in the decide spec.
+  Only the numeric thresholds are operator-deferred — the combiner must not be rebuilt as
+  a naive AND/OR that re-double-counts the flow family.
 - Frontend renders the view model verbatim; a CI check rejects client-side computation.
-- `REPLAY=1` reproduces the identical view model offline from captured bronze.
+- `REPLAY=1` reproduces the identical view model offline from captured bronze; the
+  replay-as-backtest script re-derives history into a separate gold namespace.
 
 ## What this plan DEFERS (product specifics, not architecture)
 
@@ -233,8 +258,13 @@ Port the correct v2 logic into the new boundaries via `git show e1d6c5e:server/<
 2. **net-prem-ticks may be redundant.** v2 found `net-prem-ticks.net_delta` ==
    `greek-flow.dir_delta_flow` (same field). Phase 2 should decide whether to ingest
    net-prem-ticks at all, or use it only as the greek-flow sign cross-check.
-3. **The "7-day ceiling" in the governor scaffold** isn't established anywhere in v2 —
-   either evidence it in Phase 2 or drop it from the governor.
+3. **The "7-day ceiling" in the governor scaffold WAS observed in v2, and is
+   account-age-dependent.** v2's tier probe saw it directly ("earliest date available to
+   you is 2026-05-13, 7 trading days"), so it is not invented — but it is a property of
+   the account's history depth at probe time, which may have grown since. Action: **re-verify
+   the actual lookback depth in Phase 2** (probe `oi-per-strike`/history with progressively
+   older `date=` until it 404s/empties) and set the governor's ceiling to the *measured*
+   value, rather than treating 7 as fixed or dropping the bound entirely.
 4. **Cleanup:** the standalone `uw-pretrade-brief-v3` dir + GitHub repo are now
    redundant (operator to delete).
 
