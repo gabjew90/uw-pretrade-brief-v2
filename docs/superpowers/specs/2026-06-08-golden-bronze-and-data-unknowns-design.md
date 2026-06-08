@@ -1,6 +1,8 @@
 # Golden Bronze + Data Unknowns — Design (v3, Phase 2)
 
-**Status:** PLAN (awaiting operator approval) · **Conforms to:** CLAUDE.md, docs/architecture.md
+**Status:** EXECUTED 2026-06-08 — findings (a)–(e) recorded below; **PENDING operator
+sign-off** on (a) the greek-flow sign session + (b) the net-prem-ticks ingest decision.
+· **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** Phase 1 (uw_client + storage scaffold)
 **BLOCKS:** Phase 3 (walking skeleton) — no signal math is trusted until data unknowns are signed off.
 
@@ -89,13 +91,17 @@ sign is invisible on a mixed day. Use the 6/5 3:32 PM ask-side put as the anchor
 **Where the answer is recorded:** Fill in the `_FINDING` block below at execution time.
 
 ```
-_FINDING (a): greek-flow sign
-  probe_command: <paste exact command>
-  session_date: <YYYY-MM-DD>
-  dir_delta_flow at 15:32: <observed value>
-  sign_correct: yes | no | inconclusive
-  net_prem_ticks cross_check: <agrees | disagrees | field missing>
-  resolution: <"vendor sign: negative = put/ask-side; field confirmed">
+_FINDING (a): greek-flow sign — EXECUTED 2026-06-08 (Mon RTH), PENDING operator sign-off
+  probe_command: railway run uv run python scripts/probe_greek_flow_sign.py SPY
+  session_date: 2026-06-08 (intraday; fresh-session per operator decision, not the stale 6/5 anchor)
+  dir_delta_flow series_sum: -1,328,303 (NEGATIVE); dominant minute 14:18Z = -592,585 (negative)
+  sign_correct: PENDING — needs operator to confirm 2026-06-08 SPY was a clean/one-sided
+    (bearish) session. IF bearish + sum negative => negative = put/bearish side (the
+    conventional sense). Do NOT pin until confirmed clean.
+  net_prem_ticks cross_check: INVALID as an independent check — net_delta IS dir_delta_flow
+    (93/94 minutes byte-identical; see finding (b)). Same field; agreement is tautological.
+  resolution: sign SENSE looks conventional (neg = bearish), but must be pinned on an
+    operator-confirmed clean session; the net-prem-ticks cross-check cannot corroborate it.
 ```
 
 ---
@@ -125,14 +131,19 @@ field, two endpoints), decide whether to ingest `net-prem-ticks` at all or use i
 the greek-flow sign cross-check (plan §Operator flags #2). Record the decision here.
 
 ```
-_FINDING (b): net-prem-ticks population
-  probe_date: <YYYY-MM-DD>
-  net_call_premium populated: yes | no
-  net_put_premium populated: yes | no
-  net_delta max(|x|): <value>
-  series_length_rows: <count>
-  is_net_delta_same_as_dir_delta_flow: yes | no | not_checked
-  operator_decision: <ingest separately | cross-check only | drop>
+_FINDING (b): net-prem-ticks population — EXECUTED 2026-06-08
+  probe_date: 2026-06-08
+  net_call_premium populated: yes (e.g. -2,264,372 at 13:30Z)
+  net_put_premium populated: yes (e.g. -4,413,000 at 13:30Z)
+  net_delta non-degenerate: yes (varies per minute; not uniformly 0)
+  series_length_rows: 94 (full RTH minute count, matches greek-flow's 94)
+  is_net_delta_same_as_dir_delta_flow: YES — 93/94 minutes byte-identical (the 1 diff is
+    the latest minute, a feed-cutoff artifact). net_delta IS greek-flow.dir_delta_flow.
+  net-prem-ticks UNIQUE fields (NOT in greek-flow): net_call_premium, net_put_premium,
+    net_call_volume, net_put_volume, call_volume_ask_side/bid_side, put_volume_ask_side/bid_side.
+  operator_decision (RECOMMENDED, pending sign-off): INGEST net-prem-ticks for its unique
+    net_call/put_premium + ask/bid volume split (a directional-premium + aggression read
+    distinct from delta flow); do NOT use net_delta as a greek-flow sign cross-check (same field).
 ```
 
 ---
@@ -163,14 +174,17 @@ railway run python scripts/probe_flow_truncation.py --ticker SPY --limit 500
 - The window span: is it the full market session (6.5 hours) or only the tail?
 
 ```
-_FINDING (c): flow-alerts truncation
-  probe_date: <YYYY-MM-DD>
-  rows_at_limit_500: <count>
-  oldest_created_at: <timestamp>
-  newest_created_at: <timestamp>
-  window_hours: <float>
-  older_than_yields_more: yes | no
-  resolution: <"session is last N alerts, cap=N, paginate via older_than" | "full session">
+_FINDING (c): flow-alerts truncation — EXECUTED 2026-06-08
+  probe_date: 2026-06-08
+  rows_at_limit_500: 500 (at the cap)
+  oldest_created_at: 2026-06-05T16:53:37Z
+  newest_created_at: 2026-06-08T15:02:42Z
+  window_hours: 70.15  (a single 500-row pull spans ~3 calendar days — Fri PM → Mon AM)
+  older_than_yields_more: YES (older_than=<oldest> returned 500 MORE)
+  resolution: cap = 500 per page; a pull returns the MOST-RECENT N (the tail), which for
+    SPY spans multiple sessions; to cover a full/older window, paginate BACKWARD via
+    older_than=<oldest created_at>. Tile-1 must stamp the real window + flag truncation
+    (carries the v2 flow-alerts-truncation lesson).
 ```
 
 ---
@@ -206,15 +220,20 @@ railway run python scripts/probe_oi_depth.py --ticker SPY
 - Whether a `settled` field exists; if not, how the clock must gate the cadence.
 
 ```
-_FINDING (d): OI live-vs-settled and lookback depth
-  probe_date: <YYYY-MM-DD>  probe_time_et: <HH:MM>
-  intraday_rows (no date=): <count>
-  yesterday_rows (date=): <count>
-  same_data_intraday_vs_settled: yes | no | unclear
-  lookback_depth_days: <last successful N>
-  first_empty_N: <N>
-  settled_field_present: yes | no
-  clock_cadence_implication: <"OI is forming intraday" | "OI is settled-only, date= required">
+_FINDING (d): OI live-vs-settled and lookback depth — EXECUTED 2026-06-08 (~11:00 ET)
+  probe_date: 2026-06-08  probe_time_et: ~11:00 (RTH)
+  intraday_rows (no date=): ~499 (FORMING — differs from settled by value)
+  yesterday_rows (date=2026-06-05): 499  (sample call_oi=105)
+  same_data_intraday_vs_settled: NO — intraday is forming, not the settled snapshot
+  lookback_depth: date=-1d (2026-06-05) OK 499; date=-7d (2026-06-01) OK 498;
+    date=-14d (2026-05-22) HTTP 403; -21/-30/-45/-60d ALL HTTP 403
+  boundary: works through 2026-06-01 (~6 trading days back); 403 at 2026-05-22 and older
+  403_not_empty: the ceiling is a TIER BLOCK (HTTP 403), not an empty 200 — UW refuses
+    older dates on Basic. EVIDENCES operator-flag #3: the ~7-trading-day ceiling is REAL.
+  settled_field_present: no explicit 'settled' flag observed; clock must gate cadence by
+    the OI publish time (~9:15 ET next session), as the v3 clock already does.
+  clock_cadence_implication: OI is FORMING intraday; settled OI for a prior session via
+    date=; governor lookback bound = measured ~6-7 trading days (requests beyond 403).
 ```
 
 ---
@@ -239,11 +258,14 @@ call time — surfaces in the probe as an ERROR).
   build time.
 
 ```
-_FINDING (e): hyphenated paths
-  probe_date: <YYYY-MM-DD>
-  errors: <list of endpoint+status or "none">
-  underscore_violations: <list or "none">
-  resolution: <"all 200, all hyphenated" | list of fixes applied>
+_FINDING (e): hyphenated paths — EXECUTED 2026-06-08
+  probe_date: 2026-06-08
+  errors: none — all 15 probed endpoints returned 200 (earnings is 200-but-empty: SPY is
+    an ETF with no earnings, expected/benign; not a path error)
+  underscore_violations: none — every path hyphenated; uw_client.assert_hyphenated() and
+    the CI lint (tests/test_uw_paths.py) both pass
+  resolution: all 200, all hyphenated. (Note: oi-per-strike older dates return 403 by
+    tier, not 404 by path — a budget/lookback limit, not a path bug; see finding (d).)
 ```
 
 ---
