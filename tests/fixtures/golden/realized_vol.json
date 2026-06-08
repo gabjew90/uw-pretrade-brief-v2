@@ -1,7 +1,0 @@
-{
-  "data": [
-    {"date": "2026-06-01", "price": "730.0", "implied_volatility": "0.150", "realized_volatility": "0.110", "unshifted_rv_date": "2026-07-01"},
-    {"date": "2026-06-02", "price": "732.0", "implied_volatility": "0.155", "realized_volatility": "0.105", "unshifted_rv_date": "2026-07-02"},
-    {"date": "2026-06-05", "price": "737.55", "implied_volatility": "0.164", "realized_volatility": null, "unshifted_rv_date": null}
-  ]
-}

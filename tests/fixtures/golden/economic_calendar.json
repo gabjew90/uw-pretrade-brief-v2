@@ -1,4 +1,0 @@
-{"data": [
-  {"event": "FOMC Rate Decision", "forecast": null, "prev": "5.25%", "reported_period": "June", "time": "2026-06-17T18:00:00Z", "type": "fomc"},
-  {"event": "Consumer sentiment (final)", "forecast": "69.4", "prev": "69.4", "reported_period": "June", "time": "2026-06-13T14:00:00Z", "type": "report"}
-]}

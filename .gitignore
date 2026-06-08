@@ -1,17 +1,23 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
-.pytest_cache/
-/data/
-*.parquet
-.env
-.DS_Store
+*.py[cod]
+.venv/
 *.egg-info/
-dist/
-build/
-# transient dev/agent artifacts (screenshots, browser-driver dumps, scheduler lock)
+.pytest_cache/
+
+# Secrets / local env
+.env
+.env.local
+
+# Data archive (bronze/silver/gold parquet + duckdb) — never commit captured data
+data/
+*.duckdb
+uw_budget.json
+
+# Playwright / QC artifacts
 .playwright-mcp/
-.claude/
 *.png
-_run_probe.py
-_uw_openapi.json
+
+# OS / editor
+.DS_Store
+Thumbs.db

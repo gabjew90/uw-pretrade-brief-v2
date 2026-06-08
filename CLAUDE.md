@@ -1,90 +1,106 @@
 # CLAUDE.md
 
-Project: **UW Pretrade Brief v2** — FastAPI port of the v1 prototype with persistent archive.
+Project: **UW Pretrade Brief v3** — a clean, properly-bounded rebuild of v2.
+Single-user, personal-license, Unusual Whales **Basic-tier**, end-of-day / pre-market
+options-decision tool. Same product, rebuilt around typed boundaries.
+
+> v3 keeps v2's *correct* parts (GEX math, research-grounded signal definitions, the
+> parquet-archive concept, the budget meter, the degrade scaffolding) and rebuilds the
+> *boundaries* that v2 lacked. The product/signal specifics arrive as operator
+> instructions; this file locks the **architecture** they must fit.
+
+## The one rule
+
+**The frontend computes nothing.** The server emits a typed *view model* (per element:
+a surface value, a detail payload, provenance, and a plain-English label); the client
+renders it. This single constraint kills the split-brain bug class (v2's JS gate
+hardcodes vs server logic) and forces every upstream separation to fall into place.
+
+## Architecture — a 5-stage pipeline with a typed contract between each stage
+
+Stages never skip a boundary; each consumes the previous stage's typed output only.
+
+1. **Ingest** (`server/pipeline/ingest.py`) → **immutable raw log.** Fetch each UW
+   endpoint, store the response *verbatim* with metadata (fetch time, params, tier,
+   content hash). Append-only, one file per fetch, atomic temp-write→`os.replace`. No
+   transformation on ingest. (Deletes the read-modify-write corruption class; gives
+   replay for free.)
+2. **Normalize** (`pipeline/normalize.py`) → **canonical typed records.** Parse raw
+   into validated pydantic models (`FlowAlert`, `OISnapshot`, `GreekFlowSeries`, …).
+   ALL field-shape validation happens here, once — field-drift / sign / truncation
+   surprises become explicit failures at this boundary, never silent nulls downstream.
+3. **Derive** (`pipeline/derive.py`) → **signals as PURE functions.** direction,
+   conviction, dealer-gamma regime, skew, cost, confirmation — each `canonical in →
+   signal out`, NO I/O. Golden-fixture + property tests live here. (This is the layer
+   that catches sign inversions before they ship.)
+4. **Decide** (`pipeline/decide.py`) → **verdict, in exactly one place (server).**
+   Consumes signals **by name**, applies the funnel, emits a verdict + named reasons.
+   Because inputs are named, you structurally cannot strand a computed signal short of
+   the verdict — an unused signal is a visible unused input.
+5. **Present** (`pipeline/present.py`) → **view model → dumb frontend.** Per element:
+   `{surface, detail, provenance, label}`. The client computes nothing.
+
+## Cross-cutting services (`server/services/`) — where most of v2's bugs lived
+
+- **Market clock** (`clock.py`) — the single source of truth for trading days,
+  holidays, half-days, current session phase, and the **settlement cadence per data
+  type** (flow is live intraday; OI settles the next business morning). Every stage
+  asks the clock; nothing re-derives from `datetime.now()`. (Kills the
+  forming/settled, UTC-vs-ET, weekend-handling, flow-as-"session" bug family.)
+- **Provenance** (`provenance.py`) — a **type, not scattered flags**: every value
+  carries `source` (live/cache/archive/derived), `as_of`, and `quality`
+  (real/degraded/unavailable). Subsumes v2's `is_synthetic` / honest-degrade /
+  freshness into one concept that flows through and renders uniformly.
+- **Request governor** (`governor.py`) — centralizes the UW budget (120/min, ~15k/day,
+  7-day ceiling) as a **priority scheduler**: direction-critical fetches beat
+  nice-to-have context; plus request coalescing and graceful degradation surfaced
+  *through provenance*.
+- **Storage** (`storage.py`) — **append-only parquet + DuckDB read layer.** Three
+  tiers: **bronze** (raw), **silver** (canonical), **gold** (signals), as parquet
+  partitions queried with DuckDB (SQL over local parquet is the right tool at this
+  scale). You **query, never mutate**; compaction is a separate cron. Because bronze
+  is immutable, re-deriving gold from bronze = a free backtest harness.
+
+## Domain-model-first
+
+Model **Flow, Positioning, DealerGamma, Skew, Cost, Regime, Verdict** as first-class
+entities (`server/models/`); tiles are *views* over them. Adding a signal or
+re-skinning for novices never means editing a 1,200-line builder or a 3,800-line HTML.
+
+## Deliberately NOT doing
+
+No microservices, no streaming bus (Kafka), no k8s, no HA/replication, no multi-tenant
+layer, no warehouse. One FastAPI process, parquet/DuckDB, cron. Anything more is pure
+cost here and would violate the personal-use license. Don't confuse scale with
+discipline — spend the budget on correctness, provenance, and iteration speed.
 
 ## Tech stack (locked)
 
-- Python 3.11
-- FastAPI + uvicorn
-- requests (UW client kept sync; wrapped in ThreadPoolExecutor for parallelism)
-- pyarrow (parquet archive)
-- google-genai (Gemini Flash-Lite)
-- pydantic v2
-- pytest + responses + pytest-mock + pytest-asyncio
+Python 3.11 · FastAPI + uvicorn · requests (UW client, 429 backoff) · pydantic v2 ·
+pyarrow (parquet write) · **duckdb (read layer)** · google-genai (optional insights) ·
+pytest + pytest-mock + responses + pytest-asyncio. UW Basic tier is the binding
+constraint. Do NOT add Streamlit / WebSockets / Redis / external DBs / a message bus.
 
-Do **not** suggest Streamlit (this is the v2 specifically pivoting away). Do not suggest WebSockets, Redis, or external DBs without explicit override.
+## Keys & secrets
 
-## Architecture map (current — see README.md for the full version)
+v3 **reuses v2's API keys** — same env var names (`UW_API_KEY`, `GEMINI_API_KEY`,
+`BACKFILL_TOKEN`, `RAILWAY_API_TOKEN`, …). The operator's existing keys apply
+unchanged; never copy secret *values* into the repo. See `.env.example` for names.
 
-FastAPI server + one static page (`static/index.html`) + parquet archive + pure decision modules.
+## Data integrity (carried from v2 — these bugs are invisible)
 
-- **Request-driven (NO background loop).** `/` and `/snapshot.json` call `snapshot.get_or_build_snapshot()`: serve the last persisted build when fresh, else build a **light grid** (one `flow_alerts` call → hot-15 + Flow gate + flow direction; other gates show "click to evaluate"). Per-namespace TTL: `SNAPSHOT_MAX_AGE_S` (flow, 60s) vs `REGIME_MAX_AGE_S` (regime, 600s, carried forward). Clicking a ticker builds the FULL row on demand via `/api/lookup`→`build_single_row`, then Tile 3-rich/Tile 4 via `/api/tile3`,`/api/tile4`. Every UW call traces to a load or click. `refresh_snapshot` (full all-rows build) is retained/tested but no longer loop-driven; **don't reintroduce a background loop or loop-prewarming** (it blew the daily cap, 2026-06-01).
-- **`server/storage.py`** — read-through cache `_through()` (RAM TTLCache → parquet → live UW). **Append-only writes**: one immutable `part-HHMMSS-<hex>.parquet` per write (atomic temp→`os.replace`); readers glob+dedupe. `snapshots.jsonl` is append-only too (tail-seeded, line-capped). TTL tiers: hot 60s / medium 300s / news 900s / quasi-static 24h. `cached_only()` contextvar blocks live calls (REPLAY + request path). Load-bearing; don't drop it.
-- **`server/budget.py`** — UW Basic is the binding constraint (120/min, ~15k/day). Prefers UW headers; `UW_BUDGET_SOFT_PCT` is a per-call guard; persists the meter to `uw_budget.json` (survives redeploys).
-- **`server/freshness.py`** — stamps each view with `as_of` (oldest field) + `data_provenance` (live/cache/archive, worst-case). Contextvar is propagated into the executor pool.
-- **`server/gates.py`** — single source of truth (no client recompute). `derive_direction` leads from OPENING flow (`volume_oi_ratio>1`) → total flow → gamma (tagged `direction_basis`; `operator_override` on manual flip). Four gates: Flow / OI / Structural (capped at yellow when `gex_sign=="POS"`) / Cost (IV-rank + earnings + macro-`event_within_hold`).
-- **`server/verdict.py`** (Plan 3) — pure deep-dive `row.verdict`: collapses Flow+OI into **Positioning** (green only on opening_flow; total_flow caps yellow; archive-decoupled; unwinding caps), **Structural**, and **Skew** (25Δ risk-reversal — PRIMARY: UW vendor `historical-risk-reversal-skew` [HYPHENS — underscore 404s], sign-corrected via `extract_vendor_rr` since vendor RR = put−call; FALLBACK: `derive_rr25` from `greeks`. Asymmetric oppose-veto, agree subordinate, never a peer green), Cost demoted to a guard, `signal_conflict` + an `action` headline. Computed in `build_single_row` at a ~30d `_skew_expiry`; **deep-dive only** (None on light grid rows). Rendered by `renderVerdictPanel`.
-- **`server/market_regime.py`** — pure `compute_market_regime(...)`: SPY gamma headline (trend/chop), macro-event veto (hold window), buyer-framed vol, tide badge, OPEX → **Favorable/Mixed/Stand down**. A *regime* read, NEVER a direction call (enforced in tests). Wired in `snapshot._build_market_regime`; its `event_within_hold` also feeds every row's Cost gate.
-- **Other:** `uw.py` (client, 429 backoff) · `snapshot.py` (build pipeline) · `gex.py` (flip/walls) · `tile3_detail.py`/`tile4.py` (on-demand tiles) · `insights.py` (Gemini + deterministic fallback) · `universe.py` (pinned ∪ indices ∪ sticky ∪ hot-15) · `market_hours.py` · `backfill.py` · `history.py` (v0.2 percentile stub).
-- **Tiles:** T1 Flow Alerts · T2 Positioning Reality Check (OI history) · T3 Structural Setup Ladder (gamma flip/walls; on-demand rich mode) · T4 Contract Picker & Final Gate (6-factor score + hard gates). Header = computed market regime.
-- **Dormant-by-design (don't "clean up"):** ingest-only endpoints + cross-ticker fetches are commented out in `snapshot.py` (no consuming tile yet); `is_synthetic=True` is a render-shape flag, NOT a provenance flag; the per-call concurrency semaphore is concurrency=1, not a rate limiter. All documented inline with rationale.
-
-Specs/plans live under `docs/superpowers/{specs,plans}/`; the most recent capture the current intent (signal-honesty, market-regime-header).
+- **UW paths are HYPHENATED** (flow-alerts, spot-exposures, historical-risk-reversal-skew).
+  An underscore 404s silently. Lint this at CI.
+- Test extractors against **real captured golden payloads** (bronze), asserting a sane
+  non-None *value*, not just field presence.
+- UW failures honest-degrade — but now that's a **provenance quality tag**, surfaced,
+  not a silent null.
 
 ## Behavior
 
-- Personal use only. The deployed Railway URL is the operator's; others fork + self-host with their own keys.
-- Never claim alpha, edge, or backtested win rates.
-- Frequent commits, conventional-commit style.
-- Phone-only operator: paste file contents or diffs into chat after edits; upload binaries to litterbox.
+- Personal use only. Never claim alpha, edge, or backtested win rates.
+- Frequent commits, conventional-commit style. Phone-only operator: paste diffs/links
+  into chat; upload binaries to litterbox.
+- Offline dev: `REPLAY=1` serves the captured bronze archive, never calls UW.
 
-## Local replay / offline dev (NO market, NO UW key, NO rate limits)
-
-Develop and verify the WHOLE dashboard offline against the real captured prod
-archive — don't wait for market hours or burn UW budget:
-
-```
-python scripts/pull_archive.py --token "$BACKFILL_TOKEN"   # downloads prod DATA_DIR → ./data (gitignored)
-DATA_DIR=./data REPLAY=1 .venv/Scripts/python -m uvicorn server.main:app --port 8000
-```
-
-Then open http://localhost:8000 and click any ticker — all tiles, including the
-on-demand Tile 3 gamma map and Tile 4 contract picker, render from the archive.
-REPLAY=1 forces the request-driven build (and the on-demand tile routes) to
-`cached_only` (reads captured parquet, never calls UW); the boot-seed serves the
-last archived snapshot for instant first paint. In cached-only mode the parquet
-TTL is ignored (replay reads aged data). NOTE: `_read_latest_from_parquet` scans
-today+yesterday partitions, so replaying an archive more than ~1 day older than
-the system clock falls back to the seeded snapshot — pull a fresh archive (or it
-degrades gracefully to last-good). The `/admin/export` endpoint (token-guarded by
-BACKFILL_TOKEN) streams a tar.gz of DATA_DIR for re-pulling a fresh archive.
-
-## Data integrity — UW pulls degrade SILENTLY (detect, don't trust)
-
-UW failures honest-degrade to "unavailable"/fallback, so a broken pull looks
-identical to "no data right now" — every data bug this codebase has hit was
-invisible (404 path typo, wrong field keys, wrong row, inverted sign). Defenses:
-
-- **UW paths are HYPHENATED** (flow-alerts, spot-exposures, historical-risk-reversal-skew).
-  An underscore 404s silently. `tests/test_uw_paths.py` lints this at CI.
-- **End-to-end health check:** `railway run python scripts/probe_endpoints.py [TICKER]`
-  hits every endpoint and reports per-endpoint status + parser-key presence + value
-  sanity (index put-skew sign, IV range, settled RV, opening-flow distribution).
-  Run it after ANY UW-touching change. Exit≠0 on error/sanity-fail. (Railway token:
-  set `RAILWAY_API_TOKEN`; per-command load if the shell predates it — see memory.)
-- **Test extractors against REAL captured golden payloads** (not hand-written — a
-  hand-written fixture enshrines your wrong assumption). Assert the extractor returns
-  a sane, non-None *value*, not just that a field exists. This is what finally caught
-  the iv/rv key bugs.
-
-## Behavior — guardrails
-
-- The `frontend-design` plugin is **allowed** for frontend work. The earlier rule
-  restricting `static/index.html` to the 6 marker-bracketed V2-EDIT zones is
-  **relaxed**: deliberate edits to the prototype HTML/CSS/JS (including the tile
-  render functions) are permitted when they serve a real improvement. When a
-  sanctioned change trips `tests/test_html_preservation.py`, update that test to
-  match the new intent rather than contorting the code to keep the old diff —
-  but keep the test meaningful (it still guards against *accidental* drift).
-- Don't suggest dropping the storage layer "for simplicity" — it's load-bearing for the v0.2 percentile gates.
-- Don't suggest hosting on Streamlit Cloud.
+See `docs/architecture.md` for the full design rationale.
