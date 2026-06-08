@@ -18,7 +18,7 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from server.models import FlowAlert, GammaStrike, GreekFlowPoint
+from server.models import FlowAlert, GammaStrike, GreekFlowPoint, SkewPoint
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -137,4 +137,22 @@ def normalize_spot_exposures(raw: RawRecord) -> list[GammaStrike]:
             out.append(GammaStrike.model_validate({**r, "provenance": p}))
         except ValidationError as e:
             raise NormalizeError(f"spot-exposures row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_historical-risk-reversal-skew")
+def normalize_rr_skew(raw: RawRecord) -> list[SkewPoint]:
+    """Raw historical-risk-reversal-skew payload → validated `list[SkewPoint]`, date-
+    ordered. `risk_reversal` stays in the VENDOR convention here (put_IV − call_IV); Derive
+    sign-corrects to call−put. Empty is a legitimate []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[SkewPoint] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"rr-skew row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(SkewPoint.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"rr-skew row {i} failed validation: {e}") from e
     return out

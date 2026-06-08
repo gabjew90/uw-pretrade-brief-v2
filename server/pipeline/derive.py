@@ -16,8 +16,12 @@ from __future__ import annotations
 
 from typing import Callable
 
-from server.models import Conviction, DealerGamma, Flow, Provenance, Signal
+from server.models import Conviction, DealerGamma, Flow, Provenance, Signal, Skew
 from server.services import provenance as prov
+
+# 25Δ RR magnitude below which skew is "neutral" (no lean). v2 default; operator-deferred
+# pending Phase-2 RR-magnitude review (SPY rides ~0.03–0.05, so 0.02 is a low gate).
+_SKEW_THR = 0.02
 
 REGISTRY: dict[str, Callable[..., Signal]] = {}
 
@@ -179,3 +183,22 @@ def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
         call_wall_pct=(cwall_k - spot) / spot * 100,
         put_wall_pct=(spot - pwall_k) / spot * 100,
         agg_b=agg, provenance=src)
+
+
+@register("skew")
+def derive_skew(canon: dict, *, asof: str | None = None) -> Skew:
+    """25Δ risk-reversal lean from the latest historical-RR row. SIGN-CORRECTED: vendor
+    risk_reversal = put_IV − call_IV (positive = put-skew); we NEGATE to call−put (>0 =
+    call-skew/bullish). |rr| < _SKEW_THR → neutral. The raw LEAN only; agree/oppose-vs-
+    direction is decide's job (asymmetric oppose-veto). PURE. Ported from
+    `e1d6c5e:server/verdict.py::extract_vendor_rr` + `skew_state`."""
+    pts = canon.get("skew_rr") or []
+    if not pts:
+        return Skew(lean="unavailable", provenance=prov.unavailable("no RR-skew data"))
+    latest = max(pts, key=lambda p: p.date)          # date-ordered; most recent wins
+    rr = -latest.risk_reversal                       # vendor (put−call) → call−put convention
+    if abs(rr) < _SKEW_THR:
+        lean = "neutral"
+    else:
+        lean = "call_skew" if rr > 0 else "put_skew"
+    return Skew(rr25=rr, lean=lean, provenance=prov.derived(latest.provenance))

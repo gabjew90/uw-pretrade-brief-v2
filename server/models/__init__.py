@@ -130,6 +130,18 @@ class Flow(Signal):
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
 
 
+class SkewPoint(BaseModel):
+    """One day's 25Δ risk-reversal (from historical-risk-reversal-skew). `risk_reversal`
+    is the VENDOR convention = put_IV − call_IV (positive = put-skew). Derive sign-corrects
+    to call−put. Values arrive as decimal strings; coerced here."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    delta: float = 25.0
+    risk_reversal: float                       # vendor: put_IV - call_IV (positive = put-skew)
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class GammaStrike(BaseModel):
     """One per-strike row of dealer gamma exposure (from spot-exposures/strike). UW
     PRE-SIGNS `put_gamma_oi` negative, so net dealer gamma at a strike is the signed SUM
@@ -173,7 +185,12 @@ class DealerGamma(Signal):
 
 
 class Skew(Signal):
-    """25Δ risk-reversal skew leg. Fields TBD."""
+    """25Δ risk-reversal skew — the ORTHOGONAL directional leg (vol surface, a different
+    mechanism than flow). `rr25` is SIGN-CORRECTED to call−put convention: >0 = call-skew
+    (bullish lean), <0 = put-skew (defensive). `lean` is the raw read; whether it AGREES
+    or OPPOSES is computed in decide vs the flow direction (asymmetric oppose-veto)."""
+    rr25: Optional[float] = None
+    lean: Literal["call_skew", "put_skew", "neutral", "unavailable"] = "unavailable"
 
 
 class Cost(Signal):
