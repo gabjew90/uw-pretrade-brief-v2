@@ -242,7 +242,18 @@ class Cost(Signal):
 
 
 class Regime(Signal):
-    """Market-wide regime read (NEVER a direction call). Fields TBD."""
+    """Market-wide regime read — trend vs chop, calm vs fearful, event vs clear. A POSTURE
+    (Favorable/Mixed/Stand down), mirroring the per-ticker verdict at the market level, and
+    NEVER a direction call (asserted in tests). `event_within_hold` also caps the per-ticker
+    Cost gate. Ported from `e1d6c5e:server/market_regime.py`."""
+    posture: Literal["Favorable", "Mixed", "Stand down"] = "Mixed"
+    headline: str = ""
+    vol_line: str = ""
+    event_line: Optional[str] = None
+    event_severity: Optional[Literal["veto", "warn"]] = None
+    event_within_hold: bool = False
+    tide_badge: str = ""
+    opex: bool = False
 
 
 # ── Verdict (Decide stage output) — built in exactly one place ───────────────

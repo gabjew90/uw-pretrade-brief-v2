@@ -14,10 +14,11 @@ registry + purity contract are fixed now (lint/test should assert no I/O imports
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Callable
 
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                            Signal, Skew)
+                            Regime, Signal, Skew)
 from server.services import provenance as prov
 
 # 25Δ RR magnitude below which skew is "neutral" (no lean). v2 default; operator-deferred
@@ -293,3 +294,106 @@ def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
     src = prov.derived(*provs) if provs else prov.derived()
     return Positioning(confirmation=conf, oi_trend_pct=round(trend, 1), side=side,
                        cluster_strikes=sorted(strikes), provenance=src)
+
+
+# Macro events crossable within a weekly hold window (1–5d); a high-impact one inside it
+# vetoes new premium buying (feeds Cost.event_within_hold too).
+_HOLD_DAYS = 5
+_HIGH_IMPACT = ("fomc", "cpi", "consumer price", "nonfarm", "payroll", "jobs report",
+                "employment situation", "pce", "fed rate", "interest rate decision", "ppi")
+
+
+def _parse_time(s):
+    try:
+        t = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_high_impact(ev: dict) -> bool:
+    if (ev.get("type") or "").lower() == "fomc":
+        return True
+    return any(k in (ev.get("event") or "").lower() for k in _HIGH_IMPACT)
+
+
+def _next_high_impact_event(events, now):
+    best = None
+    for ev in events or []:
+        if not _is_high_impact(ev):
+            continue
+        t = _parse_time(ev.get("time"))
+        if t is None or t <= now:
+            continue
+        days = (t - now).total_seconds() / 86400.0
+        if days > _HOLD_DAYS:
+            continue
+        if best is None or t < best[0]:
+            best = (t, ev, days)
+    return best
+
+
+@register("regime")
+def derive_regime(canon: dict, *, asof: str | None = None) -> Regime:
+    """Market-wide posture (Favorable/Mixed/Stand down) — NEVER a direction. NEG index
+    gamma = trend (favorable for directional weeklies); POS = pin/chop (stand down); a
+    high-impact macro event inside the hold window vetoes. PURE — `now` is injected via
+    canon (no datetime.now()). Ported from `e1d6c5e:server/market_regime.py`.
+
+    Input `regime` dict (orchestrator-assembled, market-wide): {gamma:{sign,status},
+    vol:{iv,rv,trend}, events:[...], tide:{lean}, opex:bool, now:datetime}."""
+    r = canon.get("regime") or {}
+    now = r.get("now")
+    if not isinstance(now, datetime):
+        return Regime(posture="Mixed", headline="Market regime inputs unavailable.",
+                      provenance=prov.unavailable("no regime inputs"))
+
+    gamma = r.get("gamma") or {}
+    sign, status = gamma.get("sign"), gamma.get("status")
+    if status != "ok" or sign not in ("POS", "NEG"):
+        headline, base = "Index gamma unavailable — market regime unclear.", "Mixed"
+    elif sign == "NEG":
+        headline, base = "Trend regime — moves likely to extend (favorable for directional weeklies).", "Favorable"
+    else:
+        headline, base = "Pinned / chop regime — moves likely to fade (hard for weeklies).", "Stand down"
+
+    nxt = _next_high_impact_event(r.get("events"), now)
+    event_within_hold = nxt is not None
+    event_line = event_severity = None
+    if nxt is not None:
+        _, ev, days = nxt
+        name = ev.get("event") or (ev.get("type") or "event").upper()
+        if days <= 1:
+            event_line, event_severity = f"{name} within ~1d — don't initiate weeklies into it.", "veto"
+        else:
+            event_line, event_severity = f"{name} in ~{int(round(days))}d — a weekly opened now will likely cross it.", "warn"
+
+    vol = r.get("vol") or {}
+    iv, rv, trend = vol.get("iv"), vol.get("rv"), vol.get("trend")
+    if iv is None:
+        vol_line, vol_cheap, crush_risk = "Vol environment unavailable.", False, False
+    else:
+        vol_cheap = (rv is None or iv <= rv) and iv <= 0.22
+        crush_risk = (iv > 0.25) and (trend == "falling")
+        vol_line = ("Options are cheap to own — calm vol." if vol_cheap else
+                    "Vol elevated and falling — IV-crush risk on what you buy." if crush_risk else
+                    "Vol middling — neither tailwind nor clear warning.")
+
+    lean = (r.get("tide") or {}).get("lean", "neutral")
+    tide_badge = {"bull": "tape flow leaning risk-on", "bear": "tape flow leaning risk-off"}.get(
+        lean, "tape flow neutral")
+    tide_hostile = lean == "bear"
+
+    if event_severity == "veto":
+        posture = "Stand down"
+    else:
+        posture = base
+        if posture == "Stand down" and vol_cheap and not tide_hostile:
+            posture = "Mixed"
+        elif posture == "Favorable" and (crush_risk or tide_hostile or event_severity == "warn"):
+            posture = "Mixed"
+
+    return Regime(posture=posture, headline=headline, vol_line=vol_line,
+                  event_line=event_line, event_severity=event_severity,
+                  event_within_hold=event_within_hold, tide_badge=tide_badge,
+                  opex=bool(r.get("opex")), provenance=prov.derived())
