@@ -13,6 +13,7 @@ v2. Do NOT add httpx/async here; the binding constraint is budget, not concurren
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 
@@ -49,8 +50,14 @@ def assert_hyphenated(path: str) -> None:
 def get(path: str, params: dict | None = None, *, priority: Priority = Priority.NORMAL,
         max_retries: int = 4) -> UWResponse:
     """GET an absolute UW API path (e.g. '/option-trades/flow-alerts'). Governor-gated;
-    429-backoff. Raises UWError on denial/failure — never returns fabricated data."""
+    429-backoff; identical concurrent calls COALESCE into one. Raises UWError on
+    denial/failure — never returns fabricated data."""
     assert_hyphenated(path)
+    key = f"{path}?{json.dumps(params or {}, sort_keys=True, default=str)}"
+    return governor.coalesce(key, lambda: _do_get(path, params, priority, max_retries))
+
+
+def _do_get(path: str, params: dict | None, priority: Priority, max_retries: int) -> UWResponse:
     decision: Decision = governor.check(priority=priority)
     if not decision.allow:
         raise UWError(f"governor denied: {decision.reason}")
@@ -68,6 +75,7 @@ def get(path: str, params: dict | None = None, *, priority: Priority = Priority.
                 raise UWError(f"network: {e}") from e
             time.sleep(delay); delay *= 2; continue
         governor.record(1)
+        governor.update_from_headers(r.headers)   # UW's authoritative usage, when present
         if r.status_code == 429:
             if attempt == max_retries - 1:
                 raise UWError("429 after retries")
