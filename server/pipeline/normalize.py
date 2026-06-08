@@ -18,7 +18,7 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from server.models import FlowAlert, GreekFlowPoint
+from server.models import FlowAlert, GammaStrike, GreekFlowPoint
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -118,4 +118,23 @@ def normalize_greek_flow(raw: RawRecord) -> list[GreekFlowPoint]:
             out.append(GreekFlowPoint.model_validate({**r, "provenance": p}))
         except ValidationError as e:
             raise NormalizeError(f"greek-flow row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_spot-exposures_strike")
+def normalize_spot_exposures(raw: RawRecord) -> list[GammaStrike]:
+    """Raw spot-exposures/strike payload → validated `list[GammaStrike]`. Keeps the
+    OI-based gamma fields (`call_gamma_oi`, `put_gamma_oi` — UW pre-signs the put
+    negative) + the per-row `price` (spot). Derive computes the flip/walls/sign. Empty is
+    a legitimate []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[GammaStrike] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"spot-exposures row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(GammaStrike.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"spot-exposures row {i} failed validation: {e}") from e
     return out

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from server.models import Conviction, Flow, Provenance, Signal
+from server.models import Conviction, DealerGamma, Flow, Provenance, Signal
 from server.services import provenance as prov
 
 REGISTRY: dict[str, Callable[..., Signal]] = {}
@@ -132,3 +132,50 @@ def derive_conviction(canon: dict, *, asof: str | None = None) -> Conviction:
     return Conviction(direction="calls" if dir_net > 0 else "puts",
                       dir_delta=round(dir_net), total_delta=round(total_net),
                       accumulation=state, efficiency=eff, provenance=src)
+
+
+@register("dealer_gamma")
+def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
+    """Dealer-gamma structural levels from per-strike OI gamma. NET per strike is the
+    SIGNED SUM call_gamma_oi + put_gamma_oi (UW pre-signs the put negative — summing, not
+    subtracting, is what fixed the 2026-05-30 flip bug). flip = cumulative-net zero-crossing
+    NEAREST spot; walls = max call-γ above / max |put-γ| below spot (kept separate — net
+    peaks ATM). PURE. Ported from `e1d6c5e:server/gex.py::compute_levels`. A GUARD, not a
+    direction (decide spec)."""
+    rungs = canon.get("gamma_strikes") or []
+    if not rungs:
+        return DealerGamma(flip_status="unavailable",
+                           provenance=prov.unavailable("no spot-exposures data"))
+    spot = next((r.price for r in rungs if r.price), 0.0) or 0.0
+    if spot <= 0:
+        return DealerGamma(flip_status="unavailable",
+                           provenance=prov.unavailable("no spot price in spot-exposures"))
+    src: Provenance = prov.derived(rungs[0].provenance)
+    rs = sorted(rungs, key=lambda r: r.strike)
+
+    cum, crossings, prev = 0.0, [], None
+    for r in rs:
+        cum += r.call_gamma_oi + r.put_gamma_oi        # signed sum (put pre-signed negative)
+        sign = 1 if cum >= 0 else -1
+        if prev is not None and sign != prev:
+            crossings.append(r.strike)
+        prev = sign
+    if crossings:
+        flip, flip_status = min(crossings, key=lambda k: abs(k - spot)), "ok"
+    else:
+        flip, flip_status = spot, "no_flip"
+
+    above = [r for r in rs if r.strike > spot]
+    below = [r for r in rs if r.strike < spot]
+    cwall = max(above, key=lambda r: r.call_gamma_oi, default=None)
+    pwall = max(below, key=lambda r: abs(r.put_gamma_oi), default=None)
+    cwall_k = cwall.strike if cwall else spot * 1.05
+    pwall_k = pwall.strike if pwall else spot * 0.95
+    agg = sum(r.call_gamma_oi + r.put_gamma_oi for r in rs) / 1e9
+
+    return DealerGamma(
+        gex_sign="POS" if agg >= 0 else "NEG",
+        flip_pct=(flip - spot) / spot * 100, flip_status=flip_status,
+        call_wall_pct=(cwall_k - spot) / spot * 100,
+        put_wall_pct=(spot - pwall_k) / spot * 100,
+        agg_b=agg, provenance=src)

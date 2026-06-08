@@ -130,6 +130,20 @@ class Flow(Signal):
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
 
 
+class GammaStrike(BaseModel):
+    """One per-strike row of dealer gamma exposure (from spot-exposures/strike). UW
+    PRE-SIGNS `put_gamma_oi` negative, so net dealer gamma at a strike is the signed SUM
+    `call_gamma_oi + put_gamma_oi` (NOT a difference — subtracting double-negates puts and
+    breaks the flip; the 2026-05-30 bug). `price` is the underlying spot, repeated per row."""
+    model_config = ConfigDict(extra="ignore")
+
+    strike: float
+    call_gamma_oi: float = 0.0
+    put_gamma_oi: float = 0.0
+    price: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class Conviction(Signal):
     """Greek-flow directional conviction — SAME flow family as Flow (signal-honesty
     §Confluence), so in the funnel it only acts on DIVERGENCE vs flow, never as an
@@ -147,7 +161,15 @@ class Positioning(Signal):
 
 
 class DealerGamma(Signal):
-    """Dealer-gamma / GEX structural regime (flip, walls). Fields TBD."""
+    """Dealer-gamma / GEX structural regime. A GUARD, not a direction (decide spec): POS
+    gamma = dealers pin/mean-revert (caps a directional verdict); NEG = amplify/trend.
+    `flip_pct` = distance of the gamma flip from spot (%); walls bound the expected range."""
+    gex_sign: Literal["POS", "NEG"] = "POS"
+    flip_pct: float = 0.0                       # (flip - spot) / spot * 100
+    flip_status: Literal["ok", "no_flip", "unavailable"] = "unavailable"
+    call_wall_pct: float = 0.0                  # call wall distance above spot (%)
+    put_wall_pct: float = 0.0                   # put wall distance below spot (%)
+    agg_b: float = 0.0                          # aggregate net gamma, $bn (signed)
 
 
 class Skew(Signal):
