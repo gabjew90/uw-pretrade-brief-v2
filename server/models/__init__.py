@@ -105,7 +105,14 @@ class Signal(BaseModel):
 
 
 class Flow(Signal):
-    """Opening-flow direction/conviction. Fields TBD per instructions."""
+    """Opening-flow direction. `direction` is the call/put side the money is betting;
+    `direction_basis` records HOW it was derived (opening_flow leads per Ge-Lin-Pearson;
+    total_flow is the fallback; gamma_fallback arrives in Phase 4; unavailable = no flow,
+    never a guessed side). call_prem/put_prem are the premium totals the side won by."""
+    direction: Optional[Literal["calls", "puts"]] = None
+    direction_basis: Literal["opening_flow", "total_flow", "gamma_fallback", "unavailable"] = "unavailable"
+    call_prem: float = 0.0
+    put_prem: float = 0.0
 
 
 class Positioning(Signal):

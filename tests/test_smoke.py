@@ -6,15 +6,20 @@ from server.pipeline.present import present
 
 
 def test_pipeline_runs_end_to_end_empty():
-    """derive→decide→present produces a well-formed (empty) view model with no signals
-    registered yet — proves the boundaries connect."""
+    """derive→decide→present produces a well-formed view model on EMPTY canonical input
+    — proves the boundaries connect and that a signal with no inputs degrades to
+    `unavailable` (never a fabricated value)."""
     signals = derive_all({}, asof="2026-06-05")
     verdict = decide(signals)
     vm = present("SPY", signals, verdict, as_of="2026-06-05")
     assert isinstance(vm, ViewModel)
     assert vm.ticker == "SPY"
     assert vm.verdict is not None
-    assert vm.verdict.signals_used == []   # none registered → visibly empty, not silent
+    # `flow` is registered (Phase 3); with no canonical input it is unavailable, not guessed
+    assert "flow" in signals
+    assert signals["flow"].direction is None
+    assert signals["flow"].provenance.quality.value == "unavailable"
+    assert vm.verdict.signals_used == ["flow"]   # consumed by name, visibly
 
 
 def test_provenance_worst_case_merge():
