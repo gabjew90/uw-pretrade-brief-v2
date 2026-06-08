@@ -18,43 +18,83 @@
     header .sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
     main { padding: 16px; }
     .note { color: var(--axis); font-size: 11px; line-height: 1.5; max-width: 60ch; }
+    .verdict { font-size: 16px; margin: 4px 0 2px; letter-spacing: 0.02em; }
+    .reasons { color: var(--text-dim); font-size: 11px; margin: 0 0 14px; padding-left: 16px; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
-          background: var(--panel); }
+          background: var(--panel); cursor: pointer; }
     .el .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
-    .q-degraded { border-left: 2px solid var(--warn); }
-    .q-unavailable { border-left: 2px solid var(--axis); opacity: 0.6; }
+    .el .surface { font-size: 18px; margin-top: 3px; }
+    .el .detail { margin-top: 8px; border-top: 1px dashed var(--grid); padding-top: 8px;
+                  font-size: 11px; color: var(--text-dim); display: none; }
+    .el.open .detail { display: block; }
+    .el .detail .row { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; }
+    .el .detail .row .v { color: var(--text); }
+    /* tone is the ONLY sentiment cue we act on — supplied by the server, never computed */
+    .t-positive .surface { color: var(--ok); }
+    .t-negative .surface { color: var(--neg); }
+    .t-cautionary { border-left: 2px solid var(--warn); }
+    .t-cautionary .surface { color: var(--warn); }
+    .t-unavailable { opacity: 0.55; border-left: 2px solid var(--axis); }
+    .q-degraded { box-shadow: inset 2px 0 0 var(--warn); }
+    .q-archive::after { content: " · stale"; color: var(--warn); font-size: 9px; }
   </style>
 </head>
 <body>
   <header>
     <h1>UW Pretrade Brief v3</h1>
-    <div class="sub" id="status">scaffold — the frontend computes nothing; it renders the server's view model.</div>
+    <div class="sub" id="status">loading…</div>
   </header>
   <main>
+    <div id="verdict"></div>
+    <div id="view"></div>
     <p class="note">
       This shell renders <code>/api/view/&lt;ticker&gt;</code> verbatim — per element a
-      surface value, a detail-on-tap payload, provenance, and a plain-English label.
-      No signal logic lives here by design. Pipeline + signals are wired per the
-      operator instructions.
+      surface value, a tap-to-reveal detail payload, provenance, and a tone. No signal
+      logic, no thresholds, no recomputation live here. That is the v3 one rule.
     </p>
-    <div id="view"></div>
   </main>
   <script>
-    // The ENTIRE client contract: fetch the typed view model and render it. No
-    // thresholds, no recomputation — that is the v3 one rule.
+    // The ENTIRE client contract: fetch the typed view model and render it. It reads
+    // server-supplied fields (surface, detail, tone, provenance) and paints them. It
+    // never inspects a signal value to decide an outcome — no direction/threshold/clock.
+    function esc(s) {
+      return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+    }
+    function detailRows(detail) {
+      if (!detail || typeof detail !== "object") return "";
+      return Object.keys(detail).map(k =>
+        `<div class="row"><span>${esc(k)}</span><span class="v">${esc(
+          typeof detail[k] === "number" ? detail[k].toLocaleString() : detail[k]
+        )}</span></div>`).join("");
+    }
+    function elementCard(e) {
+      const tone = (e.tone || "neutral"), q = (e.provenance && e.provenance.quality) || "real";
+      const src = (e.provenance && e.provenance.source) || "";
+      const surface = e.surface == null
+        ? "<span style='color:var(--axis)'>—</span>" : esc(e.surface);
+      return `<div class="el t-${tone} q-${q} ${src === "archive" ? "q-archive" : ""}">
+        <div class="k">${esc(e.label || e.key)}</div>
+        <div class="surface">${surface}</div>
+        <div class="detail">${detailRows(e.detail)}</div>
+      </div>`;
+    }
     async function render(ticker) {
-      const el = document.getElementById("view");
+      const view = document.getElementById("view");
       try {
         const vm = await (await fetch(`/api/view/${encodeURIComponent(ticker)}`)).json();
         document.getElementById("status").textContent =
-          `${vm.ticker} · as of ${vm.as_of || "?"} · verdict: ${(vm.verdict && vm.verdict.action) || "—"}`;
-        el.innerHTML = (vm.elements || []).map(e => `
-          <div class="el q-${(e.provenance && e.provenance.quality) || "real"}">
-            <div class="k">${e.label || e.key}</div>
-            <div>${e.surface == null ? "<span style='color:var(--axis)'>(awaiting signal)</span>" : e.surface}</div>
-          </div>`).join("") || "<p class='note'>No elements yet — register signals to populate the view.</p>";
+          `${vm.ticker} · as of ${vm.as_of || "?"}`;
+        const v = vm.verdict || {};
+        document.getElementById("verdict").innerHTML =
+          `<div class="verdict">${esc(v.action || "—")}</div>` +
+          (v.reasons && v.reasons.length
+            ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "");
+        view.innerHTML = (vm.elements || []).map(elementCard).join("")
+          || "<p class='note'>No elements.</p>";
+        view.querySelectorAll(".el").forEach(c =>
+          c.addEventListener("click", () => c.classList.toggle("open")));
       } catch (err) {
-        el.innerHTML = `<p class='note'>view unavailable: ${err}</p>`;
+        view.innerHTML = `<p class='note'>view unavailable: ${esc(err)}</p>`;
       }
     }
     render(new URLSearchParams(location.search).get("t") || "SPY");
