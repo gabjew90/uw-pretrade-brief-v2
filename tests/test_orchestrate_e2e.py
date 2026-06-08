@@ -28,9 +28,11 @@ def test_e2e_real_bronze_produces_verdict_and_direction_element():
     vm = assemble("SPY", _golden_raw(), asof="2026-06-08")
     assert isinstance(vm, ViewModel)
     assert vm.ticker == "SPY"
-    # real SPY 6/8 is net put-side on opening flow
-    assert vm.verdict.action == "Lean puts"
-    assert vm.verdict.signals_used == ["flow"]
+    # real SPY 6/8 is net put-side on opening flow; with only flow available (other
+    # signals' inputs not in this canon) cost is caution → not Favorable → Mixed
+    assert vm.verdict.direction == "puts"
+    assert vm.verdict.overall == "Mixed"
+    assert "flow" in vm.verdict.signals_used
     direction = next(e for e in vm.elements if e.key == "direction")
     assert direction.surface == "PUTS"
     assert direction.detail["basis"] == "opening_flow"
@@ -100,7 +102,8 @@ def test_http_api_view_serializes_cleanly(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["ticker"] == "SPY"
-    assert body["verdict"]["action"] == "Lean puts"
+    assert body["verdict"]["direction"] == "puts"
+    assert body["verdict"]["overall"] in ("Favorable", "Mixed", "Stand down")
     assert {e["key"] for e in body["elements"]} >= {"direction", "flow_truncation"}
     # the response carries only view-model keys — no raw signal/canonical fields
     direction = next(e for e in body["elements"] if e["key"] == "direction")

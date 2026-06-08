@@ -261,8 +261,12 @@ class Verdict(BaseModel):
     """The single decision. Consumes signals BY NAME; emits an action + named reasons,
     so a computed-but-unused signal is a visible gap, not a silent strand."""
     action: str = ""                       # e.g. "Stand down" / "Favorable: calls"
+    overall: Literal["Favorable", "Mixed", "Stand down"] = "Mixed"
+    direction: Optional[Literal["calls", "puts"]] = None   # the side, owned by positioning/flow
     reasons: list[str] = Field(default_factory=list)
     signals_used: list[str] = Field(default_factory=list)  # names consumed (audit)
+    signal_conflict: bool = False
+    conflict_legs: list[str] = Field(default_factory=list)  # which legs disagree (tone cue)
     provenance: Provenance = Field(default_factory=Provenance)
 
 
