@@ -77,6 +77,9 @@ class FlowAlert(BaseModel):
     has_sweep: Optional[bool] = None
     has_singleleg: Optional[bool] = None
     has_multileg: Optional[bool] = None
+    # set by normalize when the pull hit the 500 page-cap (session tail may be missing);
+    # a per-pull property stamped on each row so Derive/Present can surface it honestly.
+    truncated: bool = False
     provenance: Provenance = Field(default_factory=Provenance)
 
     @field_validator("type", mode="before")
