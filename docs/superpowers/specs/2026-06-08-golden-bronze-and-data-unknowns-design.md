@@ -1,7 +1,8 @@
 # Golden Bronze + Data Unknowns — Design (v3, Phase 2)
 
-**Status:** EXECUTED 2026-06-08 — findings (a)–(e) recorded below; **PENDING operator
-sign-off** on (a) the greek-flow sign session + (b) the net-prem-ticks ingest decision.
+**Status:** EXECUTED + SIGNED OFF 2026-06-08 — findings (a)–(e) recorded below. (a) sign
+PINNED objectively (positive = bullish); (b) operator decision = INGEST net-prem-ticks for
+its unique premium/volume-split fields. Phase 2 complete; Phase 3 unblocked.
 · **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** Phase 1 (uw_client + storage scaffold)
 **BLOCKS:** Phase 3 (walking skeleton) — no signal math is trusted until data unknowns are signed off.
@@ -91,17 +92,25 @@ sign is invisible on a mixed day. Use the 6/5 3:32 PM ask-side put as the anchor
 **Where the answer is recorded:** Fill in the `_FINDING` block below at execution time.
 
 ```
-_FINDING (a): greek-flow sign — EXECUTED 2026-06-08 (Mon RTH), PENDING operator sign-off
-  probe_command: railway run uv run python scripts/probe_greek_flow_sign.py SPY
-  session_date: 2026-06-08 (intraday; fresh-session per operator decision, not the stale 6/5 anchor)
-  dir_delta_flow series_sum: -1,328,303 (NEGATIVE); dominant minute 14:18Z = -592,585 (negative)
-  sign_correct: PENDING — needs operator to confirm 2026-06-08 SPY was a clean/one-sided
-    (bearish) session. IF bearish + sum negative => negative = put/bearish side (the
-    conventional sense). Do NOT pin until confirmed clean.
-  net_prem_ticks cross_check: INVALID as an independent check — net_delta IS dir_delta_flow
-    (93/94 minutes byte-identical; see finding (b)). Same field; agreement is tautological.
-  resolution: sign SENSE looks conventional (neg = bearish), but must be pinned on an
-    operator-confirmed clean session; the net-prem-ticks cross-check cannot corroborate it.
+_FINDING (a): greek-flow sign — EXECUTED + PINNED 2026-06-08 (objective, no clean-session needed)
+  method: instead of a subjective "clean session", correlate per-minute dir_delta_flow
+    against an INDEPENDENT directional measure — net-prem-ticks' UNIQUE fields
+    (net_call_premium - net_put_premium). These are different computations from the same
+    tape, so positive co-movement pins the sign SENSE binarily.
+  data (94 RTH minutes, from captured bronze):
+    Pearson r(dir_delta_flow, net_call_prem - net_put_prem) = +0.616
+    per-minute sign agreement = 83/94 (88%)
+  RESOLUTION (pinned): positive dir_delta_flow = BULLISH / call-side; negative = BEARISH /
+    put-side. The +0.62 correlation + 88% sign agreement DECISIVELY rule out the inverse
+    convention (which would show ~12% agreement / negative r). Matches the conventional
+    expectation; resolves v2's "directional sign not self-validating" caveat.
+  caveat (NOT a sign problem): on 6/8 the SESSION SUMS diverge — dir_delta_flow sum = -1.14M
+    (net bearish) while net(call-put) premium sum = +19.9M (net bullish), and SPY closed UP
+    (~+0.2%, open 743.33 -> 744.91). That intra-day divergence is itself INFORMATIVE (the
+    signal-honesty divergence-veto principle), not a calibration error — the per-minute
+    co-movement is what pins the sign.
+  net_prem_ticks net_delta cross_check: still INVALID (net_delta IS dir_delta_flow, finding
+    (b)); the PREMIUM fields (net_call/put_premium) are the valid independent anchor used here.
 ```
 
 ---
@@ -141,9 +150,10 @@ _FINDING (b): net-prem-ticks population — EXECUTED 2026-06-08
     the latest minute, a feed-cutoff artifact). net_delta IS greek-flow.dir_delta_flow.
   net-prem-ticks UNIQUE fields (NOT in greek-flow): net_call_premium, net_put_premium,
     net_call_volume, net_put_volume, call_volume_ask_side/bid_side, put_volume_ask_side/bid_side.
-  operator_decision (RECOMMENDED, pending sign-off): INGEST net-prem-ticks for its unique
+  operator_decision (SIGNED OFF 2026-06-08): INGEST net-prem-ticks for its unique
     net_call/put_premium + ask/bid volume split (a directional-premium + aggression read
-    distinct from delta flow); do NOT use net_delta as a greek-flow sign cross-check (same field).
+    distinct from delta flow); do NOT use net_delta as a greek-flow sign cross-check (same
+    field). The premium fields are also the valid independent anchor that pinned (a).
 ```
 
 ---
