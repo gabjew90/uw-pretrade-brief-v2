@@ -5,9 +5,7 @@ that turns canonical records into the cross-signal canon inputs.
 from datetime import date, datetime, timezone
 
 from server.models import FlowAlert
-from server.pipeline.orchestrate import (_days_to_earnings, _flow_cluster, _latest_iv,
-                                         _premium_side, _tide_lean)
-from server.models import IVTermPoint
+from server.pipeline.orchestrate import (_days_to_earnings, _flow_cluster, _premium_side)
 
 ASOF = date(2026, 6, 8)
 NOW = datetime(2026, 6, 8, 15, 0, tzinfo=timezone.utc)
@@ -44,21 +42,6 @@ def test_flow_cluster_near_dated_top_strikes():
 def test_flow_cluster_respects_top_n():
     alerts = [_fa("call", 100 * i, 600 + i, "2026-06-12") for i in range(1, 9)]
     assert len(_flow_cluster(alerts, "call", ASOF, top_n=3)) == 3
-
-
-# ── _tide_lean ────────────────────────────────────────────────────────────────
-def test_tide_lean_bull_bear_neutral():
-    assert _tide_lean([{"net_call_premium": "100", "net_put_premium": "10"}]) == "bull"
-    assert _tide_lean([{"net_call_premium": "10", "net_put_premium": "100"}]) == "bear"
-    assert _tide_lean([]) == "neutral"
-
-
-# ── _latest_iv ────────────────────────────────────────────────────────────────
-def test_latest_iv_takes_near_term():
-    iv = [IVTermPoint(date="2026-06-08", days=30, volatility=0.25),
-          IVTermPoint(date="2026-06-08", days=1, volatility=0.17)]
-    assert _latest_iv(iv) == 0.17                 # nearest-term horizon
-    assert _latest_iv([]) is None
 
 
 # ── _days_to_earnings ─────────────────────────────────────────────────────────

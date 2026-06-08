@@ -143,21 +143,16 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     if cost is not None and getattr(cost, "reason", ""):
         reasons.append(f"cost: {cost.reason}")
 
-    # ── regime advisory ───────────────────────────────────────────────────────
-    regime = signals.get("regime")
-    if regime is not None:
-        used.append("regime")
-    regime_posture = getattr(regime, "posture", "Mixed") if regime else "Mixed"
-    if regime is not None and regime_posture != "Mixed":
-        reasons.append(f"market regime: {regime_posture}")
-
     signal_conflict = bool(conflict_legs)
 
     # ── resolution ────────────────────────────────────────────────────────────
+    # (Market regime is NOT a per-ticker leg — its only decision-relevant datum, a macro
+    # event in the hold window, routes through Cost above. The verdict rests on the
+    # ticker's own evidence.)
     if positioning_color == "red" or cost_guard == "block":
         overall = "Stand down"
     elif (positioning_color == "green" and not signal_conflict and cost_guard == "ok"
-          and skew_st != "oppose" and structural == "green" and regime_posture != "Stand down"):
+          and skew_st != "oppose" and structural == "green"):
         overall = "Favorable"
     else:
         overall = "Mixed"

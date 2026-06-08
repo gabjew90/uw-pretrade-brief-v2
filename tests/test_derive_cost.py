@@ -62,6 +62,16 @@ def test_macro_event_within_hold_blocks():
     assert c.event_within_hold is True
 
 
+def test_ivr_is_computed_even_when_blocked():
+    """The supporting data (IV rank) must be populated even when an event/earnings vetoes —
+    the tile shows the data, not a null (operator: compute the variables even if blocked)."""
+    c = derive_cost({"iv_term": _term((30, 0.55)), "event_within_hold": True})
+    assert c.guard == "block"
+    assert c.ivr == 55.0                          # IV rank still computed, not None
+    e = derive_cost({"iv_term": _term((30, 0.55)), "days_to_earnings": 2})
+    assert e.guard == "block" and e.ivr == 55.0
+
+
 # ── honest-degrade: missing IV → caution (not silent ok) ──────────────────────
 def test_missing_iv_is_caution_not_ok():
     c = derive_cost({})

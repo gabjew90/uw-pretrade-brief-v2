@@ -229,23 +229,24 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     dte = canon.get("days_to_earnings")
     event = bool(canon.get("event_within_hold"))
 
-    if dte is not None and dte < _EARNINGS_DAYS_MIN:
-        return Cost(guard="block", days_to_earnings=dte, event_within_hold=event,
-                    reason=f"earnings in {dte}d — don't buy premium into it",
-                    provenance=prov.derived())
-    if event:
-        return Cost(guard="block", days_to_earnings=dte, event_within_hold=True,
-                    reason="macro event inside the hold window",
-                    provenance=prov.derived())
-    if not iv:
-        return Cost(guard="caution", days_to_earnings=dte, event_within_hold=event,
-                    reason="IV rank unavailable — proceeding cautiously",
-                    provenance=prov.unavailable("no interpolated-iv"))
+    # ALWAYS compute the supporting data (IV rank) even when an event/earnings will block —
+    # the tile must show what backs the read, not a null (operator: compute the variables
+    # even if blocked).
+    ivr = None
+    src = prov.unavailable("no interpolated-iv")
+    if iv:
+        row = min(iv, key=lambda p: abs((p.days or 0) - _IVR_TARGET_DTE))
+        ivr = round((row.percentile or 0.0) * 100, 1)
+        src = prov.derived(row.provenance)
 
-    row = min(iv, key=lambda p: abs((p.days or 0) - _IVR_TARGET_DTE))
-    ivr = round((row.percentile or 0.0) * 100, 1)
-    src = prov.derived(row.provenance)
-    if ivr <= _IVR_GREEN_MAX:
+    # event/earnings veto wins over the IV bands, but ivr stays populated above.
+    if dte is not None and dte < _EARNINGS_DAYS_MIN:
+        guard, reason = "block", f"earnings in {dte}d — don't buy premium into it"
+    elif event:
+        guard, reason = "block", "macro event inside the hold window"
+    elif ivr is None:
+        guard, reason = "caution", "IV rank unavailable — proceeding cautiously"
+    elif ivr <= _IVR_GREEN_MAX:
         guard, reason = "ok", f"IV rank {ivr:.0f} — premium not rich"
     elif ivr <= _IVR_YELLOW_MAX:
         guard, reason = "caution", f"IV rank {ivr:.0f} — elevated premium"
@@ -333,7 +334,11 @@ def _next_high_impact_event(events, now):
     return best
 
 
-@register("regime")
+# NOT registered in the per-ticker pipeline: regime is MARKET-WIDE, not per-ticker evidence
+# (operator: "the other tiles show what data supported the verdict; market regime is just a
+# bunch of words"). Its one decision-relevant datum — a macro event in the hold window —
+# routes through Cost (visible, data-backed). Kept as a library fn for a future market
+# HEADER (computed once), not a per-ticker tile.
 def derive_regime(canon: dict, *, asof: str | None = None) -> Regime:
     """Market-wide posture (Favorable/Mixed/Stand down) — NEVER a direction. NEG index
     gamma = trend (favorable for directional weeklies); POS = pin/chop (stand down); a

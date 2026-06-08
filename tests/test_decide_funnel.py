@@ -3,7 +3,7 @@ decide spec: families + divergence-veto-not-agreement-bonus + skew oppose-veto a
 cost/structural guards + regime advisory + honest-degrade gated.
 """
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                           Quality, Regime, Skew)
+                           Quality, Skew)
 from server.pipeline.decide import decide
 
 
@@ -14,7 +14,7 @@ def _flow(direction="calls", basis="opening_flow"):
 
 def _favorable_inputs(direction="calls"):
     """A signal map that SHOULD resolve Favorable: opening flow, OI building, cost ok,
-    NEG gamma (trend), skew agreeing, regime not standing down."""
+    NEG gamma (trend), skew agreeing. (Regime is NOT a per-ticker leg.)"""
     return {
         "flow": _flow(direction),
         "positioning": Positioning(confirmation="building", side="call"),
@@ -22,7 +22,6 @@ def _favorable_inputs(direction="calls"):
         "skew": Skew(rr25=0.05, lean="call_skew"),       # agrees with calls
         "dealer_gamma": DealerGamma(gex_sign="NEG", flip_status="ok"),
         "cost": Cost(guard="ok", ivr=40),
-        "regime": Regime(posture="Favorable"),
     }
 
 
@@ -82,12 +81,6 @@ def test_pos_gamma_caps_below_favorable():
     assert decide(base).overall == "Mixed"              # structural yellow → not Favorable
 
 
-def test_regime_stand_down_caps_below_favorable():
-    base = _favorable_inputs("calls")
-    base["regime"] = Regime(posture="Stand down")
-    assert decide(base).overall == "Mixed"
-
-
 # ── weaker basis caps; positioning owns the side ──────────────────────────────
 def test_total_flow_basis_caps_at_yellow_not_favorable():
     base = _favorable_inputs("calls")
@@ -133,10 +126,10 @@ def test_no_same_family_stacking_two_concordant_flow_reads():
 def test_signals_used_lists_consumed_signals():
     v = decide(_favorable_inputs("calls"))
     assert set(v.signals_used) == {"flow", "positioning", "conviction", "skew",
-                                   "dealer_gamma", "cost", "regime"}
+                                   "dealer_gamma", "cost"}
 
 
-def test_regime_never_supplies_direction():
-    """The verdict's direction comes from flow/positioning, never regime."""
+def test_direction_comes_from_flow_not_a_guard():
+    """The verdict's direction comes from flow/positioning, never a guard signal."""
     v = decide(_favorable_inputs("puts"))
-    assert v.direction == "puts"                        # follows flow, regime is posture-only
+    assert v.direction == "puts"

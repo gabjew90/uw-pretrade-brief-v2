@@ -20,8 +20,7 @@ from datetime import date, datetime, timezone
 
 from server.models import ViewModel
 from server.pipeline.decide import decide
-from server.pipeline.derive import (_next_high_impact_event, derive_all,
-                                     derive_dealer_gamma)
+from server.pipeline.derive import _next_high_impact_event, derive_all
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
@@ -91,26 +90,6 @@ def _flow_cluster(flow_alerts, side: str, asof_d: date,
     return sorted(by_strike, key=lambda k: by_strike[k], reverse=True)[:top_n]
 
 
-def _tide_lean(tide_rows) -> str:
-    """Market-tide lean from net premium across the session: bull / bear / neutral."""
-    net = 0.0
-    for r in tide_rows:
-        net += (_f(r.get("net_call_premium")) or 0.0) - (_f(r.get("net_put_premium")) or 0.0)
-    if net > 0:
-        return "bull"
-    if net < 0:
-        return "bear"
-    return "neutral"
-
-
-def _latest_iv(iv_term) -> float | None:
-    """A representative IV level for the regime vol read (the near-term volatility)."""
-    if not iv_term:
-        return None
-    near = min(iv_term, key=lambda p: p.days if p.days is not None else 999)
-    return near.volatility
-
-
 def _days_to_earnings(earnings_rows, now: datetime) -> int | None:
     """Days until the next future earnings date, or None (no/unknown earnings — e.g. an
     ETF). Tolerant of the field name since we lack a non-empty golden fixture to pin it."""
@@ -127,32 +106,6 @@ def _days_to_earnings(earnings_rows, now: datetime) -> int | None:
                 best = days
             break
     return best
-
-
-def _regime_inputs(viewed_ticker: str, viewed_gamma_strikes: list, iv_term: list,
-                   now: datetime) -> tuple[dict, bool]:
-    """Assemble the market-wide regime input dict + the event-within-hold flag (which also
-    caps the per-ticker Cost gate). Regime is SPY-based regardless of the viewed ticker;
-    reuse the viewed gamma when the view IS SPY to avoid a duplicate fetch."""
-    if viewed_ticker == "SPY" and viewed_gamma_strikes:
-        spy_gamma = viewed_gamma_strikes
-    else:
-        spy_gamma = _fetch_norm("/stock/SPY/spot-exposures/strike", {"limit": 500}, "SPY", Priority.LOW)
-    dg = derive_dealer_gamma({"gamma_strikes": spy_gamma})
-    gamma = {"sign": dg.gex_sign, "status": "ok" if dg.flip_status != "unavailable" else "unavailable"}
-
-    events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
-    tide = _fetch_raw("/market/market-tide", None, Priority.LOW)
-    regime = {
-        "gamma": gamma,
-        "vol": {"iv": _latest_iv(iv_term), "rv": None, "trend": None},
-        "events": events,
-        "tide": {"lean": _tide_lean(tide)},
-        "opex": False,
-        "now": now,
-    }
-    event_within_hold = _next_high_impact_event(events, now) is not None
-    return regime, event_within_hold
 
 
 def _oi_history(ticker: str, now: datetime) -> list[list]:
@@ -198,9 +151,11 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         canon["flow_strikes"] = _flow_cluster(flow_alerts, side, asof_d)
         canon["oi_sessions"] = _oi_history(ticker, now)
 
-    regime, event_within_hold = _regime_inputs(ticker, gamma_strikes, iv_term, now)
-    canon["regime"] = regime
-    canon["event_within_hold"] = event_within_hold
+    # The only MARKET-WIDE input the per-ticker verdict needs: is a high-impact macro event
+    # inside the hold window? (routes through Cost). No SPY-gamma / market-tide fetch per
+    # ticker — regime as a full read is a future market HEADER, computed once, not here.
+    events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
+    canon["event_within_hold"] = _next_high_impact_event(events, now) is not None
     canon["days_to_earnings"] = _days_to_earnings(
         _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW), now)
     return canon

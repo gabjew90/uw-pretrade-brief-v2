@@ -96,8 +96,10 @@ def _regime_el(r) -> Element:
 
 _BUILDERS = [
     ("flow", _direction_el), ("conviction", _conviction_el), ("positioning", _positioning_el),
-    ("dealer_gamma", _structural_el), ("skew", _skew_el), ("cost", _cost_el), ("regime", _regime_el),
+    ("dealer_gamma", _structural_el), ("skew", _skew_el), ("cost", _cost_el),
 ]
+# NB: no regime tile — regime is market-wide, not per-ticker evidence (the macro-event
+# veto it carried is shown as data in the Cost tile). `_regime_el` kept for a future header.
 
 
 def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,

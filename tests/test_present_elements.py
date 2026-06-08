@@ -2,7 +2,7 @@
 never omitted, conflict tone propagated, verdict forwarded verbatim.
 """
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                           Quality, Regime, Skew)
+                           Quality, Skew)
 from server.pipeline.decide import decide
 from server.pipeline.present import present
 
@@ -15,7 +15,6 @@ def _full_signals():
         "dealer_gamma": DealerGamma(gex_sign="NEG", flip_status="ok", agg_b=-2.0),
         "skew": Skew(rr25=-0.05, lean="put_skew"),       # opposes calls → conflict
         "cost": Cost(guard="ok", ivr=40),
-        "regime": Regime(posture="Favorable"),
     }
 
 
@@ -23,7 +22,8 @@ def test_one_element_per_signal_plus_keys():
     sigs = _full_signals()
     vm = present("SPY", sigs, decide(sigs))
     keys = {e.key for e in vm.elements}
-    assert {"direction", "conviction", "positioning", "structural", "skew", "cost", "regime"} <= keys
+    assert {"direction", "conviction", "positioning", "structural", "skew", "cost"} <= keys
+    assert "regime" not in keys                          # market-wide, not a per-ticker tile
 
 
 def test_unavailable_signal_emits_element_not_omitted():
