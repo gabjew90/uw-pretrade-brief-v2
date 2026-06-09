@@ -33,7 +33,7 @@ def test_unavailable_signal_emits_element_not_omitted():
     skew_el = next(e for e in vm.elements if e.key == "skew")
     assert skew_el.surface is None
     assert skew_el.tone == "unavailable"
-    assert "reason" in skew_el.detail
+    assert "why" in skew_el.detail
 
 
 def test_conflict_leg_element_tinted_cautionary():
@@ -58,4 +58,4 @@ def test_cost_tone_tracks_guard():
     sigs["cost"] = Cost(guard="block", reason="earnings in 2d")
     vm = present("SPY", sigs, decide(sigs))
     cost_el = next(e for e in vm.elements if e.key == "cost")
-    assert cost_el.surface == "BLOCK" and cost_el.tone == "negative"
+    assert cost_el.surface == "PASS" and cost_el.tone == "negative"

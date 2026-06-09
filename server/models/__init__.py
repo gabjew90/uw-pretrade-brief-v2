@@ -310,11 +310,12 @@ class Verdict(BaseModel):
 
 # ── Present stage output — the view model the frontend renders ────────────────
 class Element(BaseModel):
-    """One renderable unit. The frontend shows `surface` + `label`, reveals `detail`
-    on tap, and tints by `provenance.quality`. It computes NOTHING."""
+    """One renderable unit. The frontend shows `label` + `surface` (+ the plain-English
+    `meaning`), reveals `detail` on tap, and tints by `provenance`. It computes NOTHING."""
     key: str
-    label: str = ""                         # plain-English, novice-readable
+    label: str = ""                         # plain-English question/title, novice-readable
     surface: Any = None                     # the glanceable value (string/number/struct)
+    meaning: str = ""                        # one plain sentence: what this is / how to read it
     detail: Any = None                      # tap payload (secondary numbers, graphs)
     provenance: Provenance = Field(default_factory=Provenance)
     # the ONLY sentiment cue the frontend acts on; it never reads signal values to render

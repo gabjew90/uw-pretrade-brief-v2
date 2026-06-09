@@ -22,8 +22,13 @@
     .reasons { color: var(--text-dim); font-size: 11px; margin: 0 0 14px; padding-left: 16px; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
-    .el .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
-    .el .surface { font-size: 18px; margin-top: 3px; }
+    .el .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+    .el .k { font-size: 11px; letter-spacing: 0.02em; color: var(--text); }
+    .el .prov { font-size: 9px; color: var(--axis); text-transform: uppercase;
+                letter-spacing: 0.04em; white-space: nowrap; }
+    .el .surface { font-size: 20px; margin-top: 5px; }
+    .el .meaning { font-size: 11px; color: var(--text-dim); margin-top: 4px; line-height: 1.45;
+                   max-width: 64ch; }
     .el .detail { margin-top: 8px; border-top: 1px dashed var(--grid); padding-top: 8px;
                   font-size: 11px; color: var(--text-dim); display: none; }
     .el.open .detail { display: block; }
@@ -36,7 +41,7 @@
     .t-cautionary .surface { color: var(--warn); }
     .t-unavailable { opacity: 0.55; border-left: 2px solid var(--axis); }
     .q-degraded { box-shadow: inset 2px 0 0 var(--warn); }
-    .q-archive::after { content: " · stale"; color: var(--warn); font-size: 9px; }
+    .q-archive { box-shadow: inset 2px 0 0 var(--axis); }
   </style>
 </head>
 <body>
@@ -67,14 +72,31 @@
           typeof detail[k] === "number" ? detail[k].toLocaleString() : detail[k]
         )}</span></div>`).join("");
     }
+    // "Where did it come from?" — source + freshness, read straight off provenance.
+    // (No Date math: the timestamp is sliced from the ISO string for display only.)
+    function srcLabel(p) {
+      const m = { live: "live", cache: "cached", archive: "settled", derived: "computed" };
+      const src = (p && p.source) || "derived", q = (p && p.quality) || "real";
+      if (q === "unavailable") return "no data";
+      if (q === "degraded") return (m[src] || src) + " · degraded";
+      return m[src] || src;
+    }
+    function freshness(p) {
+      if (!p || !p.as_of) return "";
+      return p.as_of.slice(0, 10) + " " + p.as_of.slice(11, 16);
+    }
     function elementCard(e) {
       const tone = (e.tone || "neutral"), q = (e.provenance && e.provenance.quality) || "real";
       const src = (e.provenance && e.provenance.source) || "";
       const surface = e.surface == null
         ? "<span style='color:var(--axis)'>—</span>" : esc(e.surface);
+      const fresh = freshness(e.provenance);
+      const prov = `<div class="prov">${esc(srcLabel(e.provenance))}${fresh ? " · " + esc(fresh) : ""}</div>`;
+      const meaning = e.meaning ? `<div class="meaning">${esc(e.meaning)}</div>` : "";
       return `<div class="el t-${tone} q-${q} ${src === "archive" ? "q-archive" : ""}">
-        <div class="k">${esc(e.label || e.key)}</div>
+        <div class="head"><div class="k">${esc(e.label || e.key)}</div>${prov}</div>
         <div class="surface">${surface}</div>
+        ${meaning}
         <div class="detail">${detailRows(e.detail)}</div>
       </div>`;
     }

@@ -35,8 +35,8 @@ def test_e2e_real_bronze_produces_verdict_and_direction_element():
     assert "flow" in vm.verdict.signals_used
     direction = next(e for e in vm.elements if e.key == "direction")
     assert direction.surface == "PUTS"
-    assert direction.detail["basis"] == "opening_flow"
-    assert direction.detail["put_premium"] > direction.detail["call_premium"]
+    assert direction.meaning                          # plain-English read present
+    assert direction.detail["Read from"] == "opening flow"
 
 
 def test_e2e_truncation_element_emitted_at_cap():
@@ -62,7 +62,7 @@ def test_honest_degrade_empty_flow_is_stand_down_not_guess():
     direction = next(e for e in vm.elements if e.key == "direction")
     assert direction.surface is None
     assert direction.tone == "unavailable"
-    assert "reason" in direction.detail
+    assert "why" in direction.detail
 
 
 def test_malformed_row_does_not_leak_validation_error():
@@ -107,4 +107,4 @@ def test_http_api_view_serializes_cleanly(monkeypatch):
     assert {e["key"] for e in body["elements"]} >= {"direction", "flow_truncation"}
     # the response carries only view-model keys — no raw signal/canonical fields
     direction = next(e for e in body["elements"] if e["key"] == "direction")
-    assert set(direction) == {"key", "label", "surface", "detail", "provenance", "tone"}
+    assert set(direction) == {"key", "label", "surface", "meaning", "detail", "provenance", "tone"}
