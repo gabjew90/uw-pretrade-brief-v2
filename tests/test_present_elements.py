@@ -2,9 +2,29 @@
 never omitted, conflict tone propagated, verdict forwarded verbatim.
 """
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                           Quality, Skew)
+                           Quality, Regime, Skew)
 from server.pipeline.decide import decide
 from server.pipeline.present import present
+
+
+def test_regime_header_shows_data_variables_and_logic():
+    """The regime header exposes the DATA behind the posture word, plus the rule."""
+    regime = Regime(posture="Stand down", gamma_sign="POS", gamma_status="ok",
+                    vol_iv=0.17, tide_lean="bear", event_line="CPI 2d", event_severity="warn")
+    sigs = _full_signals()
+    vm = present("SPY", sigs, decide(sigs), regime=regime)
+    assert vm.regime is not None
+    assert vm.regime.surface == "Stand down"
+    assert "POS" in vm.regime.meaning and "17%" in vm.regime.meaning   # data variables shown
+    assert vm.regime.logic                                            # the rule is stated
+    assert vm.regime.detail["SPY index gamma"].startswith("POS")
+    assert vm.verdict_logic                                            # how the call is made
+
+
+def test_every_tile_has_logic():
+    sigs = _full_signals()
+    vm = present("SPY", sigs, decide(sigs))
+    assert all(e.logic for e in vm.elements if e.key != "flow_truncation")
 
 
 def _full_signals():

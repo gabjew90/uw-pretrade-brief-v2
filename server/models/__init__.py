@@ -292,6 +292,11 @@ class Regime(Signal):
     event_within_hold: bool = False
     tide_badge: str = ""
     opex: bool = False
+    # raw input variables (so the header can show the DATA behind the posture word)
+    gamma_sign: Optional[str] = None        # POS / NEG (SPY index gamma)
+    gamma_status: Optional[str] = None       # ok / unavailable
+    vol_iv: Optional[float] = None           # SPY near-term IV
+    tide_lean: Optional[str] = None          # bull / bear / neutral
 
 
 # ── Verdict (Decide stage output) — built in exactly one place ───────────────
@@ -315,7 +320,8 @@ class Element(BaseModel):
     key: str
     label: str = ""                         # plain-English question/title, novice-readable
     surface: Any = None                     # the glanceable value (string/number/struct)
-    meaning: str = ""                        # one plain sentence: what this is / how to read it
+    meaning: str = ""                        # terse number readout (the data behind the word)
+    logic: str = ""                          # the RULE: how this word is decided from the data
     detail: Any = None                      # tap payload (secondary numbers, graphs)
     provenance: Provenance = Field(default_factory=Provenance)
     # the ONLY sentiment cue the frontend acts on; it never reads signal values to render
@@ -326,5 +332,7 @@ class ViewModel(BaseModel):
     """Everything one ticker's deep-dive needs to render. Server-built, client-dumb."""
     ticker: str
     as_of: Optional[str] = None
+    regime: Optional[Element] = None        # market-wide header (posture + its data variables)
+    verdict_logic: str = ""                 # how the overall call is reached from the gates
     elements: list[Element] = Field(default_factory=list)
     verdict: Optional[Verdict] = None

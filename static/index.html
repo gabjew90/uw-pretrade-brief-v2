@@ -18,8 +18,17 @@
     header .sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
     main { padding: 16px; }
     .note { color: var(--axis); font-size: 11px; line-height: 1.5; max-width: 60ch; }
+    .regime { border: 1px solid var(--grid); border-radius: 6px; padding: 9px 12px;
+              margin: 0 0 14px; background: #0e1118; }
+    .regime .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+    .regime .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+    .regime .surface { font-size: 14px; margin-top: 2px; }
+    .regime .vars { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+    .regime .logic { font-size: 10px; color: var(--axis); margin-top: 3px; font-style: italic; }
     .verdict { font-size: 16px; margin: 4px 0 2px; letter-spacing: 0.02em; }
-    .reasons { color: var(--text-dim); font-size: 11px; margin: 0 0 14px; padding-left: 16px; }
+    .reasons { color: var(--text-dim); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
+    .vlogic { color: var(--axis); font-size: 10px; margin: 0 0 14px; font-style: italic; max-width: 70ch; }
+    .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
     .el .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
@@ -92,11 +101,25 @@
       const fresh = freshness(e.provenance);
       const prov = `<div class="prov">${esc(srcLabel(e.provenance))}${fresh ? " · " + esc(fresh) : ""}</div>`;
       const meaning = e.meaning ? `<div class="meaning">${esc(e.meaning)}</div>` : "";
+      const logic = e.logic ? `<div class="logic">how: ${esc(e.logic)}</div>` : "";
       return `<div class="el t-${tone} q-${q} ${src === "archive" ? "q-archive" : ""}">
         <div class="head"><div class="k">${esc(e.label || e.key)}</div>${prov}</div>
         <div class="surface">${surface}</div>
         ${meaning}
+        ${logic}
         <div class="detail">${detailRows(e.detail)}</div>
+      </div>`;
+    }
+    // Market-wide regime header: the posture word + the DATA VARIABLES that produced it.
+    function regimeHeader(r) {
+      if (!r) return "";
+      const tone = r.tone || "neutral", fresh = freshness(r.provenance);
+      const prov = `${esc(srcLabel(r.provenance))}${fresh ? " · " + esc(fresh) : ""}`;
+      return `<div class="regime t-${tone}">
+        <div class="head"><div class="k">${esc(r.label || "Market regime")}</div><div class="prov">${prov}</div></div>
+        <div class="surface">${esc(r.surface || "n/a")}</div>
+        <div class="vars">${esc(r.meaning || "")}</div>
+        ${r.logic ? `<div class="logic">how: ${esc(r.logic)}</div>` : ""}
       </div>`;
     }
     async function render(ticker) {
@@ -107,9 +130,11 @@
           `${vm.ticker} · as of ${vm.as_of || "?"}`;
         const v = vm.verdict || {};
         document.getElementById("verdict").innerHTML =
+          regimeHeader(vm.regime) +
           `<div class="verdict">${esc(v.action || "n/a")}</div>` +
           (v.reasons && v.reasons.length
-            ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "");
+            ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "") +
+          (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "");
         view.innerHTML = (vm.elements || []).map(elementCard).join("")
           || "<p class='note'>No elements.</p>";
         view.querySelectorAll(".el").forEach(c =>

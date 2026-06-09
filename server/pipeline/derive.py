@@ -494,9 +494,9 @@ def derive_regime(canon: dict, *, asof: str | None = None) -> Regime:
         _, ev, days = nxt
         name = ev.get("event") or (ev.get("type") or "event").upper()
         if days <= 1:
-            event_line, event_severity = f"{name} within ~1d — don't initiate weeklies into it.", "veto"
+            event_line, event_severity = f"{name} <1d", "veto"
         else:
-            event_line, event_severity = f"{name} in ~{int(round(days))}d — a weekly opened now will likely cross it.", "warn"
+            event_line, event_severity = f"{name} {int(round(days))}d", "warn"
 
     vol = r.get("vol") or {}
     iv, rv, trend = vol.get("iv"), vol.get("rv"), vol.get("trend")
@@ -526,4 +526,5 @@ def derive_regime(canon: dict, *, asof: str | None = None) -> Regime:
     return Regime(posture=posture, headline=headline, vol_line=vol_line,
                   event_line=event_line, event_severity=event_severity,
                   event_within_hold=event_within_hold, tide_badge=tide_badge,
-                  opex=bool(r.get("opex")), provenance=prov.derived())
+                  opex=bool(r.get("opex")), gamma_sign=sign, gamma_status=status,
+                  vol_iv=iv, tide_lean=lean, provenance=prov.derived())

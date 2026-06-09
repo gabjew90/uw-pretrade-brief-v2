@@ -107,4 +107,4 @@ def test_http_api_view_serializes_cleanly(monkeypatch):
     assert {e["key"] for e in body["elements"]} >= {"direction", "flow_truncation"}
     # the response carries only view-model keys — no raw signal/canonical fields
     direction = next(e for e in body["elements"] if e["key"] == "direction")
-    assert set(direction) == {"key", "label", "surface", "meaning", "detail", "provenance", "tone"}
+    assert set(direction) == {"key", "label", "surface", "meaning", "logic", "detail", "provenance", "tone"}

@@ -9,18 +9,18 @@ Fetch policy (operator: full fetch, governor-gated): direction-critical flow is 
 confirming context is NORMAL; market-wide regime context is LOW — so under budget pressure
 the governor sheds the nice-to-haves first and the direction read still lands.
 
-The pure helpers (`_premium_side`, `_flow_cluster`, `_tide_lean`, `_days_to_earnings`,
-`_regime_inputs`) carry the cross-signal plumbing and are unit-tested offline; only the
-live multi-fetch in `build_canon` needs the network. `assemble_from_canon` is pure given a
-canon (REPLAY-reproducible).
+The pure helpers (`_premium_side`, `_flow_cluster`, `_tide_lean`, `_latest_iv`,
+`_days_to_earnings`) carry the cross-signal plumbing and are unit-tested offline; the live
+multi-fetch (`build_canon`, `_market_regime`) needs the network. `assemble_from_canon` is
+pure given a canon + regime (REPLAY-reproducible).
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from server.models import ViewModel
+from server.models import Regime, ViewModel
 from server.pipeline.decide import decide
-from server.pipeline.derive import _next_high_impact_event, derive_all
+from server.pipeline.derive import derive_all, derive_dealer_gamma, derive_regime
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
@@ -108,6 +108,35 @@ def _days_to_earnings(earnings_rows, now: datetime) -> int | None:
     return best
 
 
+def _tide_lean(tide_rows) -> str:
+    """Market-tide lean from net premium across the session: bull / bear / neutral."""
+    net = 0.0
+    for r in tide_rows:
+        net += (_f(r.get("net_call_premium")) or 0.0) - (_f(r.get("net_put_premium")) or 0.0)
+    return "bull" if net > 0 else "bear" if net < 0 else "neutral"
+
+
+def _latest_iv(iv_term) -> float | None:
+    """A representative IV for the regime vol read (the near-term volatility)."""
+    if not iv_term:
+        return None
+    return min(iv_term, key=lambda p: p.days if p.days is not None else 999).volatility
+
+
+def _market_regime(ticker: str, gamma_strikes: list, iv_term: list, now: datetime) -> Regime:
+    """Market-wide regime (SPY-based regardless of the viewed ticker) — computed ONCE per
+    page load for the header. Reuses the viewed gamma when the view IS SPY to skip a fetch."""
+    spy_gamma = gamma_strikes if (ticker == "SPY" and gamma_strikes) else \
+        _fetch_norm("/stock/SPY/spot-exposures/strike", {"limit": 500}, "SPY", Priority.LOW)
+    dg = derive_dealer_gamma({"gamma_strikes": spy_gamma})
+    gamma = {"sign": dg.gex_sign, "status": "ok" if dg.flip_status != "unavailable" else "unavailable"}
+    events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
+    tide = _fetch_raw("/market/market-tide", None, Priority.LOW)
+    return derive_regime({"regime": {
+        "gamma": gamma, "vol": {"iv": _latest_iv(iv_term), "rv": None, "trend": None},
+        "events": events, "tide": {"lean": _tide_lean(tide)}, "opex": False, "now": now}})
+
+
 def _oi_history(ticker: str, now: datetime) -> list[list]:
     """The last N settled sessions' OISnapshots (oldest→newest) via `date=`. Phase-2:
     oi-per-strike is `date=` backfillable to ~7 trading days (403 beyond)."""
@@ -158,38 +187,38 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         canon["flow_strikes"] = _flow_cluster(flow_alerts, side, asof_d)
         canon["oi_sessions"] = _oi_history(ticker, now)
 
-    # The only MARKET-WIDE input the per-ticker verdict needs: is a high-impact macro event
-    # inside the hold window? (routes through Cost). No SPY-gamma / market-tide fetch per
-    # ticker — regime as a full read is a future market HEADER, computed once, not here.
-    events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
-    canon["event_within_hold"] = _next_high_impact_event(events, now) is not None
     canon["days_to_earnings"] = _days_to_earnings(
         _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW), now)
     return canon
 
 
-def assemble_from_canon(ticker: str, canon: dict, *, asof: str | None = None) -> ViewModel:
+def assemble_from_canon(ticker: str, canon: dict, *, asof: str | None = None,
+                        regime: Regime | None = None) -> ViewModel:
     """derive → decide → present over an assembled canon. Pure (REPLAY-reproducible)."""
     signals = derive_all(canon, asof=asof)
     verdict = decide(signals)
-    return present(ticker, signals, verdict, as_of=asof)
+    return present(ticker, signals, verdict, as_of=asof, regime=regime)
 
 
 def assemble(ticker: str, flow_raw: RawRecord, *, asof: str | None = None) -> ViewModel:
     """Flow-only convenience path (normalize one flow-alerts RawRecord → pipeline). Kept
-    for the walking-skeleton tests; build_view uses the full canon."""
+    for the walking-skeleton tests; build_view uses the full canon + regime."""
     return assemble_from_canon(ticker, {"flow_alerts": normalize(flow_raw)}, asof=asof)
 
 
 def build_view(ticker: str, *, asof: str | None = None) -> ViewModel:
-    """Full pipeline for one ticker: build the canon (live, governor-gated) then run the
-    pure stages. On total fetch failure, an empty canon still yields a well-formed
+    """Full pipeline for one ticker: build the canon (live, governor-gated), compute the
+    market regime once (its macro event feeds the per-ticker Cost gate), then run the pure
+    stages. On total fetch failure, an empty canon still yields a well-formed
     `unavailable`/Stand-down ViewModel (never a crash, never a guessed direction)."""
     ticker = ticker.upper()
     now = datetime.now(tz=timezone.utc)
     asof = asof or clock.session_date(now).isoformat()
     try:
         canon = build_canon(ticker, asof=asof, now=now)
+        regime = _market_regime(ticker, canon.get("gamma_strikes") or [],
+                                canon.get("iv_term") or [], now)
+        canon["event_within_hold"] = regime.event_within_hold   # macro veto → Cost gate
     except Exception:                               # last-resort honest-degrade
-        canon = {"flow_alerts": []}
-    return assemble_from_canon(ticker, canon, asof=asof)
+        canon, regime = {"flow_alerts": []}, None
+    return assemble_from_canon(ticker, canon, asof=asof, regime=regime)
