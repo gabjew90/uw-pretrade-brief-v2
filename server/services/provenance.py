@@ -20,9 +20,11 @@ def archive(as_of: str | None = None, *, degraded: bool = False) -> Provenance:
 
 
 def derived(*inputs: Provenance) -> Provenance:
-    """Worst-case provenance for a value computed from others (Derive stage)."""
-    merged = Provenance.worst(*inputs)
-    return Provenance(source=Source.DERIVED, quality=merged.quality, as_of=merged.as_of)
+    """Worst-case provenance for a value computed from others (Derive stage). Keeps the
+    worst-case UPSTREAM source (live/cache/archive) rather than collapsing to 'derived', so
+    a tile can honestly answer "where did it come from?" — live UW vs settled/archived data —
+    not just "computed"."""
+    return Provenance.worst(*inputs)
 
 
 def unavailable(note: str = "") -> Provenance:
