@@ -9,10 +9,11 @@ Fetch policy (operator: full fetch, governor-gated): direction-critical flow is 
 confirming context is NORMAL; market-wide regime context is LOW — so under budget pressure
 the governor sheds the nice-to-haves first and the direction read still lands.
 
-The pure helpers (`_premium_side`, `_flow_cluster`, `_tide_lean`, `_latest_iv`,
-`_days_to_earnings`) carry the cross-signal plumbing and are unit-tested offline; the live
-multi-fetch (`build_canon`, `_market_regime`) needs the network. `assemble_from_canon` is
-pure given a canon + regime (REPLAY-reproducible).
+The pure helpers (`_flow_cluster`, `_tide_lean`, `_latest_iv`, `_days_to_earnings`) carry
+the cross-signal plumbing and are unit-tested offline; the side is picked by the shared
+`derive.flow_side` (so verdict/cost/OI never split). The live multi-fetch (`build_canon`,
+`_market_regime`) needs the network. `assemble_from_canon` is pure given a canon (REPLAY-
+reproducible).
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from datetime import date, datetime, timezone
 
 from server.models import Regime, ViewModel
 from server.pipeline.decide import decide
-from server.pipeline.derive import derive_all, derive_dealer_gamma, derive_regime
+from server.pipeline.derive import derive_all, derive_dealer_gamma, derive_regime, flow_side
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
@@ -66,14 +67,6 @@ def _fetch_raw(endpoint: str, ticker: str | None, priority: Priority) -> list:
 
 
 # ── pure cross-signal helpers (unit-tested offline) ───────────────────────────
-def _premium_side(flow_alerts) -> str | None:
-    c = sum((a.total_premium or 0.0) for a in flow_alerts if a.type == "call")
-    p = sum((a.total_premium or 0.0) for a in flow_alerts if a.type == "put")
-    if not c and not p:
-        return None
-    return "call" if c >= p else "put"
-
-
 def _flow_cluster(flow_alerts, side: str, asof_d: date,
                   top_n: int = _CLUSTER_TOP_N, near: int = _NEAR_DTE) -> list[float]:
     """The near-dated (≤`near` DTE) strikes on `side` with the most premium — the cluster
@@ -183,7 +176,7 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
                                       ticker, Priority.LOW),
     }
 
-    side = _premium_side(flow_alerts)
+    side, _basis = flow_side(flow_alerts)           # SAME picker the verdict direction uses
     if side:
         canon["flow_side"] = side
         canon["flow_strikes"] = _flow_cluster(flow_alerts, side, asof_d)

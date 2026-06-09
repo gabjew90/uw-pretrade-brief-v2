@@ -5,7 +5,8 @@ that turns canonical records into the cross-signal canon inputs.
 from datetime import date, datetime, timezone
 
 from server.models import FlowAlert
-from server.pipeline.orchestrate import (_days_to_earnings, _flow_cluster, _premium_side)
+from server.pipeline.orchestrate import _days_to_earnings, _flow_cluster
+from server.pipeline.derive import flow_side
 
 ASOF = date(2026, 6, 8)
 NOW = datetime(2026, 6, 8, 15, 0, tzinfo=timezone.utc)
@@ -16,14 +17,24 @@ def _fa(side, prem, strike, expiry, voi=5.0):
                      created_at="2026-06-08T15:00:00Z", strike=strike, expiry=expiry)
 
 
-# ── _premium_side ─────────────────────────────────────────────────────────────
-def test_premium_side_picks_dominant():
-    alerts = [_fa("call", 100, 600, "2026-06-12"), _fa("put", 500, 590, "2026-06-12")]
-    assert _premium_side(alerts) == "put"
+# ── flow_side (the single side-picker: opening leads, total falls back) ───────
+def test_flow_side_opening_leads_over_total():
+    # opening (voi>1) is put; a bigger CLOSING (voi<=1) call must NOT flip the side
+    alerts = [_fa("put", 500, 590, "2026-06-12", voi=5.0),
+              _fa("call", 5000, 600, "2026-06-12", voi=0.3)]
+    side, basis = flow_side(alerts)
+    assert side == "put" and basis == "opening_flow"
 
 
-def test_premium_side_none_on_empty():
-    assert _premium_side([]) is None
+def test_flow_side_total_fallback_when_no_opening():
+    alerts = [_fa("call", 100, 600, "2026-06-12", voi=0.5),
+              _fa("put", 800, 590, "2026-06-12", voi=0.4)]
+    side, basis = flow_side(alerts)
+    assert side == "put" and basis == "total_flow"
+
+
+def test_flow_side_none_on_empty():
+    assert flow_side([]) == (None, "unavailable")
 
 
 # ── _flow_cluster ─────────────────────────────────────────────────────────────

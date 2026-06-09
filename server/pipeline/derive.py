@@ -77,38 +77,45 @@ def _opening(a) -> bool:
         return False
 
 
+def _side_prem(alerts, side: str, opening_only: bool) -> float:
+    return sum(float(a.total_premium or 0.0) for a in (alerts or [])
+               if a.type == side and (_opening(a) or not opening_only))
+
+
+def flow_side(alerts) -> tuple[str | None, str]:
+    """THE single side-picker (used by both derive_direction and the orchestrator's canon
+    assembly, so the verdict side, the cost contract, and the OI cluster are always the same
+    side). OPENING flow leads (Ge-Lin-Pearson: opening bets predict, closing don't); falls
+    back to TOTAL signed flow. Returns (side|None, basis) with side in {'call','put'}."""
+    oc, op = _side_prem(alerts, "call", True), _side_prem(alerts, "put", True)
+    if oc or op:
+        return ("call" if oc >= op else "put"), "opening_flow"
+    tc, tp = _side_prem(alerts, "call", False), _side_prem(alerts, "put", False)
+    if tc or tp:
+        return ("call" if tc >= tp else "put"), "total_flow"
+    return None, "unavailable"
+
+
 @register("flow")
 def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
-    """Pick the call/put side. OPENING flow leads (Ge-Lin-Pearson: opening bets predict,
-    closing bets don't); fall back to total signed flow (Pan-Poteshman). NO gamma fallback
-    in the walking skeleton (that needs DealerGamma — Phase 4); with no flow at all, the
-    signal is `unavailable` — never a guessed side. PURE: canonical in → Signal out, no I/O.
-    Ported from `e1d6c5e:server/gates.py::derive_direction`."""
+    """Pick the call/put side via the shared `flow_side` (OPENING leads, TOTAL fallback). NO
+    gamma fallback; with no flow at all the signal is `unavailable` — never a guessed side.
+    PURE. Ported from `e1d6c5e:server/gates.py::derive_direction`."""
     alerts = canon.get("flow_alerts") or []
     if not alerts:
         return Flow(direction=None, direction_basis="unavailable",
-                    provenance=prov.unavailable("no flow alerts"))
-    src: Provenance = prov.derived(alerts[0].provenance)
+                    provenance=prov.unavailable(canon.get("flow_error") or "no flow alerts"))
     truncated = any(getattr(a, "truncated", False) for a in alerts)
-
-    def _prem(side: str, opening_only: bool) -> float:
-        return sum(float(a.total_premium or 0.0) for a in alerts
-                   if a.type == side and (_opening(a) or not opening_only))
-
-    open_call, open_put = _prem("call", True), _prem("put", True)
-    if open_call or open_put:
-        return Flow(direction="calls" if open_call >= open_put else "puts",
-                    direction_basis="opening_flow", truncated=truncated,
-                    call_prem=open_call, put_prem=open_put, provenance=src)
-
-    tot_call, tot_put = _prem("call", False), _prem("put", False)
-    if tot_call or tot_put:
-        return Flow(direction="calls" if tot_call >= tot_put else "puts",
-                    direction_basis="total_flow", truncated=truncated,
-                    call_prem=tot_call, put_prem=tot_put, provenance=src)
-
-    return Flow(direction=None, direction_basis="unavailable", truncated=truncated,
-                provenance=prov.unavailable("zero premium on both sides"))
+    side, basis = flow_side(alerts)
+    if side is None:
+        return Flow(direction=None, direction_basis="unavailable", truncated=truncated,
+                    provenance=prov.unavailable("zero premium on both sides"))
+    opening_only = basis == "opening_flow"
+    call_prem = _side_prem(alerts, "call", opening_only)
+    put_prem = _side_prem(alerts, "put", opening_only)
+    return Flow(direction="calls" if side == "call" else "puts", direction_basis=basis,
+                truncated=truncated, call_prem=call_prem, put_prem=put_prem,
+                provenance=prov.derived(alerts[0].provenance))
 
 
 def _accumulation_read(cumsum: list[float]) -> tuple[str, float]:
