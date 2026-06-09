@@ -252,10 +252,14 @@ class DealerGamma(Signal):
 
 class Skew(Signal):
     """25Δ risk-reversal skew — the ORTHOGONAL directional leg (vol surface, a different
-    mechanism than flow). `rr25` is SIGN-CORRECTED to call−put convention: >0 = call-skew
-    (bullish lean), <0 = put-skew (defensive). `lean` is the raw read; whether it AGREES
-    or OPPOSES is computed in decide vs the flow direction (asymmetric oppose-veto)."""
-    rr25: Optional[float] = None
+    mechanism than flow). Measured as CHANGE vs the ticker's own recent baseline, not a
+    fixed level (RR rides a structurally negative baseline on most names). `rr25` and
+    `rr_baseline` are in call−put convention (>0 = calls bid); `rr_delta = rr25 − baseline`.
+    `lean` reads delta: calls richer than usual = call_skew. agree/oppose vs direction is
+    computed in decide (asymmetric oppose-veto)."""
+    rr25: Optional[float] = None              # today, call−put convention
+    rr_baseline: Optional[float] = None       # trailing mean (excl. today), call−put
+    rr_delta: Optional[float] = None          # rr25 − rr_baseline
     lean: Literal["call_skew", "put_skew", "neutral", "unavailable"] = "unavailable"
 
 

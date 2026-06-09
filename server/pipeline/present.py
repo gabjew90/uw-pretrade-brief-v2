@@ -108,11 +108,13 @@ def _skew_el(s) -> Element:
                         "risk-reversal sign vs your side (oppose caps the verdict)")
     surf = {"call_skew": "CALLS BID", "put_skew": "PUTS BID", "neutral": "BALANCED"}.get(
         s.lean, s.lean.upper())
+    rr = f"{s.rr25:+.3f}" if s.rr25 is not None else "n/a"
+    base = f"{s.rr_baseline:+.3f}" if s.rr_baseline is not None else "n/a"
     return Element(key="skew", label="Which way is fear priced?", surface=surf,
-                   meaning=f"25Δ RR {s.rr25:+.3f}" if s.rr25 is not None else "n/a",
-                   logic="positive = calls bid, negative = puts bid, near zero = balanced",
-                   detail={"25Δ risk reversal": f"{s.rr25:+.3f}" if s.rr25 is not None else "n/a",
-                           "Positive": "calls bid", "Negative": "puts bid"},
+                   meaning=f"RR {rr} vs {base} normal",
+                   logic="today's risk reversal vs its own recent normal, calls bid = richer than usual",
+                   detail={"Today (25Δ RR)": rr, "Recent normal": base,
+                           "Change vs normal": f"{s.rr_delta:+.3f}" if s.rr_delta is not None else "n/a"},
                    tone="neutral", provenance=s.provenance)
 
 

@@ -21,9 +21,11 @@ from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Pro
                             Regime, Signal, Skew)
 from server.services import provenance as prov
 
-# 25Δ RR magnitude below which skew is "neutral" (no lean). v2 default; operator-deferred
-# pending Phase-2 RR-magnitude review (SPY rides ~0.03–0.05, so 0.02 is a low gate).
-_SKEW_THR = 0.02
+# Skew is measured as CHANGE vs the ticker's own recent baseline (RR rides a structurally
+# negative level on most names, so a fixed level gate is permanently bearish). _SKEW_DELTA_THR
+# is the move-vs-normal that counts as a lean. Operator-tunable.
+_SKEW_DELTA_THR = 0.01
+_SKEW_MIN_PRIORS = 3      # need >=3 prior days to form a baseline, else unavailable
 
 # Cost gate thresholds (v2 GATE_THRESHOLDS; operator-deferred). IV rank bands + the
 # don't-buy-premium-into-a-known-vol-event rule.
@@ -212,21 +214,27 @@ def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
 
 @register("skew")
 def derive_skew(canon: dict, *, asof: str | None = None) -> Skew:
-    """25Δ risk-reversal lean from the latest historical-RR row. SIGN-CORRECTED: vendor
-    risk_reversal = put_IV − call_IV (positive = put-skew); we NEGATE to call−put (>0 =
-    call-skew/bullish). |rr| < _SKEW_THR → neutral. The raw LEAN only; agree/oppose-vs-
-    direction is decide's job (asymmetric oppose-veto). PURE. Ported from
-    `e1d6c5e:server/verdict.py::extract_vendor_rr` + `skew_state`."""
+    """25Δ risk-reversal lean, measured as today's RR vs its own trailing baseline (NOT a
+    fixed level — RR rides a structurally negative baseline on most names, which would make
+    the leg permanently bearish). SIGN-CORRECTED: vendor risk_reversal = put_IV − call_IV;
+    we NEGATE to call−put (>0 = calls bid). delta = today − mean(prior days). delta > +THR =
+    call_skew (calls richer than usual), < −THR = put_skew, else neutral. Needs ≥3 prior days
+    else unavailable. The raw LEAN only; agree/oppose-vs-direction is decide's job. PURE.
+    Ported sign-correction from `e1d6c5e:server/verdict.py::extract_vendor_rr`."""
     pts = canon.get("skew_rr") or []
-    if not pts:
-        return Skew(lean="unavailable", provenance=prov.unavailable("no RR-skew data"))
-    latest = max(pts, key=lambda p: p.date)          # date-ordered; most recent wins
-    rr = -latest.risk_reversal                       # vendor (put−call) → call−put convention
-    if abs(rr) < _SKEW_THR:
+    if len(pts) < _SKEW_MIN_PRIORS + 1:
+        return Skew(lean="unavailable", provenance=prov.unavailable("insufficient RR history"))
+    ordered = sorted(pts, key=lambda p: p.date)      # oldest → newest
+    latest, priors = ordered[-1], ordered[:-1]
+    rr_today = -latest.risk_reversal                 # vendor (put−call) → call−put
+    baseline = -sum(p.risk_reversal for p in priors) / len(priors)   # call−put
+    delta = rr_today - baseline
+    if abs(delta) < _SKEW_DELTA_THR:
         lean = "neutral"
     else:
-        lean = "call_skew" if rr > 0 else "put_skew"
-    return Skew(rr25=rr, lean=lean, provenance=prov.derived(latest.provenance))
+        lean = "call_skew" if delta > 0 else "put_skew"
+    return Skew(rr25=round(rr_today, 4), rr_baseline=round(baseline, 4), rr_delta=round(delta, 4),
+                lean=lean, provenance=prov.derived(latest.provenance))
 
 
 @register("cost")
