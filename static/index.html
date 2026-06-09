@@ -28,14 +28,10 @@
     .v-cautionary { color: var(--warn); }
     .reasons { color: var(--text); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
     .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch; }
-    /* MARKET BACKDROP — secondary context, deliberately small so it never competes with the call */
-    .regime { padding: 7px 12px; margin: 0 0 16px; border-left: 2px solid var(--grid); }
-    .regime .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-    .regime .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
-    .regime .prov { font-size: 9px; color: var(--axis); text-transform: uppercase; white-space: nowrap; }
-    .regime .bvars { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
-    .regime .bvars b { color: var(--text); font-weight: normal; }
-    .regime .logic { font-size: 10px; color: var(--axis); margin-top: 2px; font-style: italic; }
+    /* market context = ONE muted line, no posture word (only the call gets a verdict word) */
+    .market { font-size: 11px; color: var(--text-dim); margin: 0 0 16px; }
+    .market b { color: var(--text-dim); font-weight: normal; text-transform: uppercase;
+                font-size: 9px; letter-spacing: 0.06em; margin-right: 4px; }
     .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
@@ -118,17 +114,12 @@
         <div class="detail">${detailRows(e.detail)}</div>
       </div>`;
     }
-    // Market-wide BACKDROP (context for every ticker) — compact, posture inline with its
-    // data variables so it never reads as a second headline competing with THE CALL.
+    // Market context — ONE muted line of today's market data (no posture word, no box):
+    // these are inputs/conditions, not a second verdict. The macro event here is the same
+    // one that can show up in the Cost tile, which is why the call may say Stand down.
     function regimeHeader(r) {
-      if (!r) return "";
-      const fresh = freshness(r.provenance);
-      const prov = `${esc(srcLabel(r.provenance))}${fresh ? " · " + esc(fresh) : ""}`;
-      return `<div class="regime">
-        <div class="head"><div class="k">${esc(r.label || "Market backdrop")}</div><div class="prov">${prov}</div></div>
-        <div class="bvars"><b>${esc(r.surface || "n/a")}</b> · ${esc(r.meaning || "")}</div>
-        ${r.logic ? `<div class="logic">how: ${esc(r.logic)}</div>` : ""}
-      </div>`;
+      if (!r || !r.meaning) return "";
+      return `<div class="market"><b>Market now</b>${esc(r.meaning)}</div>`;
     }
     function verdictTone(v) {
       return { "Favorable": "v-positive", "Stand down": "v-negative" }[v.overall] || "v-cautionary";
