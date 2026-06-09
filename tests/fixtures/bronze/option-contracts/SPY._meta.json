@@ -1,0 +1,10 @@
+{
+  "fetched_at": "2026-06-09T00:32:13.321937+00:00",
+  "path": "/stock/SPY/option-contracts",
+  "params": {
+    "limit": 500
+  },
+  "row_count": 500,
+  "content_hash": "5b1c9e8a4c8448bf",
+  "critical": true
+}

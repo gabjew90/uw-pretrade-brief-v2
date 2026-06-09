@@ -14,14 +14,28 @@ instructions. The registry + contract are fixed now.
 """
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from pydantic import ValidationError
 
 from server.models import (FlowAlert, GammaStrike, GreekFlowPoint, IVTermPoint,
-                            OISnapshot, SkewPoint)
+                            OISnapshot, OptionContract, SkewPoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
+
+# OCC-encoded option symbol: SPY260522C00748000 = sym + YYMMDD + C/P + strike*1000
+_OCC_RE = re.compile(
+    r"^(?P<sym>[A-Z]+)(?P<yy>\d{2})(?P<mm>\d{2})(?P<dd>\d{2})(?P<type>[PC])(?P<strike>\d{8})$")
+
+
+def _parse_occ(symbol: str | None) -> dict | None:
+    m = _OCC_RE.match(symbol or "")
+    if not m:
+        return None
+    return {"type": "call" if m["type"] == "C" else "put",
+            "expiry": f"20{m['yy']}-{m['mm']}-{m['dd']}",
+            "strike": int(m["strike"]) / 1000}
 
 # flow-alerts pages at 500 (UW cap); len == cap ⇒ the session tail may be truncated.
 _FLOW_ALERTS_CAP = 500
@@ -191,4 +205,31 @@ def normalize_oi_per_strike(raw: RawRecord) -> list[OISnapshot]:
             out.append(OISnapshot.model_validate({**r, "provenance": p}))
         except ValidationError as e:
             raise NormalizeError(f"oi-per-strike row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_option-contracts")
+def normalize_option_contracts(raw: RawRecord) -> list[OptionContract]:
+    """Raw option-contracts payload → validated `list[OptionContract]`. strike/expiry/type
+    parsed from the OCC `option_symbol`; NBBO bid/ask + IV/volume/OI carried. Individual
+    unparseable symbols are skipped, but if NONE parse from a non-empty payload that's an
+    OCC-format break → `NormalizeError` (never a silently empty chain)."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[OptionContract] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"option-contracts row {i} is not an object: {type(r).__name__}")
+        occ = _parse_occ(r.get("option_symbol"))
+        if occ is None:
+            continue
+        try:
+            out.append(OptionContract.model_validate({
+                **occ, "bid": r.get("nbbo_bid"), "ask": r.get("nbbo_ask"),
+                "iv": r.get("implied_volatility"), "volume": r.get("volume"),
+                "open_interest": r.get("open_interest"), "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"option-contracts row {i} failed validation: {e}") from e
+    if rows and not out:
+        raise NormalizeError("option-contracts: no option_symbol parsed (OCC format drift?)")
     return out

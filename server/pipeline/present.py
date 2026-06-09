@@ -79,6 +79,10 @@ def _cost_el(c) -> Element:
     tone = {"ok": "positive", "caution": "cautionary", "block": "negative"}[c.guard]
     return Element(key="cost", label="Cost guard", surface=c.guard.upper(),
                    detail={"ivr": c.ivr, "reason": c.reason,
+                           "spread_pct": c.spread_pct,
+                           "breakeven_move_pct": c.breakeven_move_pct,
+                           "expected_move_pct": c.expected_move_pct,
+                           "contract": c.contract,
                            "days_to_earnings": c.days_to_earnings,
                            "event_within_hold": c.event_within_hold},
                    tone=tone, provenance=c.provenance)

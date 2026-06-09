@@ -130,6 +130,24 @@ class Flow(Signal):
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
 
 
+class OptionContract(BaseModel):
+    """One per-contract quote (from option-contracts). strike/expiry/type are parsed from
+    the OCC `option_symbol` in normalize; `bid`/`ask` are the NBBO. This is the chain the
+    spread-cost + expected-move-vs-breakeven gate reads — the product's load-bearing risk
+    check (the directional edge is smaller than the round-trip spread)."""
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["call", "put"]
+    strike: float
+    expiry: str
+    bid: float = 0.0
+    ask: float = 0.0
+    iv: Optional[float] = None
+    volume: int = 0
+    open_interest: int = 0
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class IVTermPoint(BaseModel):
     """One point of the interpolated-IV term structure. `percentile` is the IV RANK
     (0–1; 0.50 = median vs the ticker's own history) — the cost gate's input.
@@ -232,12 +250,18 @@ class Skew(Signal):
 
 class Cost(Signal):
     """Non-directional GUARD (decide spec): is it expensive/risky to buy premium now?
-    `guard=block` (rich IV, or earnings/macro event in the hold window) → Stand down;
-    `caution` → contributes to Mixed; `ok` → no objection. Never a direction."""
+    `guard=block` → Stand down; `caution` → contributes to Mixed; `ok` → no objection.
+    Blocks on: rich IV, earnings/macro event in the hold window, a too-wide round-trip
+    SPREAD, or a breakeven the priced EXPECTED MOVE can't reach. The spread/move gate is
+    the load-bearing one — the edge is smaller than the round-trip cost. Never a direction."""
     guard: Literal["ok", "caution", "block"] = "ok"
     ivr: Optional[float] = None                 # IV rank 0–100
     days_to_earnings: Optional[int] = None
     event_within_hold: bool = False             # macro (FOMC/CPI/jobs) inside the hold window
+    spread_pct: Optional[float] = None          # round-trip spread, % of premium
+    breakeven_move_pct: Optional[float] = None  # underlying move % needed to break even
+    expected_move_pct: Optional[float] = None   # move % the options are pricing (implied)
+    contract: Optional[dict] = None             # the realistic contract evaluated
     reason: str = ""
 
 

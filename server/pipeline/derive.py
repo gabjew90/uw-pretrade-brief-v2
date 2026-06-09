@@ -14,7 +14,7 @@ registry + purity contract are fixed now (lint/test should assert no I/O imports
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Callable
 
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
@@ -31,6 +31,8 @@ _IVR_GREEN_MAX = 60      # ivr <= 60 → ok (premium not rich)
 _IVR_YELLOW_MAX = 80     # 60 < ivr <= 80 → caution
 _EARNINGS_DAYS_MIN = 7   # earnings inside 7 days → block
 _IVR_TARGET_DTE = 30     # IV-rank horizon (standard 30d); operator-deferred
+_SPREAD_BLOCK_PCT = 15.0  # round-trip spread above this bleeds the edge (operator: 12–20%)
+_COST_NEAR_DTE = 14      # the realistic weekly you'd actually buy
 
 # OI cluster trend bands (first→last settled session); operator-deferred.
 _OI_BUILD_PCT = 5.0      # cluster OI up >= +5% → building (corroborates the flow)
@@ -226,34 +228,105 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     `event_within_hold` are inputs (computed upstream from earnings + clock/regime).
     Ported from `e1d6c5e:server/gates.py::_cost_gate`."""
     iv = canon.get("iv_term") or []
-    dte = canon.get("days_to_earnings")
+    dte_e = canon.get("days_to_earnings")
     event = bool(canon.get("event_within_hold"))
+    contracts = canon.get("option_contracts") or []
+    side = canon.get("flow_side")
+    spot = canon.get("spot") or 0.0
+    asof_d = date.fromisoformat(asof) if asof else None
 
-    # ALWAYS compute the supporting data (IV rank) even when an event/earnings will block —
-    # the tile must show what backs the read, not a null (operator: compute the variables
-    # even if blocked).
+    # ALWAYS compute the supporting data (IV rank) even when something blocks — the tile
+    # shows what backs the read, not a null (operator: compute the variables even if blocked).
     ivr = None
-    src = prov.unavailable("no interpolated-iv")
+    ivsrc = prov.unavailable("no interpolated-iv")
     if iv:
         row = min(iv, key=lambda p: abs((p.days or 0) - _IVR_TARGET_DTE))
         ivr = round((row.percentile or 0.0) * 100, 1)
-        src = prov.derived(row.provenance)
+        ivsrc = prov.derived(row.provenance)
 
-    # event/earnings veto wins over the IV bands, but ivr stays populated above.
-    if dte is not None and dte < _EARNINGS_DAYS_MIN:
-        guard, reason = "block", f"earnings in {dte}d — don't buy premium into it"
+    # Tradeability: on the realistic contract you'd actually buy (near-the-money, near-dated,
+    # flow side), the round-trip SPREAD and whether the priced EXPECTED MOVE can reach
+    # BREAKEVEN. This is the load-bearing gate — the edge is smaller than the round-trip cost.
+    spread_pct = be_pct = em_pct = None
+    contract_d = None
+    pick = _pick_contract(contracts, side, spot, asof_d)
+    if pick:
+        mid = (pick.bid + pick.ask) / 2
+        spread_pct = round((pick.ask - pick.bid) / mid * 100, 1) if mid > 0 else None
+        prem = pick.ask or mid
+        if prem > 0:
+            be_pct = round(_breakeven_move_pct(pick, spot, prem), 2)
+        dte_c = (date.fromisoformat(pick.expiry) - asof_d).days
+        em = _expected_move_pct(iv, dte_c)
+        em_pct = round(em, 2) if em is not None else None
+        contract_d = {"type": pick.type, "strike": pick.strike, "expiry": pick.expiry,
+                      "bid": pick.bid, "ask": pick.ask, "dte": dte_c}
+    tradeable = spread_pct is not None and be_pct is not None and em_pct is not None
+
+    if dte_e is not None and dte_e < _EARNINGS_DAYS_MIN:
+        guard, reason = "block", f"earnings in {dte_e}d — don't buy premium into it"
     elif event:
         guard, reason = "block", "macro event inside the hold window"
+    elif tradeable and spread_pct > _SPREAD_BLOCK_PCT:
+        guard, reason = "block", f"round-trip spread {spread_pct:.0f}% — eats the directional edge"
+    elif tradeable and em_pct < be_pct:
+        guard, reason = "block", f"priced move {em_pct:.1f}% can't reach breakeven {be_pct:.1f}%"
+    elif not tradeable:
+        # can't confirm the spread/move gate → never a confident green (operator's core point)
+        guard, reason = "caution", "tradeability (spread / expected-move) not evaluated"
     elif ivr is None:
         guard, reason = "caution", "IV rank unavailable — proceeding cautiously"
     elif ivr <= _IVR_GREEN_MAX:
-        guard, reason = "ok", f"IV rank {ivr:.0f} — premium not rich"
+        guard, reason = "ok", f"IV rank {ivr:.0f}, spread {spread_pct:.0f}% — clears cost"
     elif ivr <= _IVR_YELLOW_MAX:
         guard, reason = "caution", f"IV rank {ivr:.0f} — elevated premium"
     else:
         guard, reason = "block", f"IV rank {ivr:.0f} — premium rich, poor cost/move"
-    return Cost(guard=guard, ivr=ivr, days_to_earnings=dte, event_within_hold=event,
-                reason=reason, provenance=src)
+
+    src = prov.derived(ivsrc, pick.provenance) if pick else ivsrc
+    return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,
+                spread_pct=spread_pct, breakeven_move_pct=be_pct, expected_move_pct=em_pct,
+                contract=contract_d, reason=reason, provenance=src)
+
+
+def _pick_contract(contracts, side, spot, asof_d):
+    """The realistic weekly you'd actually buy: flow side, soonest expiry within the
+    near-dated window, strike nearest spot. None if un-evaluable."""
+    if side not in ("call", "put") or not spot or spot <= 0 or asof_d is None:
+        return None
+    cands = []
+    for c in contracts:
+        if c.type != side:
+            continue
+        try:
+            dte = (date.fromisoformat(c.expiry) - asof_d).days
+        except (TypeError, ValueError):
+            continue
+        if dte < 0:
+            continue
+        cands.append((dte, abs(c.strike - spot), c))
+    if not cands:
+        return None
+    near = [t for t in cands if t[0] <= _COST_NEAR_DTE] or cands
+    near.sort(key=lambda t: (t[0], t[1]))     # soonest expiry, then nearest the money
+    return near[0][2]
+
+
+def _breakeven_move_pct(c, spot: float, premium: float) -> float:
+    """% move in the underlying needed to break even at expiry (premium baked in).
+    Ported from `e1d6c5e:server/tile4.py::_breakeven_move_pct`."""
+    if c.type == "call":
+        return (c.strike + premium - spot) / spot * 100
+    return (spot - (c.strike - premium)) / spot * 100
+
+
+def _expected_move_pct(iv_term, dte: int):
+    """The move % the options are pricing for ~`dte`, from interpolated-iv's
+    implied_move_perc (already a fraction). None if absent."""
+    if not iv_term:
+        return None
+    row = min(iv_term, key=lambda p: abs((p.days or 0) - dte))
+    return None if row.implied_move_perc is None else row.implied_move_perc * 100
 
 
 @register("positioning")

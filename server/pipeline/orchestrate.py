@@ -143,6 +143,10 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         "skew_rr": _fetch_norm(f"/stock/{ticker}/historical-risk-reversal-skew",
                                {"delta": 25}, ticker, Priority.NORMAL),
         "iv_term": iv_term,
+        # the chain for the spread-cost / expected-move gate (load-bearing risk check)
+        "option_contracts": _fetch_norm(f"/stock/{ticker}/option-contracts", {"limit": 500},
+                                        ticker, Priority.NORMAL),
+        "spot": next((g.price for g in gamma_strikes if g.price), None),
     }
 
     side = _premium_side(flow_alerts)
