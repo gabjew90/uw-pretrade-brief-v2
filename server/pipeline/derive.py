@@ -31,7 +31,13 @@ _IVR_GREEN_MAX = 60      # ivr <= 60 → ok (premium not rich)
 _IVR_YELLOW_MAX = 80     # 60 < ivr <= 80 → caution
 _EARNINGS_DAYS_MIN = 7   # earnings inside 7 days → block
 _IVR_TARGET_DTE = 30     # IV-rank horizon (standard 30d); operator-deferred
-_SPREAD_BLOCK_PCT = 15.0  # round-trip spread above this bleeds the edge (operator: 12–20%)
+# Spread severity is COST-RELATIVE-TO-MOVE (continuous, caution band), not a 15% cliff.
+# block only the genuinely-dead; warn the borderline. All operator-deferred.
+_SPREAD_HARD_PCT = 25.0    # spread this wide (% of premium) is dead regardless of move
+_SPREAD_REL_FLOOR = 10.0   # a relative (burden) block still needs a meaningful absolute spread
+_SPREAD_CAUTION_PCT = 10.0  # spread above this is at least worth a caution
+_BURDEN_BLOCK = 2.0        # spread/priced-move ≥ this ⇒ friction ≫ the move you're playing for
+_BURDEN_CAUTION = 1.0      # spread comparable to the move ⇒ caution
 _COST_MIN_DTE = 2        # weekly-DTE floor: skip 0–1 DTE (event/expiry gamma) when a real
 _COST_NEAR_DTE = 14      # weekly exists — the contract you'd actually hold. Operator-tunable.
 _TERM_FRONT_DTE = 5      # term-structure overpay: front (weekly) vs back (~30d) IV
@@ -266,33 +272,53 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
         contract_d = {"type": pick.type, "strike": pick.strike, "expiry": pick.expiry,
                       "bid": pick.bid, "ask": pick.ask, "dte": dte_c}
     tradeable = spread_pct is not None and be_pct is not None and em_pct is not None
-
-    if dte_e is not None and dte_e < _EARNINGS_DAYS_MIN:
-        guard, reason = "block", f"earnings in {dte_e}d — don't buy premium into it"
-    elif event:
-        guard, reason = "block", "macro event inside the hold window"
-    elif tradeable and spread_pct > _SPREAD_BLOCK_PCT:
-        guard, reason = "block", f"round-trip spread {spread_pct:.0f}% — eats the directional edge"
-    elif tradeable and em_pct < be_pct:
-        guard, reason = "block", f"priced move {em_pct:.1f}% can't reach breakeven {be_pct:.1f}%"
-    elif not tradeable:
-        # can't confirm the spread/move gate → never a confident green (operator's core point)
-        guard, reason = "caution", "tradeability (spread / expected-move) not evaluated"
-    elif ivr is None:
-        guard, reason = "caution", "IV rank unavailable — proceeding cautiously"
-    elif ivr <= _IVR_GREEN_MAX:
-        guard, reason = "ok", f"IV rank {ivr:.0f}, spread {spread_pct:.0f}% — clears cost"
-    elif ivr <= _IVR_YELLOW_MAX:
-        guard, reason = "caution", f"IV rank {ivr:.0f} — elevated premium"
-    else:
-        guard, reason = "block", f"IV rank {ivr:.0f} — premium rich, poor cost/move"
-
-    # Term-structure overpay (secondary): an inverted curve (near vol pumped) caps an
-    # otherwise-ok read to caution — you're paying up for the weekly. Never overrides a block.
     front_iv, back_iv, inverted = _term_overpay(canon.get("term_structure"))
-    if guard == "ok" and inverted:
-        guard = "caution"
-        reason = f"near-dated vol elevated (term inverted {front_iv:.2f} vs {back_iv:.2f}) — overpaying"
+
+    def _ge(x, t):
+        return x is not None and x >= t
+
+    # Spread severity = cost RELATIVE TO the move you're playing for (continuous), so a wide
+    # spread against a big move is fine but a modest spread against a tiny move is dead.
+    burden = (spread_pct / em_pct) if (spread_pct is not None and em_pct) else None
+    spread_block = _ge(spread_pct, _SPREAD_HARD_PCT) or (
+        burden is not None and burden >= _BURDEN_BLOCK and _ge(spread_pct, _SPREAD_REL_FLOOR))
+    spread_caution = _ge(spread_pct, _SPREAD_CAUTION_PCT) or (
+        burden is not None and burden >= _BURDEN_CAUTION)
+
+    # ── EV-KILLERS → Stand down: expected-value-negative no matter how right the direction.
+    # The recommendation is explained ("Pass — <number>"), never a hidden/forbidden trade.
+    if dte_e is not None and dte_e < _EARNINGS_DAYS_MIN:
+        guard, reason = "block", f"Pass — earnings in {dte_e}d; IV crush routinely swamps the move"
+    elif event:
+        guard, reason = "block", "Pass — macro event inside the hold window; IV-crush risk"
+    elif spread_block:
+        mv = f" vs a ~{em_pct:.1f}% priced move" if em_pct is not None else ""
+        guard, reason = "block", (f"Pass — round-trip spread {spread_pct:.0f}% of premium{mv}; "
+                                  "friction larger than the edge")
+    elif not tradeable:
+        # can't confirm the spread/move gate → never a confident green
+        guard, reason = "caution", "tradeability (spread / expected-move) not evaluated"
+    else:
+        # ── DEGRADERS → caution (cap to Mixed + flag): a correct, large, imminent move can
+        # still win through these. Collect every applicable warning.
+        flags: list[str] = []
+        if em_pct < be_pct:
+            flags.append(f"priced move {em_pct:.1f}% tight vs breakeven {be_pct:.1f}%")
+        if _ge(ivr, _IVR_YELLOW_MAX):
+            flags.append(f"IV rank {ivr:.0f} — premium rich")
+        elif _ge(ivr, _IVR_GREEN_MAX):
+            flags.append(f"IV rank {ivr:.0f} — elevated")
+        if spread_caution:
+            flags.append(f"round-trip spread {spread_pct:.0f}% notable vs the move")
+        if inverted:
+            flags.append(f"term inverted ({front_iv:.2f}/{back_iv:.2f}) — overpaying near vol")
+        if ivr is None:
+            flags.append("IV rank unavailable")
+        if flags:
+            guard, reason = "caution", "; ".join(flags)
+        else:
+            guard, reason = "ok", (f"clears cost — spread {spread_pct:.0f}%, priced move "
+                                   f"{em_pct:.1f}% > breakeven {be_pct:.1f}%")
 
     src = prov.derived(ivsrc, pick.provenance) if pick else ivsrc
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,

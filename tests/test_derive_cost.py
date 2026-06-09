@@ -49,36 +49,56 @@ def test_mid_ivr_is_caution():
     assert derive_cost(_tradeable(ivr_pct=0.70), asof=ASOF).guard == "caution"
 
 
-def test_high_ivr_is_block():
-    assert derive_cost(_tradeable(ivr_pct=0.95), asof=ASOF).guard == "block"
+def test_high_ivr_is_caution_not_block():
+    # rich IV is a DEGRADER, not an EV-killer — a right move can win through it → caution
+    c = derive_cost(_tradeable(ivr_pct=0.95), asof=ASOF)
+    assert c.guard == "caution"
+    assert "rich" in c.reason
 
 
-# ── the load-bearing spread gate ──────────────────────────────────────────────
-def test_wide_spread_blocks_even_with_clean_iv_and_direction():
-    # bid 1.00 / ask 1.40 → spread ~33% of mid → bleeds the edge
-    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.40), asof=ASOF)
+# ── the load-bearing spread gate (EV-killer → block) ──────────────────────────
+def test_absurd_spread_blocks_regardless():
+    # bid 1.00 / ask 1.40 → ~33% of mid → dead regardless of move (>= hard cap)
+    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.40, move=0.30), asof=ASOF)
     assert c.guard == "block"
-    assert "spread" in c.reason
-    assert c.spread_pct > 15
+    assert "Pass" in c.reason and "spread" in c.reason
 
 
-def test_tight_spread_does_not_block():
-    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.02), asof=ASOF)  # ~2%
+def test_modest_spread_vs_tiny_move_blocks_on_burden():
+    # ~12% spread against a 0.5% priced move → friction ≫ the move → dead
+    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.13, move=0.005), asof=ASOF)
+    assert c.guard == "block"
+    assert c.spread_pct > 10 and c.expected_move_pct < 1
+
+
+def test_wide_spread_against_big_move_is_not_block():
+    # 15% spread against a 30% priced move → fine/borderline, NOT dead (operator's example)
+    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.16, move=0.30), asof=ASOF)
+    assert c.guard != "block"                      # a big move clears a moderate spread
+
+
+def test_liquid_tight_spread_small_move_not_blocked():
+    # SPY-like: ~4% spread, 0.6% move → tight spread should NOT hard-block (only caution)
+    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.04, move=0.006), asof=ASOF)
+    assert c.guard == "caution"                    # degraded, not killed
+
+
+def test_tight_spread_clean_move_is_ok():
+    c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.02, move=0.08), asof=ASOF)  # ~2%, 8% move
     assert c.guard == "ok"
 
 
-# ── expected-move-vs-breakeven gate ───────────────────────────────────────────
-def test_priced_move_below_breakeven_blocks():
-    # ATM call strike 100, premium ask 1.05 → breakeven ≈ +1.05%; priced move only 0.3%
-    c = derive_cost(_tradeable(ivr_pct=0.20, strike=100.0, bid=1.00, ask=1.05,
-                               spot=100.0, move=0.003), asof=ASOF)
-    assert c.guard == "block"
+# ── expected-move-vs-breakeven is a DEGRADER (caution), not a kill ────────────
+def test_priced_move_below_breakeven_is_caution_not_block():
+    # priced move tight vs breakeven → caution: a correct LARGER move can still win through
+    c = derive_cost(_tradeable(ivr_pct=0.20, strike=100.0, bid=1.00, ask=1.04,
+                               spot=100.0, move=0.005), asof=ASOF)
+    assert c.guard == "caution"
     assert "breakeven" in c.reason
     assert c.expected_move_pct < c.breakeven_move_pct
 
 
 def test_priced_move_clears_breakeven_ok():
-    # generous priced move (8%) easily clears the ~1% breakeven
     c = derive_cost(_tradeable(ivr_pct=0.20, move=0.08), asof=ASOF)
     assert c.guard == "ok"
     assert c.expected_move_pct >= c.breakeven_move_pct
