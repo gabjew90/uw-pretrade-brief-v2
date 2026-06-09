@@ -18,16 +18,24 @@
     header .sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
     main { padding: 16px; }
     .note { color: var(--axis); font-size: 11px; line-height: 1.5; max-width: 60ch; }
-    .regime { border: 1px solid var(--grid); border-radius: 6px; padding: 9px 12px;
-              margin: 0 0 14px; background: #0e1118; }
+    /* THE CALL — the hero: this ticker's bottom line */
+    .callblock { border: 1px solid var(--grid); border-radius: 6px; padding: 12px 14px;
+                 margin: 0 0 10px; background: var(--panel); }
+    .callblock .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+    .verdict { font-size: 24px; margin: 4px 0 7px; letter-spacing: 0.02em; }
+    .v-negative { color: var(--neg); }
+    .v-positive { color: var(--ok); }
+    .v-cautionary { color: var(--warn); }
+    .reasons { color: var(--text); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
+    .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch; }
+    /* MARKET BACKDROP — secondary context, deliberately small so it never competes with the call */
+    .regime { padding: 7px 12px; margin: 0 0 16px; border-left: 2px solid var(--grid); }
     .regime .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
     .regime .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
-    .regime .surface { font-size: 14px; margin-top: 2px; }
-    .regime .vars { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
-    .regime .logic { font-size: 10px; color: var(--axis); margin-top: 3px; font-style: italic; }
-    .verdict { font-size: 16px; margin: 4px 0 2px; letter-spacing: 0.02em; }
-    .reasons { color: var(--text-dim); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
-    .vlogic { color: var(--axis); font-size: 10px; margin: 0 0 14px; font-style: italic; max-width: 70ch; }
+    .regime .prov { font-size: 9px; color: var(--axis); text-transform: uppercase; white-space: nowrap; }
+    .regime .bvars { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+    .regime .bvars b { color: var(--text); font-weight: normal; }
+    .regime .logic { font-size: 10px; color: var(--axis); margin-top: 2px; font-style: italic; }
     .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
@@ -110,17 +118,20 @@
         <div class="detail">${detailRows(e.detail)}</div>
       </div>`;
     }
-    // Market-wide regime header: the posture word + the DATA VARIABLES that produced it.
+    // Market-wide BACKDROP (context for every ticker) — compact, posture inline with its
+    // data variables so it never reads as a second headline competing with THE CALL.
     function regimeHeader(r) {
       if (!r) return "";
-      const tone = r.tone || "neutral", fresh = freshness(r.provenance);
+      const fresh = freshness(r.provenance);
       const prov = `${esc(srcLabel(r.provenance))}${fresh ? " · " + esc(fresh) : ""}`;
-      return `<div class="regime t-${tone}">
-        <div class="head"><div class="k">${esc(r.label || "Market regime")}</div><div class="prov">${prov}</div></div>
-        <div class="surface">${esc(r.surface || "n/a")}</div>
-        <div class="vars">${esc(r.meaning || "")}</div>
+      return `<div class="regime">
+        <div class="head"><div class="k">${esc(r.label || "Market backdrop")}</div><div class="prov">${prov}</div></div>
+        <div class="bvars"><b>${esc(r.surface || "n/a")}</b> · ${esc(r.meaning || "")}</div>
         ${r.logic ? `<div class="logic">how: ${esc(r.logic)}</div>` : ""}
       </div>`;
+    }
+    function verdictTone(v) {
+      return { "Favorable": "v-positive", "Stand down": "v-negative" }[v.overall] || "v-cautionary";
     }
     async function render(ticker) {
       const view = document.getElementById("view");
@@ -130,11 +141,16 @@
           `${vm.ticker} · as of ${vm.as_of || "?"}`;
         const v = vm.verdict || {};
         document.getElementById("verdict").innerHTML =
-          regimeHeader(vm.regime) +
-          `<div class="verdict">${esc(v.action || "n/a")}</div>` +
+          // THE CALL — this ticker's bottom line, clearly labelled and the only big word
+          `<div class="callblock">
+             <div class="k">The call · ${esc(vm.ticker)}</div>
+             <div class="verdict ${verdictTone(v)}">${esc(v.action || "n/a")}</div>` +
           (v.reasons && v.reasons.length
             ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "") +
-          (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "");
+          (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "") +
+          `</div>` +
+          // MARKET BACKDROP — secondary context, below the call
+          regimeHeader(vm.regime);
         view.innerHTML = (vm.elements || []).map(elementCard).join("")
           || "<p class='note'>No elements.</p>";
         view.querySelectorAll(".el").forEach(c =>

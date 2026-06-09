@@ -24,7 +24,7 @@ from server.pipeline.derive import derive_all, derive_dealer_gamma, derive_regim
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
-from server.services import clock
+from server.services import clock, provenance as prov
 from server.services.governor import Priority
 from server.services.uw_client import UWError
 
@@ -132,9 +132,11 @@ def _market_regime(ticker: str, gamma_strikes: list, iv_term: list, now: datetim
     gamma = {"sign": dg.gex_sign, "status": "ok" if dg.flip_status != "unavailable" else "unavailable"}
     events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
     tide = _fetch_raw("/market/market-tide", None, Priority.LOW)
-    return derive_regime({"regime": {
+    reg = derive_regime({"regime": {
         "gamma": gamma, "vol": {"iv": _latest_iv(iv_term), "rv": None, "trend": None},
         "events": events, "tide": {"lean": _tide_lean(tide)}, "opex": False, "now": now}})
+    reg.provenance = prov.live(now.isoformat())     # computed from live market data fetched now
+    return reg
 
 
 def _oi_history(ticker: str, now: datetime) -> list[list]:

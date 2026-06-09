@@ -151,8 +151,8 @@ def _regime_header(r: Regime) -> Element:
     vol = f"IV {r.vol_iv:.0%}" if r.vol_iv is not None else "n/a"
     tide = r.tide_lean or "neutral"
     event = r.event_line or "none in 5d"
-    return Element(key="regime", label="Market regime", surface=r.posture,
-                   meaning=f"SPY gamma {gamma} · {vol} · tide {tide} · event {event}",
+    return Element(key="regime", label="Market backdrop (every ticker)", surface=r.posture,
+                   meaning=f"gamma {gamma} · {vol} · tide {tide} · event {event}",
                    logic="neg gamma favors direction, pos pins, macro event vetoes",
                    detail={"SPY index gamma": gamma, "Macro event in 5d": event,
                            "SPY vol": vol, "Tape tide": tide},
