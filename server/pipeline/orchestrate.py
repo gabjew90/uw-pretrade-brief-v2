@@ -147,6 +147,9 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         "option_contracts": _fetch_norm(f"/stock/{ticker}/option-contracts", {"limit": 500},
                                         ticker, Priority.NORMAL),
         "spot": next((g.price for g in gamma_strikes if g.price), None),
+        # term structure for the overpay check (front vs back IV)
+        "term_structure": _fetch_norm(f"/stock/{ticker}/volatility/term-structure", {},
+                                      ticker, Priority.LOW),
     }
 
     side = _premium_side(flow_alerts)

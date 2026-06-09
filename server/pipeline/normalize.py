@@ -20,7 +20,7 @@ from typing import Callable
 from pydantic import ValidationError
 
 from server.models import (FlowAlert, GammaStrike, GreekFlowPoint, IVTermPoint,
-                            OISnapshot, OptionContract, SkewPoint)
+                            OISnapshot, OptionContract, SkewPoint, TermStructurePoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -205,6 +205,23 @@ def normalize_oi_per_strike(raw: RawRecord) -> list[OISnapshot]:
             out.append(OISnapshot.model_validate({**r, "provenance": p}))
         except ValidationError as e:
             raise NormalizeError(f"oi-per-strike row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_volatility_term-structure")
+def normalize_term_structure(raw: RawRecord) -> list[TermStructurePoint]:
+    """Raw volatility/term-structure payload → `list[TermStructurePoint]` (dte + IV). Feeds
+    the cost overpay check (front vs back IV). Empty is a legitimate []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[TermStructurePoint] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"term-structure row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(TermStructurePoint.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"term-structure row {i} failed validation: {e}") from e
     return out
 
 

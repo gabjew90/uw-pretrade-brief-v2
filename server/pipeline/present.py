@@ -83,6 +83,8 @@ def _cost_el(c) -> Element:
                            "breakeven_move_pct": c.breakeven_move_pct,
                            "expected_move_pct": c.expected_move_pct,
                            "contract": c.contract,
+                           "front_iv": c.front_iv, "back_iv": c.back_iv,
+                           "term_inverted": c.term_inverted,
                            "days_to_earnings": c.days_to_earnings,
                            "event_within_hold": c.event_within_hold},
                    tone=tone, provenance=c.provenance)

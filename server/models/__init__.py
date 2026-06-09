@@ -130,6 +130,17 @@ class Flow(Signal):
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
 
 
+class TermStructurePoint(BaseModel):
+    """One point of the IV term structure (from volatility/term-structure). `dte` + `iv`
+    are all the overpay check needs: front (near-dated) vs back (~30d) IV — front >> back =
+    near vol pumped, you're overpaying for the weekly. Strings coerced."""
+    model_config = ConfigDict(extra="ignore")
+
+    dte: int
+    volatility: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class OptionContract(BaseModel):
     """One per-contract quote (from option-contracts). strike/expiry/type are parsed from
     the OCC `option_symbol` in normalize; `bid`/`ask` are the NBBO. This is the chain the
@@ -262,6 +273,9 @@ class Cost(Signal):
     breakeven_move_pct: Optional[float] = None  # underlying move % needed to break even
     expected_move_pct: Optional[float] = None   # move % the options are pricing (implied)
     contract: Optional[dict] = None             # the realistic contract evaluated
+    front_iv: Optional[float] = None            # near-dated IV (term-structure overpay check)
+    back_iv: Optional[float] = None             # ~30d IV
+    term_inverted: bool = False                 # front >> back ⇒ overpaying for near vol
     reason: str = ""
 
 

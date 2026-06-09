@@ -8,8 +8,8 @@ confident green (the edge can't be confirmed to clear the cost).
 import json
 from pathlib import Path
 
-from server.models import IVTermPoint, OptionContract, Quality
-from server.pipeline.derive import derive_cost
+from server.models import IVTermPoint, OptionContract, Quality, TermStructurePoint
+from server.pipeline.derive import _pick_contract, derive_cost
 from server.pipeline.ingest import RawRecord
 from server.pipeline.normalize import normalize
 
@@ -109,6 +109,55 @@ def test_no_chain_is_caution_not_ok():
 def test_cost_is_never_a_direction():
     c = derive_cost(_tradeable(), asof=ASOF)
     assert not hasattr(c, "direction")
+
+
+# ── term-structure overpay (secondary, caution-level) ────────────────────────
+def _termstruct(*pairs_dte_iv):
+    return [TermStructurePoint(dte=d, volatility=v) for d, v in pairs_dte_iv]
+
+
+def test_inverted_term_structure_caps_ok_to_caution():
+    canon = _tradeable(ivr_pct=0.20)               # would be ok
+    canon["term_structure"] = _termstruct((5, 0.30), (30, 0.20))   # front >> back → inverted
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert c.term_inverted is True
+    assert "overpaying" in c.reason
+
+
+def test_normal_term_structure_leaves_ok():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["term_structure"] = _termstruct((5, 0.18), (30, 0.20))   # front <= back → normal
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "ok"
+    assert c.term_inverted is False
+
+
+def test_overpay_never_overrides_a_block():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["event_within_hold"] = True              # hard block
+    canon["term_structure"] = _termstruct((5, 0.40), (30, 0.20))   # inverted
+    assert derive_cost(canon, asof=ASOF).guard == "block"    # event block wins
+
+
+# ── weekly-DTE floor on the contract pick ─────────────────────────────────────
+def test_pick_skips_0dte_when_a_weekly_exists():
+    from datetime import date
+    asof_d = date(2026, 6, 8)
+    contracts = [
+        OptionContract(type="call", strike=100, expiry="2026-06-08", bid=1, ask=1.1),  # 0 DTE
+        OptionContract(type="call", strike=100, expiry="2026-06-12", bid=1, ask=1.1),  # 4 DTE weekly
+    ]
+    pick = _pick_contract(contracts, "call", 100.0, asof_d)
+    assert pick.expiry == "2026-06-12"             # skipped the 0-DTE for the real weekly
+
+
+def test_pick_falls_back_to_0dte_if_no_weekly():
+    from datetime import date
+    asof_d = date(2026, 6, 8)
+    contracts = [OptionContract(type="call", strike=100, expiry="2026-06-08", bid=1, ask=1.1)]
+    pick = _pick_contract(contracts, "call", 100.0, asof_d)
+    assert pick.expiry == "2026-06-08"             # only a 0-DTE exists → use it
 
 
 # ── golden: real interpolated-iv + option-contracts ───────────────────────────

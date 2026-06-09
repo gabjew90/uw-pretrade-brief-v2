@@ -32,7 +32,11 @@ _IVR_YELLOW_MAX = 80     # 60 < ivr <= 80 → caution
 _EARNINGS_DAYS_MIN = 7   # earnings inside 7 days → block
 _IVR_TARGET_DTE = 30     # IV-rank horizon (standard 30d); operator-deferred
 _SPREAD_BLOCK_PCT = 15.0  # round-trip spread above this bleeds the edge (operator: 12–20%)
-_COST_NEAR_DTE = 14      # the realistic weekly you'd actually buy
+_COST_MIN_DTE = 2        # weekly-DTE floor: skip 0–1 DTE (event/expiry gamma) when a real
+_COST_NEAR_DTE = 14      # weekly exists — the contract you'd actually hold. Operator-tunable.
+_TERM_FRONT_DTE = 5      # term-structure overpay: front (weekly) vs back (~30d) IV
+_TERM_BACK_DTE = 30
+_TERM_INVERT_PTS = 0.03  # front − back above this (3 vol pts) = inverted → overpaying near
 
 # OI cluster trend bands (first→last settled session); operator-deferred.
 _OI_BUILD_PCT = 5.0      # cluster OI up >= +5% → building (corroborates the flow)
@@ -283,15 +287,24 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     else:
         guard, reason = "block", f"IV rank {ivr:.0f} — premium rich, poor cost/move"
 
+    # Term-structure overpay (secondary): an inverted curve (near vol pumped) caps an
+    # otherwise-ok read to caution — you're paying up for the weekly. Never overrides a block.
+    front_iv, back_iv, inverted = _term_overpay(canon.get("term_structure"))
+    if guard == "ok" and inverted:
+        guard = "caution"
+        reason = f"near-dated vol elevated (term inverted {front_iv:.2f} vs {back_iv:.2f}) — overpaying"
+
     src = prov.derived(ivsrc, pick.provenance) if pick else ivsrc
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,
                 spread_pct=spread_pct, breakeven_move_pct=be_pct, expected_move_pct=em_pct,
-                contract=contract_d, reason=reason, provenance=src)
+                contract=contract_d, front_iv=front_iv, back_iv=back_iv,
+                term_inverted=inverted, reason=reason, provenance=src)
 
 
 def _pick_contract(contracts, side, spot, asof_d):
-    """The realistic weekly you'd actually buy: flow side, soonest expiry within the
-    near-dated window, strike nearest spot. None if un-evaluable."""
+    """The realistic WEEKLY you'd actually buy: flow side, DTE in [2, 14] (skip 0–1 DTE
+    expiry/event noise when a real weekly exists), soonest expiry, strike nearest spot.
+    None if un-evaluable."""
     if side not in ("call", "put") or not spot or spot <= 0 or asof_d is None:
         return None
     cands = []
@@ -307,9 +320,24 @@ def _pick_contract(contracts, side, spot, asof_d):
         cands.append((dte, abs(c.strike - spot), c))
     if not cands:
         return None
-    near = [t for t in cands if t[0] <= _COST_NEAR_DTE] or cands
-    near.sort(key=lambda t: (t[0], t[1]))     # soonest expiry, then nearest the money
-    return near[0][2]
+    weekly = [t for t in cands if _COST_MIN_DTE <= t[0] <= _COST_NEAR_DTE]
+    near = [t for t in cands if t[0] <= _COST_NEAR_DTE]
+    pool = weekly or near or cands            # prefer a real weekly; fall back gracefully
+    pool.sort(key=lambda t: (t[0], t[1]))     # soonest expiry, then nearest the money
+    return pool[0][2]
+
+
+def _term_overpay(term_points):
+    """(front_iv, back_iv, inverted): front = IV nearest _TERM_FRONT_DTE (the weekly), back =
+    nearest _TERM_BACK_DTE (~30d). Inverted when front exceeds back by _TERM_INVERT_PTS —
+    near-dated vol is pumped, so you're overpaying for the weekly you'd buy. Ported from
+    `e1d6c5e:server/insights.py` term-structure read."""
+    pts = [t for t in (term_points or []) if t.volatility is not None]
+    if len(pts) < 2:
+        return None, None, False
+    front = min(pts, key=lambda t: abs(t.dte - _TERM_FRONT_DTE)).volatility
+    back = min(pts, key=lambda t: abs(t.dte - _TERM_BACK_DTE)).volatility
+    return round(front, 4), round(back, 4), (front - back) > _TERM_INVERT_PTS
 
 
 def _breakeven_move_pct(c, spot: float, premium: float) -> float:
