@@ -9,7 +9,8 @@ no semicolons.
 """
 from __future__ import annotations
 
-from server.models import Element, Regime, Signal, Verdict, ViewModel
+from server.models import Element, Signal, Verdict, ViewModel
+from server.services import provenance as prov
 
 
 def _money(v) -> str:
@@ -145,20 +146,18 @@ def _cost_el(c) -> Element:
                    detail=d, tone=tone, provenance=c.provenance)
 
 
-def _regime_header(r: Regime) -> Element:
-    """Market-wide posture shown as a header — with the DATA VARIABLES behind the word."""
-    tone = {"Favorable": "positive", "Stand down": "cautionary"}.get(r.posture, "neutral")
-    gamma = (f"{r.gamma_sign} ({'trend' if r.gamma_sign == 'NEG' else 'pinned'})"
-             if r.gamma_status == "ok" else "n/a")
-    vol = f"IV {r.vol_iv:.0%}" if r.vol_iv is not None else "n/a"
-    tide = r.tide_lean or "neutral"
-    event = r.event_line or "none in 5d"
-    return Element(key="regime", label="Market backdrop (every ticker)", surface=r.posture,
-                   meaning=f"gamma {gamma} · {vol} · tide {tide} · event {event}",
-                   logic="neg gamma favors direction, pos pins, macro event vetoes",
-                   detail={"SPY index gamma": gamma, "Macro event in 5d": event,
-                           "SPY vol": vol, "Tape tide": tide},
-                   tone=tone, provenance=r.provenance)
+def _market_el(m: dict) -> Element:
+    """The muted 'Market now' line — raw market context (gamma sign, SPY IV, tide, next macro
+    event). NOT a posture, NOT a verdict (only THE CALL gets a verdict word). The macro event
+    here is the same one that can make the Cost gate say PASS."""
+    gs = m.get("gamma_sign")
+    gamma = f"gamma {gs} ({'trend' if gs == 'NEG' else 'pinned'})" if gs else "gamma n/a"
+    vol = f"IV {m['iv']:.0%}" if m.get("iv") is not None else "IV n/a"
+    tide = f"tide {m.get('tide', 'neutral')}"
+    event = f"event {m['event_line']}" if m.get("event_line") else "no event in 5d"
+    return Element(key="regime", label="Market now", surface=None,
+                   meaning=f"{gamma} · {vol} · {tide} · {event}",
+                   provenance=prov.live(m.get("as_of")))
 
 
 _BUILDERS = [
@@ -172,10 +171,10 @@ _VERDICT_LOGIC = ("Stand down if cost says PASS or OI is red. Favorable needs op
 
 
 def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
-            *, as_of: str | None = None, regime: Regime | None = None) -> ViewModel:
+            *, as_of: str | None = None, market: dict | None = None) -> ViewModel:
     """Assemble the renderable view model. Verdict forwarded VERBATIM. Conflicting legs are
-    tinted cautionary. The market `regime` (if computed) becomes a header with its data
-    variables; `verdict_logic` states how the overall call is reached from the gates."""
+    tinted cautionary. The `market` context (if computed) becomes the muted Market-now line;
+    `verdict_logic` states how the overall call is reached from the gates."""
     elements: list[Element] = []
     for name, build in _BUILDERS:
         if name in signals:
@@ -196,5 +195,5 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
 
     asofs = sorted(s.provenance.as_of for s in signals.values() if s.provenance.as_of)
     return ViewModel(ticker=ticker, as_of=asofs[0] if asofs else as_of,
-                     regime=_regime_header(regime) if regime is not None else None,
+                     regime=_market_el(market) if market else None,
                      verdict_logic=_VERDICT_LOGIC, elements=elements, verdict=verdict)

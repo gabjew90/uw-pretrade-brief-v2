@@ -2,22 +2,23 @@
 never omitted, conflict tone propagated, verdict forwarded verbatim.
 """
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                           Quality, Regime, Skew)
+                           Quality, Skew)
 from server.pipeline.decide import decide
 from server.pipeline.present import present
 
 
-def test_regime_header_shows_data_variables_and_logic():
-    """The regime header exposes the DATA behind the posture word, plus the rule."""
-    regime = Regime(posture="Stand down", gamma_sign="POS", gamma_status="ok",
-                    vol_iv=0.17, tide_lean="bear", event_line="CPI 2d", event_severity="warn")
+def test_market_line_is_data_not_a_posture():
+    """Market context is a muted data line (gamma/IV/tide/event) — NO posture word, not a
+    second verdict (Fix 5)."""
+    market = {"gamma_sign": "NEG", "iv": 0.20, "tide": "bear", "event_line": "CPI <1d",
+              "event_within_hold": True, "as_of": "2026-06-09T15:00:00Z"}
     sigs = _full_signals()
-    vm = present("SPY", sigs, decide(sigs), regime=regime)
+    vm = present("SPY", sigs, decide(sigs), market=market)
     assert vm.regime is not None
-    assert vm.regime.surface == "Stand down"
-    assert "POS" in vm.regime.meaning and "17%" in vm.regime.meaning   # data variables shown
-    assert vm.regime.logic                                            # the rule is stated
-    assert vm.regime.detail["SPY index gamma"].startswith("POS")
+    assert vm.regime.surface is None                                  # no posture word
+    assert "gamma NEG" in vm.regime.meaning and "IV 20%" in vm.regime.meaning
+    assert "CPI" in vm.regime.meaning and "bear" in vm.regime.meaning
+    assert vm.regime.provenance.source.value == "live"
     assert vm.verdict_logic                                            # how the call is made
 
 

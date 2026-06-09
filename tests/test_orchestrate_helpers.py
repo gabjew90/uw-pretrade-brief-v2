@@ -5,7 +5,7 @@ that turns canonical records into the cross-signal canon inputs.
 from datetime import date, datetime, timezone
 
 from server.models import FlowAlert
-from server.pipeline.orchestrate import _days_to_earnings, _flow_cluster
+from server.pipeline.orchestrate import _days_to_earnings, _flow_cluster, _tide_lean
 from server.pipeline.derive import flow_side
 
 ASOF = date(2026, 6, 8)
@@ -35,6 +35,51 @@ def test_flow_side_total_fallback_when_no_opening():
 
 def test_flow_side_none_on_empty():
     assert flow_side([]) == (None, "unavailable")
+
+
+# ── _tide_lean reads the LAST row of the cumulative series (Fix 4a) ───────────
+def test_tide_lean_uses_last_row_after_intraday_flip():
+    # cumulative series starts net-negative (bearish) but ends net-positive (bullish):
+    # summing would mislabel it; the last tick is the truth.
+    series = [{"net_call_premium": "10", "net_put_premium": "100"},   # -90 early
+              {"net_call_premium": "200", "net_put_premium": "50"}]   # +150 latest
+    assert _tide_lean(series) == "bull"
+
+
+def test_tide_lean_empty_is_neutral():
+    assert _tide_lean([]) == "neutral"
+
+
+# ── Market vol uses SPY IV, never the viewed ticker's (Fix 3) ─────────────────
+def test_market_now_uses_spy_iv_not_viewed_ticker(monkeypatch):
+    from datetime import datetime, timezone
+    from server.models import GammaStrike, IVTermPoint
+    from server.pipeline import orchestrate as orch
+
+    now = datetime(2026, 6, 9, 15, 0, tzinfo=timezone.utc)
+
+    def fake_norm(endpoint, params, ticker, priority):
+        if "spot-exposures" in endpoint:
+            return [GammaStrike(strike=600, call_gamma_oi=1.0, put_gamma_oi=-2.0, price=600.0)]
+        if "interpolated-iv" in endpoint:
+            return [IVTermPoint(date="2026-06-09", days=5, volatility=0.30)]   # SPY IV
+        return []
+    monkeypatch.setattr(orch, "_fetch_norm", fake_norm)
+    monkeypatch.setattr(orch, "_fetch_raw", lambda *a, **k: [])
+
+    tsla_iv = [IVTermPoint(date="2026-06-09", days=5, volatility=0.99)]        # viewed ticker
+    m = orch._market_now("TSLA", [], tsla_iv, now)
+    assert m["iv"] == 0.30                          # SPY's IV, NOT TSLA's 0.99
+
+
+def test_market_now_spy_iv_fetch_fails_degrades_to_none(monkeypatch):
+    from datetime import datetime, timezone
+    from server.pipeline import orchestrate as orch
+    now = datetime(2026, 6, 9, 15, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(orch, "_fetch_norm", lambda *a, **k: [])    # every fetch fails/empty
+    monkeypatch.setattr(orch, "_fetch_raw", lambda *a, **k: [])
+    m = orch._market_now("TSLA", [], [], now)
+    assert m["iv"] is None                          # never the viewed ticker's number
 
 
 # ── _flow_cluster ─────────────────────────────────────────────────────────────

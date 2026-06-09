@@ -7,7 +7,8 @@ catches sign inversions and gamma-direction bugs before they ship.
 
 Signals (first-class entities in server.models): direction(Flow), conviction,
 positioning(Positioning), dealer_gamma(DealerGamma), skew(Skew), cost(Cost),
-regime(Regime). Each registered here as `derive_<name>(canon, *, asof) -> Signal`.
+Each registered here as `derive_<name>(canon, *, asof) -> Signal`. (Market regime is NOT a
+signal — it is two raw inputs assembled in the orchestrator, not a posture.)
 
 Stub: the pure functions + their golden tests are written per instructions. The
 registry + purity contract are fixed now (lint/test should assert no I/O imports here).
@@ -18,7 +19,7 @@ from datetime import date, datetime, timezone
 from typing import Callable
 
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                            Regime, Signal, Skew)
+                            Signal, Skew)
 from server.services import provenance as prov
 
 # Skew is measured as CHANGE vs the ticker's own recent baseline (RR rides a structurally
@@ -474,72 +475,12 @@ def _next_high_impact_event(events, now):
     return best
 
 
-# NOT registered in the per-ticker pipeline: regime is MARKET-WIDE, not per-ticker evidence
-# (operator: "the other tiles show what data supported the verdict; market regime is just a
-# bunch of words"). Its one decision-relevant datum — a macro event in the hold window —
-# routes through Cost (visible, data-backed). Kept as a library fn for a future market
-# HEADER (computed once), not a per-ticker tile.
-def derive_regime(canon: dict, *, asof: str | None = None) -> Regime:
-    """Market-wide posture (Favorable/Mixed/Stand down) — NEVER a direction. NEG index
-    gamma = trend (favorable for directional weeklies); POS = pin/chop (stand down); a
-    high-impact macro event inside the hold window vetoes. PURE — `now` is injected via
-    canon (no datetime.now()). Ported from `e1d6c5e:server/market_regime.py`.
-
-    Input `regime` dict (orchestrator-assembled, market-wide): {gamma:{sign,status},
-    vol:{iv,rv,trend}, events:[...], tide:{lean}, opex:bool, now:datetime}."""
-    r = canon.get("regime") or {}
-    now = r.get("now")
-    if not isinstance(now, datetime):
-        return Regime(posture="Mixed", headline="Market regime inputs unavailable.",
-                      provenance=prov.unavailable("no regime inputs"))
-
-    gamma = r.get("gamma") or {}
-    sign, status = gamma.get("sign"), gamma.get("status")
-    if status != "ok" or sign not in ("POS", "NEG"):
-        headline, base = "Index gamma unavailable — market regime unclear.", "Mixed"
-    elif sign == "NEG":
-        headline, base = "Trend regime — moves likely to extend (favorable for directional weeklies).", "Favorable"
-    else:
-        headline, base = "Pinned / chop regime — moves likely to fade (hard for weeklies).", "Stand down"
-
-    nxt = _next_high_impact_event(r.get("events"), now)
-    event_within_hold = nxt is not None
-    event_line = event_severity = None
-    if nxt is not None:
-        _, ev, days = nxt
-        name = ev.get("event") or (ev.get("type") or "event").upper()
-        if days <= 1:
-            event_line, event_severity = f"{name} <1d", "veto"
-        else:
-            event_line, event_severity = f"{name} {int(round(days))}d", "warn"
-
-    vol = r.get("vol") or {}
-    iv, rv, trend = vol.get("iv"), vol.get("rv"), vol.get("trend")
-    if iv is None:
-        vol_line, vol_cheap, crush_risk = "Vol environment unavailable.", False, False
-    else:
-        vol_cheap = (rv is None or iv <= rv) and iv <= 0.22
-        crush_risk = (iv > 0.25) and (trend == "falling")
-        vol_line = ("Options are cheap to own — calm vol." if vol_cheap else
-                    "Vol elevated and falling — IV-crush risk on what you buy." if crush_risk else
-                    "Vol middling — neither tailwind nor clear warning.")
-
-    lean = (r.get("tide") or {}).get("lean", "neutral")
-    tide_badge = {"bull": "tape flow leaning risk-on", "bear": "tape flow leaning risk-off"}.get(
-        lean, "tape flow neutral")
-    tide_hostile = lean == "bear"
-
-    if event_severity == "veto":
-        posture = "Stand down"
-    else:
-        posture = base
-        if posture == "Stand down" and vol_cheap and not tide_hostile:
-            posture = "Mixed"
-        elif posture == "Favorable" and (crush_risk or tide_hostile or event_severity == "warn"):
-            posture = "Mixed"
-
-    return Regime(posture=posture, headline=headline, vol_line=vol_line,
-                  event_line=event_line, event_severity=event_severity,
-                  event_within_hold=event_within_hold, tide_badge=tide_badge,
-                  opex=bool(r.get("opex")), gamma_sign=sign, gamma_status=status,
-                  vol_iv=iv, tide_lean=lean, provenance=prov.derived())
+def next_macro_event(events, now):
+    """The next high-impact macro event inside the hold window as (name, days), or None. The
+    ONE surviving piece of market-regime logic (review Fix 5): it feeds Cost.event_within_hold
+    and the muted Market-now line. No posture, no Signal."""
+    nxt = _next_high_impact_event(events, now)
+    if nxt is None:
+        return None
+    _, ev, days = nxt
+    return (ev.get("event") or (ev.get("type") or "event").upper()), days

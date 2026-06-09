@@ -64,6 +64,14 @@ def test_missing_key_is_unavailable():
     assert f.direction is None and f.direction_basis == "unavailable"
 
 
+def test_pipeline_error_note_is_honest(_=None):
+    """Fix 4b: a build_view crash sets flow_error so the user sees the real cause, not the
+    misleading 'no flow alerts'."""
+    f = derive_direction({"flow_alerts": [], "flow_error": "pipeline error"})
+    assert f.direction is None
+    assert f.provenance.note == "pipeline error"
+
+
 def test_zero_premium_both_sides_unavailable():
     alerts = [_fa("call", 0, 5.0), _fa("put", 0, 5.0)]
     f = derive_direction({"flow_alerts": alerts})

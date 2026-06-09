@@ -4,7 +4,7 @@ Two kinds of types live here:
 
 1. **Provenance** — the universal quality/source/as_of stamp every value carries
    (Stage boundaries pass provenance, not bare values).
-2. **Domain entities** — Flow, Positioning, DealerGamma, Skew, Cost, Regime, Verdict
+2. **Domain entities** — Flow, Positioning, DealerGamma, Skew, Cost, Verdict
    (signals) and the **ViewModel/Element** the frontend renders. Field bodies are
    intentionally minimal stubs here — they get filled per operator instructions — but
    the *shapes and boundaries* are fixed so stages can be wired now.
@@ -283,24 +283,9 @@ class Cost(Signal):
     reason: str = ""
 
 
-class Regime(Signal):
-    """Market-wide regime read — trend vs chop, calm vs fearful, event vs clear. A POSTURE
-    (Favorable/Mixed/Stand down), mirroring the per-ticker verdict at the market level, and
-    NEVER a direction call (asserted in tests). `event_within_hold` also caps the per-ticker
-    Cost gate. Ported from `e1d6c5e:server/market_regime.py`."""
-    posture: Literal["Favorable", "Mixed", "Stand down"] = "Mixed"
-    headline: str = ""
-    vol_line: str = ""
-    event_line: Optional[str] = None
-    event_severity: Optional[Literal["veto", "warn"]] = None
-    event_within_hold: bool = False
-    tide_badge: str = ""
-    opex: bool = False
-    # raw input variables (so the header can show the DATA behind the posture word)
-    gamma_sign: Optional[str] = None        # POS / NEG (SPY index gamma)
-    gamma_status: Optional[str] = None       # ok / unavailable
-    vol_iv: Optional[float] = None           # SPY near-term IV
-    tide_lean: Optional[str] = None          # bull / bear / neutral
+# NB: there is no Regime signal — market regime was deleted (review Fix 5). Market context
+# is two raw things assembled in the orchestrator: a macro-event-in-hold-window check (feeds
+# the Cost gate) and a muted "Market now" data line (an Element). No posture, no Signal.
 
 
 # ── Verdict (Decide stage output) — built in exactly one place ───────────────

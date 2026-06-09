@@ -12,16 +12,17 @@ the governor sheds the nice-to-haves first and the direction read still lands.
 The pure helpers (`_flow_cluster`, `_tide_lean`, `_latest_iv`, `_days_to_earnings`) carry
 the cross-signal plumbing and are unit-tested offline; the side is picked by the shared
 `derive.flow_side` (so verdict/cost/OI never split). The live multi-fetch (`build_canon`,
-`_market_regime`) needs the network. `assemble_from_canon` is pure given a canon (REPLAY-
+`_market_now`) needs the network. `assemble_from_canon` is pure given a canon (REPLAY-
 reproducible).
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 
-from server.models import Regime, ViewModel
+from server.models import ViewModel
 from server.pipeline.decide import decide
-from server.pipeline.derive import derive_all, derive_dealer_gamma, derive_regime, flow_side
+from server.pipeline.derive import derive_all, derive_dealer_gamma, flow_side, next_macro_event
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
@@ -29,6 +30,7 @@ from server.services import clock, provenance as prov
 from server.services.governor import Priority
 from server.services.uw_client import UWError
 
+log = logging.getLogger(__name__)
 _FLOW_ALERTS = "/option-trades/flow-alerts"
 _NEAR_DTE = 14            # flow cluster = near-dated strikes (tile2-confirmation-principle)
 _CLUSTER_TOP_N = 5
@@ -102,10 +104,13 @@ def _days_to_earnings(earnings_rows, now: datetime) -> int | None:
 
 
 def _tide_lean(tide_rows) -> str:
-    """Market-tide lean from net premium across the session: bull / bear / neutral."""
-    net = 0.0
-    for r in tide_rows:
-        net += (_f(r.get("net_call_premium")) or 0.0) - (_f(r.get("net_put_premium")) or 0.0)
+    """Market-tide lean: bull / bear / neutral. market-tide is CUMULATIVE (the fixture runs
+    −22M at 09:30 → +162M at 11:00), so the LAST row is the session net — summing the series
+    would double-count and can report the wrong lean after an intraday flip (Fix 4a)."""
+    if not tide_rows:
+        return "neutral"
+    last = tide_rows[-1]
+    net = (_f(last.get("net_call_premium")) or 0.0) - (_f(last.get("net_put_premium")) or 0.0)
     return "bull" if net > 0 else "bear" if net < 0 else "neutral"
 
 
@@ -116,20 +121,28 @@ def _latest_iv(iv_term) -> float | None:
     return min(iv_term, key=lambda p: p.days if p.days is not None else 999).volatility
 
 
-def _market_regime(ticker: str, gamma_strikes: list, iv_term: list, now: datetime) -> Regime:
-    """Market-wide regime (SPY-based regardless of the viewed ticker) — computed ONCE per
-    page load for the header. Reuses the viewed gamma when the view IS SPY to skip a fetch."""
+def _market_now(ticker: str, gamma_strikes: list, iv_term: list, now: datetime) -> dict:
+    """Raw market context (market-wide, computed ONCE per page load): SPY index gamma sign,
+    SPY IV, tide lean, next macro event. NO posture, no Signal — present formats these into
+    the muted 'Market now' line, and the event feeds the Cost gate. SPY-based regardless of
+    the viewed ticker (Fix 3: SPY IV too, not the viewed ticker's); reuses viewed data when
+    the view IS SPY."""
     spy_gamma = gamma_strikes if (ticker == "SPY" and gamma_strikes) else \
         _fetch_norm("/stock/SPY/spot-exposures/strike", {"limit": 500}, "SPY", Priority.LOW)
     dg = derive_dealer_gamma({"gamma_strikes": spy_gamma})
-    gamma = {"sign": dg.gex_sign, "status": "ok" if dg.flip_status != "unavailable" else "unavailable"}
-    events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
+    gamma_sign = dg.gex_sign if dg.flip_status != "unavailable" else None
+    spy_iv = iv_term if (ticker == "SPY" and iv_term) else \
+        _fetch_norm("/stock/SPY/interpolated-iv", {}, "SPY", Priority.LOW)
     tide = _fetch_raw("/market/market-tide", None, Priority.LOW)
-    reg = derive_regime({"regime": {
-        "gamma": gamma, "vol": {"iv": _latest_iv(iv_term), "rv": None, "trend": None},
-        "events": events, "tide": {"lean": _tide_lean(tide)}, "opex": False, "now": now}})
-    reg.provenance = prov.live(now.isoformat())     # computed from live market data fetched now
-    return reg
+    events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
+    nxt = next_macro_event(events, now)
+    event_line = None
+    if nxt is not None:
+        name, days = nxt
+        event_line = f"{name} <1d" if days <= 1 else f"{name} {int(round(days))}d"
+    return {"gamma_sign": gamma_sign, "iv": _latest_iv(spy_iv), "tide": _tide_lean(tide),
+            "event_line": event_line, "event_within_hold": nxt is not None,
+            "as_of": now.isoformat()}
 
 
 def _oi_history(ticker: str, now: datetime) -> list[list]:
@@ -188,11 +201,11 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
 
 
 def assemble_from_canon(ticker: str, canon: dict, *, asof: str | None = None,
-                        regime: Regime | None = None) -> ViewModel:
+                        market: dict | None = None) -> ViewModel:
     """derive → decide → present over an assembled canon. Pure (REPLAY-reproducible)."""
     signals = derive_all(canon, asof=asof)
     verdict = decide(signals)
-    return present(ticker, signals, verdict, as_of=asof, regime=regime)
+    return present(ticker, signals, verdict, as_of=asof, market=market)
 
 
 def assemble(ticker: str, flow_raw: RawRecord, *, asof: str | None = None) -> ViewModel:
@@ -211,9 +224,11 @@ def build_view(ticker: str, *, asof: str | None = None) -> ViewModel:
     asof = asof or clock.session_date(now).isoformat()
     try:
         canon = build_canon(ticker, asof=asof, now=now)
-        regime = _market_regime(ticker, canon.get("gamma_strikes") or [],
-                                canon.get("iv_term") or [], now)
-        canon["event_within_hold"] = regime.event_within_hold   # macro veto → Cost gate
-    except Exception:                               # last-resort honest-degrade
-        canon, regime = {"flow_alerts": []}, None
-    return assemble_from_canon(ticker, canon, asof=asof, regime=regime)
+        market = _market_now(ticker, canon.get("gamma_strikes") or [],
+                             canon.get("iv_term") or [], now)
+        canon["event_within_hold"] = market["event_within_hold"]   # macro veto → Cost gate
+    except Exception:                               # last-resort honest-degrade (Fix 4b)
+        log.exception("build_view pipeline error for %s", ticker)
+        canon = {"flow_alerts": [], "flow_error": "pipeline error"}   # honest note, not "no flow"
+        market = None
+    return assemble_from_canon(ticker, canon, asof=asof, market=market)
