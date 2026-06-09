@@ -286,39 +286,37 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
         burden is not None and burden >= _BURDEN_CAUTION)
 
     # ── EV-KILLERS → Stand down: expected-value-negative no matter how right the direction.
-    # The recommendation is explained ("Pass — <number>"), never a hidden/forbidden trade.
+    # Reasons are number-led and terse (let the numbers speak), never prose.
     if dte_e is not None and dte_e < _EARNINGS_DAYS_MIN:
-        guard, reason = "block", f"Pass — earnings in {dte_e}d; IV crush routinely swamps the move"
+        guard, reason = "block", f"earnings {dte_e}d out"
     elif event:
-        guard, reason = "block", "Pass — macro event inside the hold window; IV-crush risk"
+        guard, reason = "block", "macro event in hold window"
     elif spread_block:
-        mv = f" vs a ~{em_pct:.1f}% priced move" if em_pct is not None else ""
-        guard, reason = "block", (f"Pass — round-trip spread {spread_pct:.0f}% of premium{mv}; "
-                                  "friction larger than the edge")
+        mv = f" vs {em_pct:.1f}% move" if em_pct is not None else ""
+        guard, reason = "block", f"spread {spread_pct:.0f}%{mv}"
     elif not tradeable:
         # can't confirm the spread/move gate → never a confident green
-        guard, reason = "caution", "tradeability (spread / expected-move) not evaluated"
+        guard, reason = "caution", "no chain to price the trade"
     else:
         # ── DEGRADERS → caution (cap to Mixed + flag): a correct, large, imminent move can
-        # still win through these. Collect every applicable warning.
+        # still win through these. Collect every applicable warning, number-led.
         flags: list[str] = []
         if em_pct < be_pct:
-            flags.append(f"priced move {em_pct:.1f}% tight vs breakeven {be_pct:.1f}%")
+            flags.append(f"move {em_pct:.1f}% < breakeven {be_pct:.1f}%")
         if _ge(ivr, _IVR_YELLOW_MAX):
-            flags.append(f"IV rank {ivr:.0f} — premium rich")
+            flags.append(f"IV rank {ivr:.0f} rich")
         elif _ge(ivr, _IVR_GREEN_MAX):
-            flags.append(f"IV rank {ivr:.0f} — elevated")
+            flags.append(f"IV rank {ivr:.0f}")
         if spread_caution:
-            flags.append(f"round-trip spread {spread_pct:.0f}% notable vs the move")
+            flags.append(f"spread {spread_pct:.0f}%")
         if inverted:
-            flags.append(f"term inverted ({front_iv:.2f}/{back_iv:.2f}) — overpaying near vol")
+            flags.append(f"term inverted {front_iv:.0%}/{back_iv:.0%}")
         if ivr is None:
-            flags.append("IV rank unavailable")
+            flags.append("IV rank n/a")
         if flags:
-            guard, reason = "caution", "; ".join(flags)
+            guard, reason = "caution", " · ".join(flags)
         else:
-            guard, reason = "ok", (f"clears cost — spread {spread_pct:.0f}%, priced move "
-                                   f"{em_pct:.1f}% > breakeven {be_pct:.1f}%")
+            guard, reason = "ok", f"spread {spread_pct:.0f}%, move {em_pct:.1f}% > be {be_pct:.1f}%"
 
     src = prov.derived(ivsrc, pick.provenance) if pick else ivsrc
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,

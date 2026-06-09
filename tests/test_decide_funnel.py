@@ -99,7 +99,7 @@ def test_unavailable_flow_is_stand_down_and_named():
     v = decide({"flow": Flow(direction=None, direction_basis="unavailable",
                              provenance=Provenance(quality=Quality.UNAVAILABLE, note="no flow alerts"))})
     assert v.overall == "Stand down"
-    assert any("flow unavailable" in r for r in v.reasons)
+    assert any("flow n/a" in r for r in v.reasons)
 
 
 def test_unavailable_noncore_named_but_not_fatal():
@@ -108,8 +108,8 @@ def test_unavailable_noncore_named_but_not_fatal():
     base["skew"] = Skew(lean="unavailable", provenance=Provenance(quality=Quality.UNAVAILABLE))
     base["conviction"] = Conviction(direction=None, provenance=Provenance(quality=Quality.UNAVAILABLE))
     v = decide(base)
-    assert any("skew unavailable" in r for r in v.reasons)
-    assert any("conviction unavailable" in r for r in v.reasons)
+    assert any("skew n/a" in r for r in v.reasons)
+    assert any("tape n/a" in r for r in v.reasons)
     assert v.overall in ("Favorable", "Mixed")          # not forced to Stand down
 
 

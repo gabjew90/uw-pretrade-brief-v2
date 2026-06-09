@@ -53,9 +53,8 @@
     <div id="verdict"></div>
     <div id="view"></div>
     <p class="note">
-      This shell renders <code>/api/view/&lt;ticker&gt;</code> verbatim — per element a
-      surface value, a tap-to-reveal detail payload, provenance, and a tone. No signal
-      logic, no thresholds, no recomputation live here. That is the v3 one rule.
+      Renders <code>/api/view/&lt;ticker&gt;</code> verbatim. Every value, label, and tone is
+      server-built. No signal logic, no thresholds, no recomputation in the browser.
     </p>
   </main>
   <script>
@@ -89,7 +88,7 @@
       const tone = (e.tone || "neutral"), q = (e.provenance && e.provenance.quality) || "real";
       const src = (e.provenance && e.provenance.source) || "";
       const surface = e.surface == null
-        ? "<span style='color:var(--axis)'>—</span>" : esc(e.surface);
+        ? "<span style='color:var(--axis)'>n/a</span>" : esc(e.surface);
       const fresh = freshness(e.provenance);
       const prov = `<div class="prov">${esc(srcLabel(e.provenance))}${fresh ? " · " + esc(fresh) : ""}</div>`;
       const meaning = e.meaning ? `<div class="meaning">${esc(e.meaning)}</div>` : "";
@@ -108,7 +107,7 @@
           `${vm.ticker} · as of ${vm.as_of || "?"}`;
         const v = vm.verdict || {};
         document.getElementById("verdict").innerHTML =
-          `<div class="verdict">${esc(v.action || "—")}</div>` +
+          `<div class="verdict">${esc(v.action || "n/a")}</div>` +
           (v.reasons && v.reasons.length
             ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "");
         view.innerHTML = (vm.elements || []).map(elementCard).join("")

@@ -78,7 +78,7 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     if flow is None or getattr(flow, "direction", None) is None:
         note = flow.provenance.note if flow else "no flow signal"
         return Verdict(action="Stand down", overall="Stand down",
-                       reasons=[f"flow unavailable: {note}"],
+                       reasons=[f"flow n/a: {note}"],
                        signals_used=["flow"] if flow is not None else [],
                        provenance=flow.provenance if flow else Provenance())
     direction = flow.direction
@@ -88,16 +88,16 @@ def decide(signals: dict[str, Signal]) -> Verdict:
         used.append("positioning")
     positioning_color = _positioning_leg(flow, positioning)
     if flow.direction_basis == "opening_flow":
-        reasons.append(f"opening flow favors {direction}")
+        reasons.append(f"opening flow {direction}")
     else:
-        reasons.append(f"flow favors {direction} on the weaker {flow.direction_basis} basis")
+        reasons.append(f"{direction} on {flow.direction_basis} flow")
     conf = getattr(positioning, "confirmation", "unconfirmed") if positioning else "unconfirmed"
     if conf == "building":
-        reasons.append("OI is building at the flow strikes (corroborates)")
+        reasons.append("OI building")
     elif conf == "unwinding":
-        reasons.append("OI is unwinding — the buying looks like closing (caps the read)")
+        reasons.append("OI unwinding")
     elif conf == "unconfirmed":
-        reasons.append("OI history unconfirmed — flow stands on its own (not blocking)")
+        reasons.append("OI unconfirmed")
 
     conflict_legs: list[str] = []
 
@@ -107,10 +107,10 @@ def decide(signals: dict[str, Signal]) -> Verdict:
         used.append("conviction")
         cdir = getattr(conviction, "direction", None)
         if cdir is None:
-            reasons.append("greek-flow conviction unavailable (partial coverage)")
+            reasons.append("tape n/a")
         elif cdir != direction:
             conflict_legs.append("conviction")
-            reasons.append(f"greek-flow conviction diverges ({cdir} vs {direction}) — caution")
+            reasons.append(f"tape {cdir} vs flow {direction}")
         # agreement: deliberately NO reason/bonus — concordant same-family adds nothing
 
     # ── skew: orthogonal, asymmetric oppose-veto ──────────────────────────────
@@ -120,9 +120,9 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     skew_st = _skew_state(skew, direction)
     if skew_st == "oppose" and positioning_color in ("green", "yellow"):
         conflict_legs.append("skew")
-        reasons.append(f"skew opposes {direction} (vol surface leans the other way)")
+        reasons.append(f"skew opposes {direction}")
     elif skew_st == "unavailable":
-        reasons.append("skew unavailable (partial coverage)")
+        reasons.append("skew n/a")
     # agree is subordinate — never an upgrade, never a peer green (no reason added)
 
     # ── structural guard (dealer gamma) ───────────────────────────────────────
@@ -131,9 +131,9 @@ def decide(signals: dict[str, Signal]) -> Verdict:
         used.append("dealer_gamma")
     structural = _structural(dealer_gamma)
     if structural == "yellow":
-        reasons.append("POS dealer gamma — pinning regime resists directional weeklies (caps)")
+        reasons.append("gamma pinned")
     elif structural == "unavailable":
-        reasons.append("dealer gamma unavailable (partial coverage)")
+        reasons.append("gamma n/a")
 
     # ── cost guard ────────────────────────────────────────────────────────────
     cost = signals.get("cost")
@@ -158,13 +158,13 @@ def decide(signals: dict[str, Signal]) -> Verdict:
         overall = "Mixed"
 
     if overall == "Favorable":
-        action = f"Favorable — lean {direction}"
+        action = f"Favorable {direction}"
     elif overall == "Stand down":
         action = "Stand down"
     elif signal_conflict:
-        action = f"Mixed — signals disagree ({', '.join(conflict_legs)})"
+        action = f"Mixed, {', '.join(conflict_legs)} disagree"
     else:
-        action = f"Mixed — {direction} not compelling"
+        action = f"Mixed, {direction} weak"
 
     consumed = [signals[n].provenance for n in used if signals.get(n) is not None]
     return Verdict(action=action, overall=overall, direction=direction, reasons=reasons,

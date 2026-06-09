@@ -61,7 +61,7 @@ def test_absurd_spread_blocks_regardless():
     # bid 1.00 / ask 1.40 → ~33% of mid → dead regardless of move (>= hard cap)
     c = derive_cost(_tradeable(ivr_pct=0.20, bid=1.00, ask=1.40, move=0.30), asof=ASOF)
     assert c.guard == "block"
-    assert "Pass" in c.reason and "spread" in c.reason
+    assert "spread" in c.reason
 
 
 def test_modest_spread_vs_tiny_move_blocks_on_burden():
@@ -123,7 +123,7 @@ def test_macro_event_blocks():
 def test_no_chain_is_caution_not_ok():
     c = derive_cost({"iv_term": _term((30, 0.20))}, asof=ASOF)   # cheap IV but no chain
     assert c.guard == "caution"                                 # cannot confirm tradeability
-    assert "tradeability" in c.reason
+    assert "no chain" in c.reason
 
 
 def test_cost_is_never_a_direction():
@@ -142,7 +142,7 @@ def test_inverted_term_structure_caps_ok_to_caution():
     c = derive_cost(canon, asof=ASOF)
     assert c.guard == "caution"
     assert c.term_inverted is True
-    assert "overpaying" in c.reason
+    assert "inverted" in c.reason
 
 
 def test_normal_term_structure_leaves_ok():
