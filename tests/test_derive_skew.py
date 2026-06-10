@@ -69,6 +69,16 @@ def test_sign_convention_round_trip():
     assert s.rr25 < 0 and s.rr_baseline < 0                       # SPY structurally put-skewed
 
 
+def test_baseline_caps_at_recent_priors():
+    """A months-deep series (the monthly tenor runs ~60 rows) must baseline on the LAST
+    10 priors, not a quarter-mean — 'its own recent normal'."""
+    old = [0.50] * 30                 # ancient, extreme put-rich
+    recent = [0.03] * 10              # recent normal
+    s = derive_skew({"skew_rr": _series(*old, *recent, 0.03)})
+    assert round(s.rr_baseline, 3) == -0.03      # the 0.50 ancient rows ignored
+    assert s.lean == "neutral"
+
+
 def test_provenance_carried():
     pts = _series(0.04, 0.04, 0.04, 0.05)
     p = Provenance(quality=Quality.DEGRADED, as_of="2026-06-08T00:00:00Z")

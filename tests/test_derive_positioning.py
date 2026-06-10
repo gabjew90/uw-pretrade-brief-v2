@@ -58,6 +58,19 @@ def test_trend_reads_only_the_last_window_sessions():
     assert _POS_WINDOW == 5
 
 
+def test_contract_birth_does_not_fake_building():
+    """A weekly LISTED mid-window has no early bars. Raw summing would read its birth as
+    OI 'building' (live-caught). Only the common-coverage window counts."""
+    old = _bars(1000, 1000, 1000, 1000, 1000, start=1)        # 06-01..06-05, flat
+    young = [                                                  # listed 06-04
+        *(_bars(500, 500, start=4)),                           # 06-04, 06-05
+    ]
+    p = derive_positioning(_canon(contracts=[old, young]))
+    # common window starts 06-04: totals 1500, 1500 → FLAT (not +50% from the birth)
+    assert p.confirmation == "flat"
+    assert all(pt["date"] >= "2026-06-04" for pt in p.oi_series)
+
+
 # ── unconfirmed never blocks ──────────────────────────────────────────────────
 def test_no_history_is_unconfirmed():
     p = derive_positioning(_canon(contracts=[]))

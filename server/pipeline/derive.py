@@ -28,6 +28,8 @@ from server.services import provenance as prov
 # is the move-vs-normal that counts as a lean. Operator-tunable.
 _SKEW_DELTA_THR = 0.01
 _SKEW_MIN_PRIORS = 3      # need >=3 prior days to form a baseline, else unavailable
+_SKEW_BASELINE_N = 10     # baseline = mean of the LAST N priors ("its own recent normal" —
+                          # the monthly series runs months deep; a quarter-mean is not "recent")
 
 # Cost gate thresholds (v2 GATE_THRESHOLDS; operator-deferred). IV rank bands + the
 # don't-buy-premium-into-a-known-vol-event rule.
@@ -309,7 +311,7 @@ def derive_skew(canon: dict, *, asof: str | None = None) -> Skew:
     if len(pts) < _SKEW_MIN_PRIORS + 1:
         return Skew(lean="unavailable", provenance=prov.unavailable("insufficient RR history"))
     ordered = sorted(pts, key=lambda p: p.date)      # oldest → newest
-    latest, priors = ordered[-1], ordered[:-1]
+    latest, priors = ordered[-1], ordered[:-1][-_SKEW_BASELINE_N:]
     rr_today = -latest.risk_reversal                 # vendor (put−call) → call−put
     baseline = -sum(p.risk_reversal for p in priors) / len(priors)   # call−put
     delta = rr_today - baseline
@@ -555,10 +557,15 @@ def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
                            cluster_strikes=sorted(strikes),
                            provenance=prov.unavailable("OI history unconfirmed (archive-decoupled)"))
 
+    # COMMON-COVERAGE window only: a weekly listed mid-window has no early bars, so a raw
+    # sum fakes "building" from contract BIRTHS (live-caught: 6.9K -> 117K was listings,
+    # not accumulation). Sum only dates on/after the latest first-date across contracts.
+    start = max(min(b.date for b in bars) for bars in per_contract)
     by_date: dict[str, int] = {}
     for bars in per_contract:
         for b in bars:
-            by_date[b.date] = by_date.get(b.date, 0) + b.open_interest
+            if b.date >= start:
+                by_date[b.date] = by_date.get(b.date, 0) + b.open_interest
     window = sorted(by_date)[-_POS_WINDOW:]
     if len(window) < 2:
         return Positioning(confirmation="unconfirmed", side=side, cluster_strikes=sorted(strikes),
