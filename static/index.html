@@ -165,7 +165,7 @@
              go to ticker: <input name="t" placeholder="SPY" /></form></div>`;
         view.innerHTML = `<div class="grid">` + (g.rows || []).map(r =>
           `<a href="?t=${encodeURIComponent(r.ticker)}">
-             <span class="t">${esc(r.ticker)} <span class="s">${esc(r.side)}</span></span>
+             <span class="t">${esc(r.ticker)}</span>
              <span class="s">${esc(r.premium_fmt)} · ${esc(r.call_fmt)} c · ${esc(r.put_fmt)} p · ${r.alerts} alerts</span>
            </a>`).join("") + `</div>` +
           (g.note ? `<p class="gridnote">${esc(g.note)}</p>` : "");

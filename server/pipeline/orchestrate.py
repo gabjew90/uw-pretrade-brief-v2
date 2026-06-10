@@ -360,8 +360,11 @@ def grid_from_alerts(alerts) -> list[dict]:
         total = d["call"] + d["put"]
         if total <= 0:
             continue
-        side = "CALLS" if d["call"] >= d["put"] else "PUTS"
-        rows.append({"ticker": t, "side": side, "premium": total,
+        # NO side word here: the cross-ticker pull is a SAMPLE (each ticker's most recent
+        # alerts only), and a sample-derived side can contradict the brief's full-session
+        # direction one tap later (live-caught: grid said SPY PUTS, brief said CALLS).
+        # The scanner answers WHO is hot; the brief answers WHICH WAY.
+        rows.append({"ticker": t, "premium": total,
                      "premium_fmt": money(total), "call_fmt": money(d["call"]),
                      "put_fmt": money(d["put"]), "alerts": d["alerts"]})
     rows.sort(key=lambda r: r["premium"], reverse=True)
@@ -376,7 +379,8 @@ def build_grid() -> dict:
         alerts = normalize(raw)
         rows = grid_from_alerts(alerts)
         return {"rows": rows, "as_of": raw.fetched_at,
-                "note": "opening premium by ticker, newest session, top of the 500-alert tail"}
+                "note": "who's hot: recent-tape sample (latest 500 alerts market-wide). "
+                        "open a ticker for its full-session direction"}
     except (UWError, NormalizeError) as e:
         return {"rows": [], "as_of": None, "note": f"grid unavailable: {e}"}
 

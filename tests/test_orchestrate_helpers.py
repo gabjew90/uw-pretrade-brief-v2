@@ -113,9 +113,10 @@ def test_grid_aggregates_opening_premium_per_ticker():
     ])
     assert [r["ticker"] for r in rows] == ["NVDA", "TSLA"]   # by opening premium desc
     nvda = rows[0]
-    assert nvda["side"] == "CALLS" and nvda["premium_fmt"] == "$10.0M"
-    tsla = rows[1]
-    assert tsla["side"] == "PUTS" and tsla["premium_fmt"] == "$5.0M"
+    assert nvda["premium_fmt"] == "$10.0M"
+    assert "side" not in nvda     # NO side word: a sample-derived side can contradict the
+    tsla = rows[1]                # brief's full-session direction (live-caught)
+    assert tsla["premium_fmt"] == "$5.0M"
     assert tsla["alerts"] == 2                               # closing alert still counted
 
 
