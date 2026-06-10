@@ -9,9 +9,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
-# Application code
+# Application code (+ the offline maintenance/probe scripts the nightly thread runs)
 COPY server/ ./server/
 COPY static/ ./static/
+COPY scripts/ ./scripts/
 
 # Where the parquet archive (bronze/silver/gold) + state land. Railway mounts a volume here.
 ENV DATA_DIR=/data
