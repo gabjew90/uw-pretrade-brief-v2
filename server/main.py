@@ -69,6 +69,24 @@ def grid() -> dict:
     return build_grid()
 
 
+@app.get("/api/history/{ticker}")
+def history(ticker: str) -> dict:
+    """The track record: what the tool said each archived session and what the underlying
+    did next (regenerated nightly by the backtest task). The 'was it right' data."""
+    import json as _json
+    path = settings.gold / "backtest" / "daily" / "signal_history.jsonl"
+    if not path.exists():
+        return {"rows": [], "note": "accumulates nightly at 03:30 ET"}
+    rows = [r for r in (_json.loads(line) for line in
+                        path.read_text(encoding="utf-8").splitlines() if line.strip())
+            if r.get("ticker") == ticker.upper()]
+    scored = [r for r in rows if r.get("called_right") is not None]
+    right = sum(1 for r in scored if r["called_right"])
+    return {"rows": rows,
+            "note": f"{right}/{len(scored)} direction calls matched the next session's move"
+                    if scored else "no scored sessions yet"}
+
+
 @app.get("/api/view/{ticker}", response_model=ViewModel)
 def view(ticker: str) -> ViewModel:
     """Run the full pipeline for one ticker and return the view model. Ingest is

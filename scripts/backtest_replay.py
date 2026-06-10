@@ -92,6 +92,29 @@ def backtest(ticker: str) -> list[dict]:
         out.append({"date": dt, "ticker": t, "action": vm.verdict.action,
                     "overall": vm.verdict.overall, "direction": vm.verdict.direction,
                     "reasons": vm.verdict.reasons, "surfaces": sig})
+
+    # OUTCOME JOIN — "was it right": next archived session's close move, from bronze
+    # stock-state (zero UW calls; coverage matches the flow bronze by construction).
+    closes: dict[str, float] = {}
+    for dt, row in _latest_per_dt(f"stock_{t}_stock-state", t).items():
+        try:
+            data = json.loads(row["response"]).get("data") or {}
+            d0 = data[0] if isinstance(data, list) else data
+            v = float(d0.get("close") or d0.get("prev_close") or 0)
+            if v > 0:
+                closes[dt] = v
+        except Exception:
+            continue
+    dts = sorted(closes)
+    for r in out:
+        nxt = next((d for d in dts if d > r["date"]), None)
+        if r["date"] in closes and nxt:
+            pct = (closes[nxt] - closes[r["date"]]) / closes[r["date"]] * 100
+            r["outcome_date"], r["outcome_pct"] = nxt, round(pct, 2)
+            r["called_right"] = ((pct > 0) if r["direction"] == "calls" else
+                                 (pct < 0) if r["direction"] == "puts" else None)
+        else:
+            r["outcome_date"] = r["outcome_pct"] = r["called_right"] = None
     return out
 
 
@@ -104,7 +127,9 @@ def main() -> int:
     out_dir = settings.gold / "backtest" / args.label
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "signal_history.jsonl"
-    with out.open("a", encoding="utf-8") as f:
+    # REWRITE (not append): the file is fully regenerable from bronze each run, which
+    # keeps it deduped and lets outcomes back-fill as later sessions arrive.
+    with out.open("w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, default=str) + "\n")
     print(f"{len(rows)} session(s) re-derived -> {out}")

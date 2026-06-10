@@ -40,6 +40,27 @@ def test_backtest_rederives_a_session_from_bronze(lake):
     json.dumps(r)                                  # line-diffable: JSON-serializable
 
 
+def test_outcome_join_scores_the_direction_call(lake):
+    """Each row gains next-session move + called_right, from bronze stock-state (no UW)."""
+    from scripts.backtest_replay import backtest
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    storage.write_rows("bronze", "option-trades_flow-alerts", [{
+        "endpoint": "/option-trades/flow-alerts", "params_json": "{}",
+        "fetched_at": "2026-06-08T15:05:00Z", "content_hash": "h",
+        "response": json.dumps(payload)}], ticker="SPY", dt="2026-06-08")
+    for dt, close in (("2026-06-08", 745.0), ("2026-06-09", 738.0)):   # -0.94% next day
+        storage.write_rows("bronze", "stock_SPY_stock-state", [{
+            "endpoint": "/stock/SPY/stock-state", "params_json": "{}",
+            "fetched_at": f"{dt}T20:00:00Z", "content_hash": "h",
+            "response": json.dumps({"data": {"close": str(close)}})}],
+            ticker="SPY", dt=dt)
+    r = backtest("SPY")[0]
+    assert r["direction"] == "puts"
+    assert r["outcome_date"] == "2026-06-09"
+    assert r["outcome_pct"] == -0.94
+    assert r["called_right"] is True               # puts + the market fell
+
+
 def test_backtest_empty_lake_is_empty(lake):
     from scripts.backtest_replay import backtest
     assert backtest("SPY") == []
