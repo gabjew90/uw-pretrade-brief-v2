@@ -1,0 +1,260 @@
+{
+  "as_of": "2026-06-08T15:05:00Z",
+  "elements": [
+    {
+      "detail": {
+        "Call premium": "$6.2M",
+        "Put premium": "$9.2M",
+        "Read from": "opening flow"
+      },
+      "key": "direction",
+      "label": "Where's the money betting?",
+      "logic": "side with more opening premium wins",
+      "meaning": "$6.2M call \u00b7 $9.2M put",
+      "provenance": {
+        "as_of": "2026-06-08T15:05:00Z",
+        "note": "",
+        "quality": "real",
+        "source": "archive"
+      },
+      "series": {
+        "kind": "strike_bars",
+        "points": [
+          {
+            "premium": 2562599,
+            "side": "call",
+            "strike": 743.0
+          },
+          {
+            "premium": 1369957,
+            "side": "call",
+            "strike": 742.0
+          },
+          {
+            "premium": 718476,
+            "side": "call",
+            "strike": 744.0
+          },
+          {
+            "premium": 545075,
+            "side": "call",
+            "strike": 745.0
+          },
+          {
+            "premium": 441775,
+            "side": "call",
+            "strike": 741.0
+          },
+          {
+            "premium": 2926952,
+            "side": "put",
+            "strike": 706.0
+          },
+          {
+            "premium": 2038581,
+            "side": "put",
+            "strike": 708.0
+          },
+          {
+            "premium": 1385851,
+            "side": "put",
+            "strike": 739.0
+          },
+          {
+            "premium": 914833,
+            "side": "put",
+            "strike": 742.0
+          },
+          {
+            "premium": 725810,
+            "side": "put",
+            "strike": 743.0
+          }
+        ]
+      },
+      "surface": "PUTS",
+      "tone": "neutral"
+    },
+    {
+      "detail": {
+        "why": "greek-flow empty or flat"
+      },
+      "key": "conviction",
+      "label": "Does the live tape agree?",
+      "logic": "sign of the session net delta",
+      "meaning": "no greek-flow",
+      "provenance": {
+        "as_of": null,
+        "note": "greek-flow empty or flat",
+        "quality": "unavailable",
+        "source": "derived"
+      },
+      "series": null,
+      "surface": null,
+      "tone": "unavailable"
+    },
+    {
+      "detail": {
+        "why": "OI history unconfirmed (archive-decoupled)"
+      },
+      "key": "positioning",
+      "label": "Is the bet being held?",
+      "logic": "growth in OI at the bet's strikes",
+      "meaning": "no settled OI yet",
+      "provenance": {
+        "as_of": null,
+        "note": "OI history unconfirmed (archive-decoupled)",
+        "quality": "unavailable",
+        "source": "derived"
+      },
+      "series": null,
+      "surface": "NOT YET",
+      "tone": "unavailable"
+    },
+    {
+      "detail": {
+        "why": "no spot-exposures data"
+      },
+      "key": "structural",
+      "label": "Will moves extend or fade?",
+      "logic": "negative dealer gamma extends moves, positive pins them",
+      "meaning": "no dealer gamma",
+      "provenance": {
+        "as_of": null,
+        "note": "no spot-exposures data",
+        "quality": "unavailable",
+        "source": "derived"
+      },
+      "series": null,
+      "surface": null,
+      "tone": "unavailable"
+    },
+    {
+      "detail": {
+        "why": "insufficient RR history"
+      },
+      "key": "skew",
+      "label": "Which way is fear priced?",
+      "logic": "risk-reversal sign vs your side (oppose caps the verdict)",
+      "meaning": "no risk reversal",
+      "provenance": {
+        "as_of": null,
+        "note": "insufficient RR history",
+        "quality": "unavailable",
+        "source": "derived"
+      },
+      "series": null,
+      "surface": null,
+      "tone": "unavailable"
+    },
+    {
+      "detail": {
+        "The call": "no chain to price the trade"
+      },
+      "key": "cost",
+      "label": "Is it worth the cost?",
+      "logic": "PASS on event, earnings, or spread bigger than the move",
+      "meaning": "no chain to price the trade",
+      "provenance": {
+        "as_of": null,
+        "note": "no interpolated-iv",
+        "quality": "unavailable",
+        "source": "derived"
+      },
+      "series": {
+        "kind": "line",
+        "points": []
+      },
+      "surface": "PRICEY",
+      "tone": "cautionary"
+    },
+    {
+      "detail": {
+        "why": "no interpolated-iv"
+      },
+      "key": "contract",
+      "label": "Which contract?",
+      "logic": "flow side, 2-14 days out, strike nearest the price",
+      "meaning": "no chain to pick from",
+      "provenance": {
+        "as_of": null,
+        "note": "no interpolated-iv",
+        "quality": "unavailable",
+        "source": "derived"
+      },
+      "series": null,
+      "surface": null,
+      "tone": "unavailable"
+    },
+    {
+      "detail": {
+        "note": "flow-alerts hit the 500 page cap, older alerts not included"
+      },
+      "key": "flow_truncation",
+      "label": "Partial flow window",
+      "logic": "",
+      "meaning": "feed hit its 500 cap, oldest alerts missing",
+      "provenance": {
+        "as_of": "2026-06-08T15:05:00Z",
+        "note": "",
+        "quality": "real",
+        "source": "archive"
+      },
+      "series": null,
+      "surface": "partial",
+      "tone": "cautionary"
+    }
+  ],
+  "regime": {
+    "detail": {
+      "Next macro event (5d)": "n/a",
+      "SPY IV (near-term)": "n/a",
+      "SPY index gamma": "n/a",
+      "Tape tide": "n/a"
+    },
+    "key": "regime",
+    "label": "What's the market backdrop?",
+    "logic": "same for every ticker. a macro event inside 5d also gates Cost",
+    "meaning": "SPY gamma n/a \u00b7 IV n/a \u00b7 tide n/a",
+    "provenance": {
+      "as_of": "2026-06-08T15:05:00+00:00",
+      "note": "",
+      "quality": "real",
+      "source": "live"
+    },
+    "series": null,
+    "surface": "EVENTS N/A",
+    "tone": "neutral"
+  },
+  "ticker": "SPY",
+  "verdict": {
+    "action": "Mixed, puts weak",
+    "conflict_legs": [],
+    "direction": "puts",
+    "overall": "Mixed",
+    "provenance": {
+      "as_of": "2026-06-08T15:05:00Z",
+      "note": "",
+      "quality": "unavailable",
+      "source": "derived"
+    },
+    "reasons": [
+      "opening flow puts",
+      "OI unconfirmed",
+      "tape n/a",
+      "skew n/a",
+      "gamma n/a",
+      "cost: no chain to price the trade"
+    ],
+    "signal_conflict": false,
+    "signals_used": [
+      "flow",
+      "positioning",
+      "conviction",
+      "skew",
+      "dealer_gamma",
+      "cost"
+    ]
+  },
+  "verdict_logic": "Stand down if cost says PASS or OI is red. Favorable needs opening-flow direction, OI not shrinking, trend gamma, no skew/tape conflict, cost clear. Anything else is Mixed."
+}

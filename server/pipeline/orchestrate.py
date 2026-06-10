@@ -381,13 +381,15 @@ def build_grid() -> dict:
         return {"rows": [], "as_of": None, "note": f"grid unavailable: {e}"}
 
 
-def build_view(ticker: str, *, asof: str | None = None) -> ViewModel:
+def build_view(ticker: str, *, asof: str | None = None,
+               now: datetime | None = None) -> ViewModel:
     """Full pipeline for one ticker: build the canon (live, governor-gated), compute the
-    market regime once (its macro event feeds the per-ticker Cost gate), then run the pure
+    market context once (its macro event feeds the per-ticker Cost gate), then run the pure
     stages. On total fetch failure, an empty canon still yields a well-formed
-    `unavailable`/Stand-down ViewModel (never a crash, never a guessed direction)."""
+    `unavailable`/Stand-down ViewModel (never a crash, never a guessed direction).
+    `now` is injectable so REPLAY parity is deterministic (clock-service discipline)."""
     ticker = ticker.upper()
-    now = datetime.now(tz=timezone.utc)
+    now = now or datetime.now(tz=timezone.utc)
     asof = asof or clock.session_date(now).isoformat()
     try:
         canon = build_canon(ticker, asof=asof, now=now)

@@ -43,3 +43,52 @@ def test_backtest_rederives_a_session_from_bronze(lake):
 def test_backtest_empty_lake_is_empty(lake):
     from scripts.backtest_replay import backtest
     assert backtest("SPY") == []
+
+
+def test_backtest_diff_is_confined_to_the_changed_signal(lake, monkeypatch):
+    """Diffability acceptance (ops-ci §7): an intentionally changed derive fn yields a
+    non-empty diff CONFINED to the affected signal — proves a signal change's historical
+    impact is observable from the JSONL alone."""
+    from scripts.backtest_replay import backtest
+    from server.pipeline import derive
+    from server.models import Flow
+    from server.services import provenance as prov
+
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    storage.write_rows("bronze", "option-trades_flow-alerts", [{
+        "endpoint": "/option-trades/flow-alerts", "params_json": "{}",
+        "fetched_at": "2026-06-08T15:05:00Z", "content_hash": "h",
+        "response": json.dumps(payload),
+    }], ticker="SPY", dt="2026-06-08")
+
+    baseline = backtest("SPY")
+
+    def flipped(canon, *, asof=None):              # the "changed signal"
+        return Flow(direction="calls", direction_basis="opening_flow",
+                    call_prem=1.0, put_prem=0.0, provenance=prov.derived())
+    monkeypatch.setitem(derive.REGISTRY, "flow", flipped)
+    changed = backtest("SPY")
+
+    assert [r["date"] for r in baseline] == [r["date"] for r in changed]   # same sessions
+    assert baseline[0]["direction"] == "puts" and changed[0]["direction"] == "calls"
+    assert baseline[0]["surfaces"]["direction"] != changed[0]["surfaces"]["direction"]
+    # confined: untouched signals read identically across the two runs
+    for key in ("skew", "structural", "conviction"):
+        assert baseline[0]["surfaces"].get(key) == changed[0]["surfaces"].get(key)
+
+
+def test_backup_bronze_dry_run_and_tar(lake, tmp_path):
+    """ops-ci §5 acceptance: dry-run exits 0; real run writes tar + sha256 manifest."""
+    from scripts.backup_bronze import main
+    src = lake["bronze"]
+    out = tmp_path / "backups"
+    assert main(["--src", str(src), "--out", str(out), "--dry-run"]) == 0
+    assert not out.exists()                        # dry-run wrote nothing
+    # seed one file so there is something to tar
+    storage.write_rows("bronze", "option-trades_flow-alerts", [{
+        "endpoint": "/x", "params_json": "{}", "fetched_at": "t",
+        "content_hash": "h", "response": "{}"}], ticker="SPY", dt="2026-06-08")
+    assert main(["--src", str(src), "--out", str(out)]) == 0
+    tars = list(out.glob("bronze-*.tar.gz"))
+    assert len(tars) == 1 and tars[0].stat().st_size > 0
+    assert list(out.glob("bronze-*.sha256"))
