@@ -223,6 +223,22 @@ _VERDICT_LOGIC = ("Stand down if cost says PASS or OI is red. Favorable needs op
                   "Anything else is Mixed.")
 
 
+def _next_step(verdict: Verdict, cost) -> str:
+    """The 'so what do I do' line — the synthesis an amateur actually needs, composed
+    server-side from the verdict + the binding gate. Usage, not analysis."""
+    if verdict.overall == "Stand down":
+        why = (cost.reason if cost is not None and getattr(cost, "guard", "") == "block"
+               else (verdict.reasons[0] if verdict.reasons else "the gates failed"))
+        return f"No trade today: {why}. Check back next session."
+    if verdict.overall == "Favorable":
+        side = verdict.direction or "the flow side"
+        return (f"Setup aligns for {side}. The contract tile shows the exact one and its "
+                "max loss. Size so a full loss is fine, exit before the next event/expiry.")
+    legs = f" ({', '.join(verdict.conflict_legs)} disagree)" if verdict.conflict_legs else ""
+    return (f"Nothing compelling{legs}. Doing nothing is the default. If you trade anyway "
+            "it's your judgment over the data: the contract tile shows what you'd buy.")
+
+
 def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
             *, as_of: str | None = None, market: dict | None = None) -> ViewModel:
     """Assemble the renderable view model. Verdict forwarded VERBATIM. Conflicting legs are
@@ -251,4 +267,6 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
     asofs = sorted(s.provenance.as_of for s in signals.values() if s.provenance.as_of)
     return ViewModel(ticker=ticker, as_of=asofs[0] if asofs else as_of,
                      regime=_market_el(market) if market else None,
-                     verdict_logic=_VERDICT_LOGIC, elements=elements, verdict=verdict)
+                     verdict_logic=_VERDICT_LOGIC,
+                     next_step=_next_step(verdict, signals.get("cost")),
+                     elements=elements, verdict=verdict)

@@ -75,8 +75,10 @@
     <div id="verdict"></div>
     <div id="view"></div>
     <p class="note">
-      Renders <code>/api/view/&lt;ticker&gt;</code> verbatim. Every value, label, and tone is
-      server-built. No signal logic, no thresholds, no recomputation in the browser.
+      How to read this page: 1) THE CALL is the answer — the line under it says what to
+      do. 2) Market now = today's conditions, same for every ticker. 3) The tiles are the
+      evidence behind the call — tap any for its numbers and how it's decided. 4) Which
+      contract = what you'd actually buy if you act, with its max loss.
     </p>
   </main>
   <script>
@@ -141,6 +143,7 @@
           `<div class="callblock">
              <div class="k">The call · ${esc(vm.ticker)}</div>
              <div class="verdict ${verdictTone(v)}">${esc(v.action || "n/a")}</div>` +
+          (vm.next_step ? `<div class="meaning" style="margin:2px 0 8px">${esc(vm.next_step)}</div>` : "") +
           (v.reasons && v.reasons.length
             ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "") +
           (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "") +

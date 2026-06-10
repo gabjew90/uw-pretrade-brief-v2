@@ -360,5 +360,6 @@ class ViewModel(BaseModel):
     as_of: Optional[str] = None
     regime: Optional[Element] = None        # market-wide header (posture + its data variables)
     verdict_logic: str = ""                 # how the overall call is reached from the gates
+    next_step: str = ""                     # the "so what do I do" line, server-composed
     elements: list[Element] = Field(default_factory=list)
     verdict: Optional[Verdict] = None
