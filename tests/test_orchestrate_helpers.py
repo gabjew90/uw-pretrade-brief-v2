@@ -5,7 +5,8 @@ that turns canonical records into the cross-signal canon inputs.
 from datetime import date, datetime, timezone
 
 from server.models import FlowAlert
-from server.pipeline.orchestrate import _days_to_earnings, _flow_cluster, _tide_lean
+from server.pipeline.orchestrate import (_days_to_earnings, _flow_cluster, _skew_expiry,
+                                         _tide_lean)
 from server.pipeline.derive import flow_side
 
 ASOF = date(2026, 6, 8)
@@ -48,6 +49,22 @@ def test_tide_lean_uses_last_row_after_intraday_flip():
 
 def test_tide_lean_empty_is_neutral():
     assert _tide_lean([]) == "neutral"
+
+
+# ── _skew_expiry: nearest 3rd-Friday monthly >= 25 DTE ────────────────────────
+def test_skew_expiry_picks_3rd_friday_at_least_25d_out():
+    # 2026-06-09: June 3rd Friday = 2026-06-19 (10d, too near) -> July 17 (38d)
+    assert _skew_expiry(date(2026, 6, 9)) == "2026-07-17"
+
+
+def test_skew_expiry_uses_current_month_when_far_enough():
+    # 2026-06-01: June 19 is 18d (too near) -> July 17; 2026-05-20: June 19 = 30d OK
+    assert _skew_expiry(date(2026, 5, 20)) == "2026-06-19"
+
+
+def test_skew_expiry_year_rollover():
+    # 2026-12-10: Dec 3rd Friday = 2026-12-18 (8d) -> 2027-01-15
+    assert _skew_expiry(date(2026, 12, 10)) == "2027-01-15"
 
 
 # ── Market vol uses SPY IV, never the viewed ticker's (Fix 3) ─────────────────

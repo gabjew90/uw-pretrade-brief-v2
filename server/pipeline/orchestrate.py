@@ -18,7 +18,7 @@ reproducible).
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from server.models import ViewModel
 from server.pipeline.decide import decide
@@ -115,6 +115,22 @@ def _flow_cluster(flow_alerts, side: str, asof_d: date,
         if a.type == side and a.strike is not None and 0 <= dte(a) <= near:
             by_strike[a.strike] = by_strike.get(a.strike, 0.0) + (a.total_premium or 0.0)
     return sorted(by_strike, key=lambda k: by_strike[k], reverse=True)[:top_n]
+
+
+def _skew_expiry(asof_d: date, min_dte: int = 25) -> str:
+    """The ~30d MONTHLY expiry the 25Δ RR series is read at: the nearest 3rd-Friday at
+    least `min_dte` days out. The no-expiry series is a DIFFERENT (near-tenor) series —
+    probed 2026-06-09: latest +0.006 vs +0.049 on the 30d monthly — so the expiry must be
+    explicit. Ported from `e1d6c5e:server/snapshot.py::_skew_expiry`."""
+    y, m = asof_d.year, asof_d.month
+    while True:
+        first = date(y, m, 1)
+        third_friday = first + timedelta(days=(4 - first.weekday()) % 7 + 14)
+        if (third_friday - asof_d).days >= min_dte:
+            return third_friday.isoformat()
+        m += 1
+        if m > 12:
+            y, m = y + 1, 1
 
 
 def _days_to_earnings(earnings_rows, now: datetime) -> int | None:
@@ -215,7 +231,8 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         "greek_flow": _fetch_norm(f"/stock/{ticker}/greek-flow", {}, ticker, Priority.NORMAL),
         "gamma_strikes": gamma_strikes,
         "skew_rr": _fetch_norm(f"/stock/{ticker}/historical-risk-reversal-skew",
-                               {"delta": 25}, ticker, Priority.NORMAL),
+                               {"expiry": _skew_expiry(asof_d), "delta": 25},
+                               ticker, Priority.NORMAL),
         "iv_term": iv_term,
         # the chain for the spread-cost / expected-move gate (load-bearing risk check)
         "option_contracts": _fetch_norm(f"/stock/{ticker}/option-contracts", {"limit": 500},
