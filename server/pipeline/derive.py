@@ -44,6 +44,11 @@ _BURDEN_BLOCK = 2.0        # spread/priced-move ≥ this ⇒ friction ≫ the mo
 _BURDEN_CAUTION = 1.0      # spread comparable to the move ⇒ caution
 _COST_MIN_DTE = 2        # weekly-DTE floor: skip 0–1 DTE (event/expiry gamma) when a real
 _COST_NEAR_DTE = 14      # weekly exists — the contract you'd actually hold. Operator-tunable.
+# Contract-guidance checks (v2 tile4 keepers; operator-tunable):
+_DELTA_LO, _DELTA_HI = 0.35, 0.55   # the sane naked-weekly band: below = lottery ticket,
+                                     # above = mostly intrinsic (paying for stock exposure)
+_THETA_MAX_DAY_PCT = 15.0            # |theta|/premium per day above this bleeds too fast
+_N_CANDIDATES = 5                    # nearby alternatives shown with their numbers
 _TERM_FRONT_DTE = 5      # term-structure overpay: front (weekly) vs back (~30d) IV
 _TERM_BACK_DTE = 30
 _TERM_INVERT_PTS = 0.03  # front − back above this (3 vol pts) = inverted → overpaying near
@@ -323,18 +328,15 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     # BREAKEVEN. This is the load-bearing gate — the edge is smaller than the round-trip cost.
     spread_pct = be_pct = em_pct = None
     contract_d = None
+    candidates: list[dict] = []
+    greeks = canon.get("greeks") or []
     pick = _pick_contract(contracts, side, spot, asof_d)
     if pick:
-        mid = (pick.bid + pick.ask) / 2
-        spread_pct = round((pick.ask - pick.bid) / mid * 100, 1) if mid > 0 else None
-        prem = pick.ask or mid
-        if prem > 0:
-            be_pct = round(_breakeven_move_pct(pick, spot, prem), 2)
-        dte_c = (date.fromisoformat(pick.expiry) - asof_d).days
-        em = _expected_move_pct(iv, dte_c)
-        em_pct = round(em, 2) if em is not None else None
-        contract_d = {"type": pick.type, "strike": pick.strike, "expiry": pick.expiry,
-                      "bid": pick.bid, "ask": pick.ask, "dte": dte_c}
+        contract_d = _contract_metrics(pick, side, spot, asof_d, iv, greeks)
+        spread_pct, be_pct, em_pct = (contract_d.get("spread_pct"),
+                                      contract_d.get("breakeven_move_pct"),
+                                      contract_d.get("expected_move_pct"))
+        candidates = _candidate_metrics(contracts, pick, side, spot, asof_d, iv, greeks)
     tradeable = spread_pct is not None and be_pct is not None and em_pct is not None
     front_iv, back_iv, inverted = _term_overpay(canon.get("term_structure"))
 
@@ -377,6 +379,16 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
             flags.append(f"term inverted {front_iv:.0%}/{back_iv:.0%}")
         if ivr is None:
             flags.append("IV rank n/a")
+        # contract-quality degraders (v2 tile4 keepers): outside the delta band or
+        # bleeding too fast a right direction still tends to lose
+        d = (contract_d or {}).get("delta")
+        if d is not None and d < _DELTA_LO:
+            flags.append(f"delta {d:.2f} lottery-ish")
+        elif d is not None and d > _DELTA_HI:
+            flags.append(f"delta {d:.2f} mostly intrinsic")
+        th = (contract_d or {}).get("theta_day_pct")
+        if th is not None and th > _THETA_MAX_DAY_PCT:
+            flags.append(f"theta {th:.0f}%/day")
         # a FAILED calendar fetch is unknown, not an all-clear (review SEVERE #2)
         if canon.get("event_calendar_ok") is False:
             flags.append("macro calendar n/a")
@@ -390,8 +402,8 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     src = prov.derived(ivsrc, pick.provenance) if pick else ivsrc
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,
                 spread_pct=spread_pct, breakeven_move_pct=be_pct, expected_move_pct=em_pct,
-                contract=contract_d, front_iv=front_iv, back_iv=back_iv,
-                term_inverted=inverted, reason=reason, provenance=src)
+                contract=contract_d, candidates=candidates, front_iv=front_iv,
+                back_iv=back_iv, term_inverted=inverted, reason=reason, provenance=src)
 
 
 def _pick_contract(contracts, side, spot, asof_d):
@@ -448,6 +460,47 @@ def _expected_move_pct(iv_term, dte: int):
         return None
     row = min(iv_term, key=lambda p: abs((p.days or 0) - dte))
     return None if row.implied_move_perc is None else row.implied_move_perc * 100
+
+
+def _greeks_leg(greeks, strike: float, side: str) -> tuple[float | None, float | None]:
+    """(delta, theta) for the side's leg at `strike` — greeks rows carry SEPARATE
+    call_/put_ columns (v2 live-confirmed). None when the strike isn't in the sheet."""
+    for g in greeks or []:
+        if g.strike == strike:
+            if side == "call":
+                return g.call_delta, g.call_theta
+            return g.put_delta, g.put_theta
+    return None, None
+
+
+def _contract_metrics(c, side: str, spot: float, asof_d, iv_term, greeks) -> dict:
+    """Everything an amateur needs to judge ONE contract: quote, spread, breakeven vs the
+    priced move, delta (P(profit)-ish), and theta drag (%premium bled per day)."""
+    mid = (c.bid + c.ask) / 2
+    prem = c.ask or mid
+    dte_c = (date.fromisoformat(c.expiry) - asof_d).days
+    delta, theta = _greeks_leg(greeks, c.strike, side)
+    em = _expected_move_pct(iv_term, dte_c)
+    return {
+        "type": c.type, "strike": c.strike, "expiry": c.expiry, "dte": dte_c,
+        "bid": c.bid, "ask": c.ask,
+        "spread_pct": round((c.ask - c.bid) / mid * 100, 1) if mid > 0 else None,
+        "breakeven_move_pct": round(_breakeven_move_pct(c, spot, prem), 2) if prem > 0 else None,
+        "expected_move_pct": round(em, 2) if em is not None else None,
+        "delta": round(abs(delta), 2) if delta is not None else None,
+        "theta_day_pct": round(abs(theta) / prem * 100, 1) if (theta is not None and prem > 0) else None,
+        "volume": c.volume, "open_interest": c.open_interest,
+    }
+
+
+def _candidate_metrics(contracts, pick, side: str, spot: float, asof_d, iv_term, greeks) -> list[dict]:
+    """The pick's nearest-the-money same-expiry neighbours with the same metrics — so the
+    strike CHOICE is informed, not just the gate. Ranked by closeness to the money."""
+    sibs = [c for c in contracts or []
+            if c.type == side and c.expiry == pick.expiry and c.strike != pick.strike]
+    sibs.sort(key=lambda c: abs(c.strike - spot))
+    return [_contract_metrics(c, side, spot, asof_d, iv_term, greeks)
+            for c in sibs[:_N_CANDIDATES]]
 
 
 _POS_WINDOW = 5   # settled sessions the build/unwind trend is read over (operator-tunable)

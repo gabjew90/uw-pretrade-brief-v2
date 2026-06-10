@@ -22,8 +22,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from server.models import ViewModel
 from server.pipeline.decide import decide
-from server.pipeline.derive import (derive_all, derive_dealer_gamma, flow_side,
-                                     next_macro_event, session_alerts)
+from server.pipeline.derive import (_pick_contract, derive_all, derive_dealer_gamma,
+                                     flow_side, next_macro_event, session_alerts)
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
@@ -266,6 +266,11 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         canon["flow_strikes"] = _flow_cluster(sess_alerts, side, asof_d)
         canon["contract_oi"] = _cluster_contract_oi(canon["option_contracts"], side,
                                                     canon["flow_strikes"], asof_d)
+        # greeks for the pick's expiry → delta band + theta drag on the contract guidance
+        pick = _pick_contract(canon["option_contracts"], side, canon["spot"] or 0.0, asof_d)
+        if pick:
+            canon["greeks"] = _fetch_norm(f"/stock/{ticker}/greeks",
+                                          {"expiry": pick.expiry}, ticker, Priority.NORMAL)
 
     earnings = _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW)
     canon["days_to_earnings"] = _days_to_earnings(earnings, now)

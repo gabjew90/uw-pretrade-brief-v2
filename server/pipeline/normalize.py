@@ -20,8 +20,8 @@ from typing import Callable
 from pydantic import ValidationError
 
 from server.models import (ContractOIBar, FlowAlert, GammaStrike, GreekFlowPoint,
-                            IVTermPoint, OISnapshot, OptionContract, SkewPoint,
-                            TermStructurePoint)
+                            GreeksRow, IVTermPoint, OISnapshot, OptionContract,
+                            SkewPoint, TermStructurePoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -252,6 +252,23 @@ def normalize_option_contracts(raw: RawRecord) -> list[OptionContract]:
             raise NormalizeError(f"option-contracts row {i} failed validation: {e}") from e
     if rows and not out:
         raise NormalizeError("option-contracts: no option_symbol parsed (OCC format drift?)")
+    return out
+
+
+@register("stock_greeks")
+def normalize_greeks(raw: RawRecord) -> list[GreeksRow]:
+    """Raw /stock/{t}/greeks?expiry= payload → `list[GreeksRow]` (per-strike, separate
+    call_/put_ legs). Feeds delta-band + theta-drag contract checks. Empty is []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[GreeksRow] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"greeks row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(GreeksRow.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"greeks row {i} failed validation: {e}") from e
     return out
 
 

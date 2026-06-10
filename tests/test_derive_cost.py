@@ -208,6 +208,73 @@ def test_pick_falls_back_to_0dte_if_no_weekly():
     assert pick.expiry == "2026-06-08"             # only a 0-DTE exists → use it
 
 
+# ── contract guidance: delta band + theta drag + candidates (list item 3) ─────
+def _greeks(strike=100.0, call_delta=0.45, put_delta=-0.45, call_theta=-0.05, put_theta=-0.05):
+    from server.models import GreeksRow
+    return [GreeksRow(strike=strike, call_delta=call_delta, put_delta=put_delta,
+                      call_theta=call_theta, put_theta=put_theta)]
+
+
+def test_pick_carries_delta_and_theta_drag():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["greeks"] = _greeks(call_delta=0.45, call_theta=-0.05)   # ask 1.05 → ~4.8%/day
+    c = derive_cost(canon, asof=ASOF)
+    assert c.contract["delta"] == 0.45
+    assert c.contract["theta_day_pct"] == 4.8
+    assert c.guard == "ok"                                         # in-band, mild theta
+
+
+def test_low_delta_flags_lottery():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["greeks"] = _greeks(call_delta=0.15)
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert "lottery" in c.reason
+
+
+def test_high_delta_flags_intrinsic():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["greeks"] = _greeks(call_delta=0.80)
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert "intrinsic" in c.reason
+
+
+def test_fast_theta_flags():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["greeks"] = _greeks(call_theta=-0.30)    # 0.30/1.05 ≈ 29%/day
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert "theta" in c.reason
+
+
+def test_put_side_uses_put_leg_abs_delta():
+    canon = _tradeable(ivr_pct=0.20, side="put")
+    canon["greeks"] = _greeks(put_delta=-0.45, put_theta=-0.05)
+    c = derive_cost(canon, asof=ASOF)
+    assert c.contract["delta"] == 0.45             # abs of the put leg
+
+
+def test_candidates_are_same_expiry_neighbours_with_metrics():
+    canon = _tradeable(ivr_pct=0.20, strike=100.0)
+    canon["option_contracts"] = (
+        _contract("call", 100.0) + _contract("call", 101.0) + _contract("call", 99.0)
+        + _contract("call", 110.0) + _contract("put", 100.5))      # put excluded
+    c = derive_cost(canon, asof=ASOF)
+    assert c.contract["strike"] == 100.0
+    strikes = [x["strike"] for x in c.candidates]
+    assert strikes[:2] == [101.0, 99.0] or strikes[:2] == [99.0, 101.0]  # nearest-money first
+    assert 100.5 not in strikes
+    assert all("spread_pct" in x and "breakeven_move_pct" in x for x in c.candidates)
+
+
+def test_missing_greeks_is_not_a_flag():
+    """No greeks sheet → delta/theta None, no lottery/theta flag (honest absence)."""
+    c = derive_cost(_tradeable(ivr_pct=0.20), asof=ASOF)
+    assert c.contract["delta"] is None
+    assert c.guard == "ok"
+
+
 # ── golden: real interpolated-iv + option-contracts ───────────────────────────
 def test_golden_real_chain_and_iv():
     iv = normalize(RawRecord(endpoint="/stock/SPY/interpolated-iv", params={}, ticker="SPY",

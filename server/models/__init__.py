@@ -160,6 +160,21 @@ class OptionContract(BaseModel):
     provenance: Provenance = Field(default_factory=Provenance)
 
 
+class GreeksRow(BaseModel):
+    """One per-strike greeks row for a single expiry (from /stock/{t}/greeks?expiry=).
+    SEPARATE call_/put_ legs (v2 live-confirmed — there is no flat delta/theta). Feeds the
+    contract-guidance checks: delta band + theta drag. Strings coerced."""
+    model_config = ConfigDict(extra="ignore")
+
+    strike: float
+    expiry: str = ""
+    call_delta: Optional[float] = None
+    put_delta: Optional[float] = None
+    call_theta: Optional[float] = None
+    put_theta: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class ContractOIBar(BaseModel):
     """One daily bar of a specific contract's history (from option-contract/{id}/historic,
     root key 'chains'). `open_interest` is that date's settled OI. This is the DEEP OI
@@ -289,7 +304,8 @@ class Cost(Signal):
     spread_pct: Optional[float] = None          # round-trip spread, % of premium
     breakeven_move_pct: Optional[float] = None  # underlying move % needed to break even
     expected_move_pct: Optional[float] = None   # move % the options are pricing (implied)
-    contract: Optional[dict] = None             # the realistic contract evaluated
+    contract: Optional[dict] = None             # the realistic contract evaluated (+greeks)
+    candidates: list[dict] = Field(default_factory=list)   # nearby alternatives w/ metrics
     front_iv: Optional[float] = None            # near-dated IV (term-structure overpay check)
     back_iv: Optional[float] = None             # ~30d IV
     term_inverted: bool = False                 # front >> back ⇒ overpaying for near vol

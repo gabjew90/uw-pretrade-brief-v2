@@ -172,6 +172,38 @@ def _market_el(m: dict) -> Element:
                    provenance=prov.live(m.get("as_of")))
 
 
+def _fmt_candidate(c: dict) -> str:
+    """One contract as a terse number row: '745 put · 2d · $4.68 · Δ0.45 · spread 1% · θ8%/d'."""
+    bits = [f"{c['strike']:g} {c['type']} · {c['dte']}d · ${c['ask']:.2f}"]
+    if c.get("delta") is not None:
+        bits.append(f"Δ{c['delta']:.2f}")
+    if c.get("spread_pct") is not None:
+        bits.append(f"spread {c['spread_pct']:.0f}%")
+    if c.get("theta_day_pct") is not None:
+        bits.append(f"θ{c['theta_day_pct']:.0f}%/d")
+    if c.get("breakeven_move_pct") is not None:
+        bits.append(f"be {c['breakeven_move_pct']:.2f}%")
+    return " · ".join(bits)
+
+
+def _contract_el(c) -> Element:
+    """'Which contract?' — the realistic pick with its numbers, plus the nearest
+    alternatives so the strike CHOICE is informed (guidance, not a verdict leg)."""
+    if c is None or not c.contract:
+        return _unavail("contract", "Which contract?", c, "no chain to pick from",
+                        "flow side, 2-14 days out, strike nearest the price")
+    ct = c.contract
+    d: dict = {"The pick": _fmt_candidate(ct)}
+    for i, alt in enumerate(c.candidates, 1):
+        d[f"Alt {i}"] = _fmt_candidate(alt)
+    d["Sane delta band"] = "0.35 to 0.55 (below = lottery ticket, above = mostly intrinsic)"
+    return Element(key="contract", label="Which contract?",
+                   surface=f"{ct['strike']:g} {ct['type'].upper()} · {ct['dte']}d",
+                   meaning=_fmt_candidate(ct),
+                   logic="flow side, 2-14 days out, nearest the money. delta and theta from the greeks sheet",
+                   detail=d, tone="neutral", provenance=c.provenance)
+
+
 _BUILDERS = [
     ("flow", _direction_el), ("conviction", _conviction_el), ("positioning", _positioning_el),
     ("dealer_gamma", _structural_el), ("skew", _skew_el), ("cost", _cost_el),
@@ -191,6 +223,8 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
     for name, build in _BUILDERS:
         if name in signals:
             elements.append(build(signals[name]))
+            if name == "cost":                  # one signal, two tiles: the gate + the pick
+                elements.append(_contract_el(signals[name]))
 
     conflicting = set(verdict.conflict_legs or [])
     for el in elements:

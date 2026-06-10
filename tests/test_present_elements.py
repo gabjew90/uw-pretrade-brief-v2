@@ -90,6 +90,34 @@ def test_verdict_forwarded_verbatim():
     assert vm.verdict is v                              # same object, not re-derived
 
 
+def test_contract_tile_shows_pick_and_alternatives():
+    sigs = _full_signals()
+    sigs["cost"] = Cost(guard="ok", ivr=40,
+                        contract={"type": "call", "strike": 600.0, "expiry": "2026-06-12",
+                                  "dte": 3, "bid": 4.5, "ask": 4.68, "spread_pct": 3.9,
+                                  "breakeven_move_pct": 1.1, "expected_move_pct": 1.5,
+                                  "delta": 0.45, "theta_day_pct": 8.0,
+                                  "volume": 100, "open_interest": 1000},
+                        candidates=[{"type": "call", "strike": 605.0, "expiry": "2026-06-12",
+                                     "dte": 3, "bid": 2.0, "ask": 2.1, "spread_pct": 4.8,
+                                     "breakeven_move_pct": 1.6, "expected_move_pct": 1.5,
+                                     "delta": 0.30, "theta_day_pct": 11.0,
+                                     "volume": 50, "open_interest": 500}])
+    vm = present("SPY", sigs, decide(sigs))
+    el = next(e for e in vm.elements if e.key == "contract")
+    assert el.surface == "600 CALL · 3d"
+    assert "Δ0.45" in el.meaning and "spread 4%" in el.meaning
+    assert "Alt 1" in el.detail and "605" in el.detail["Alt 1"]
+
+
+def test_contract_tile_unavailable_without_chain():
+    sigs = _full_signals()
+    sigs["cost"] = Cost(guard="caution", reason="no chain to price the trade")
+    vm = present("SPY", sigs, decide(sigs))
+    el = next(e for e in vm.elements if e.key == "contract")
+    assert el.tone == "unavailable"
+
+
 def test_cost_tone_tracks_guard():
     sigs = _full_signals()
     sigs["cost"] = Cost(guard="block", reason="earnings in 2d")

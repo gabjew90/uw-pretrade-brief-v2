@@ -35,6 +35,20 @@ def test_golden_real_chain_parses():
     assert c0.expiry.startswith("20")
 
 
+def test_golden_greeks_sheet_parses_with_both_legs():
+    """The greeks endpoint returns SEPARATE call_/put_ legs per strike (v2 live lore,
+    re-pinned by the golden capture)."""
+    gpath = Path(__file__).parent / "fixtures" / "bronze" / "greeks" / "SPY.json"
+    raw = RawRecord(endpoint="/stock/SPY/greeks", params={"expiry": "2026-07-10"},
+                    ticker="SPY", fetched_at="t", content_hash="h",
+                    payload=json.loads(gpath.read_text(encoding="utf-8")))
+    rows = normalize(raw)
+    assert len(rows) == 177
+    mid = next(r for r in rows if r.call_delta is not None and 0.3 < r.call_delta < 0.7)
+    assert mid.call_theta is not None and mid.call_theta < 0     # long options decay
+    assert mid.put_delta is not None and mid.put_delta < 0
+
+
 def test_unparseable_symbols_skipped_but_all_fail_raises():
     # individual junk skipped:
     good = json.loads(FIXTURE.read_text(encoding="utf-8"))["data"][0]
