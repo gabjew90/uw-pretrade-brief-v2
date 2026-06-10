@@ -1,107 +1,101 @@
-"""derive_positioning tests (Phase 4) — cluster OI trend across settled sessions, anchored
-to the flow side (tile2-confirmation-principle). 'unconfirmed' never blocks; positioning is
-NOT a direction. Golden: the real oi-per-strike fixture normalizes; multi-session build is
-synthetic (we only captured one live session; date= history assembly is integration work).
+"""derive_positioning tests (list item 2) — per-CONTRACT daily OI history (the deep
+source: option-contract/{id}/historic), summed across the flow cluster, trended over the
+last _POS_WINDOW sessions. 'unconfirmed' never blocks; positioning is NOT a direction.
 """
 import json
 from pathlib import Path
 
-from server.models import OISnapshot, Quality
-from server.pipeline.derive import derive_positioning
+from server.models import ContractOIBar, Quality
+from server.pipeline.derive import _POS_WINDOW, derive_positioning
 from server.pipeline.ingest import RawRecord
 from server.pipeline.normalize import normalize
 
-FIXTURE = Path(__file__).parent / "fixtures" / "bronze" / "oi-per-strike" / "SPY.json"
+FIXTURE = (Path(__file__).parent / "fixtures" / "bronze" / "option-contract-historic"
+           / "SPY260717P00710000.json")
 
 
-def _oi(strike, call_oi=0, put_oi=0):
-    return OISnapshot(date="2026-06-05", strike=strike, call_oi=call_oi, put_oi=put_oi)
+def _bars(*oi_by_day, start=1):
+    return [ContractOIBar(date=f"2026-06-{start + i:02d}", open_interest=oi)
+            for i, oi in enumerate(oi_by_day)]
 
 
-def _sessions(side, *totals):
-    """Build len(totals) settled sessions, each one snapshot at strike 600 with the
-    given side OI = total."""
-    out = []
-    for t in totals:
-        out.append([_oi(600.0, call_oi=t if side == "call" else 0,
-                         put_oi=t if side == "put" else 0)])
-    return out
+def _canon(side="call", contracts=None, strikes=(600.0,)):
+    return {"flow_side": side, "flow_strikes": list(strikes),
+            "contract_oi": contracts if contracts is not None else []}
 
 
-# ── build / flat / unwind ─────────────────────────────────────────────────────
+# ── build / flat / unwind on the summed cluster ───────────────────────────────
 def test_growing_cluster_is_building():
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0],
-                            "oi_sessions": _sessions("call", 1000, 1100, 1300)})  # +30%
+    p = derive_positioning(_canon(contracts=[_bars(1000, 1100, 1300)]))
     assert p.confirmation == "building"
     assert p.oi_trend_pct == 30.0
     assert p.side == "call"
 
 
 def test_shrinking_cluster_is_unwinding():
-    p = derive_positioning({"flow_side": "put", "flow_strikes": [600.0],
-                            "oi_sessions": _sessions("put", 2000, 1500, 1400)})  # -30%
+    p = derive_positioning(_canon(side="put", contracts=[_bars(2000, 1500, 1400)]))
     assert p.confirmation == "unwinding"
 
 
 def test_stable_cluster_is_flat():
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0],
-                            "oi_sessions": _sessions("call", 1000, 1010, 1020)})  # +2%
+    p = derive_positioning(_canon(contracts=[_bars(1000, 1010, 1020)]))
     assert p.confirmation == "flat"
 
 
-def test_side_selects_correct_oi():
-    """A call-side anchor must read call_oi, ignoring a put_oi spike at the same strike."""
-    sessions = [[_oi(600.0, call_oi=1000, put_oi=50)],
-                [_oi(600.0, call_oi=1000, put_oi=9999)]]   # only puts moved
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0], "oi_sessions": sessions})
-    assert p.confirmation == "flat"                        # call OI unchanged
+def test_cluster_sums_across_contracts_per_date():
+    a = _bars(500, 500, 500)
+    b = _bars(500, 600, 800)          # only this contract builds → summed +30%
+    p = derive_positioning(_canon(contracts=[a, b]))
+    assert p.confirmation == "building"
+    assert p.oi_trend_pct == 30.0
 
 
-def test_only_cluster_strikes_counted():
-    sessions = [[_oi(600.0, call_oi=1000), _oi(700.0, call_oi=100)],
-                [_oi(600.0, call_oi=1000), _oi(700.0, call_oi=9999)]]  # 700 not in cluster
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0], "oi_sessions": sessions})
-    assert p.confirmation == "flat"                        # the 700 spike is ignored
+def test_trend_reads_only_the_last_window_sessions():
+    # 10 days: ancient collapse then a flat tail — the window must see only the tail
+    bars = _bars(9000, 8000, 7000, 6000, 5000, 1000, 1000, 1000, 1000, 1000)
+    p = derive_positioning(_canon(contracts=[bars]))
+    assert p.confirmation == "flat"            # last _POS_WINDOW days are flat
+    assert _POS_WINDOW == 5
 
 
 # ── unconfirmed never blocks ──────────────────────────────────────────────────
-def test_single_session_is_unconfirmed():
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0],
-                            "oi_sessions": _sessions("call", 1000)})
+def test_no_history_is_unconfirmed():
+    p = derive_positioning(_canon(contracts=[]))
     assert p.confirmation == "unconfirmed"
     assert p.provenance.quality == Quality.UNAVAILABLE
 
 
-def test_no_side_is_unconfirmed():
-    p = derive_positioning({"flow_strikes": [600.0], "oi_sessions": _sessions("call", 1, 2)})
+def test_single_day_is_unconfirmed():
+    p = derive_positioning(_canon(contracts=[_bars(1000)]))
     assert p.confirmation == "unconfirmed"
 
 
-def test_no_history_is_unconfirmed():
-    assert derive_positioning({}).confirmation == "unconfirmed"
+def test_no_side_is_unconfirmed():
+    p = derive_positioning({"flow_strikes": [600.0], "contract_oi": [_bars(1, 2)]})
+    assert p.confirmation == "unconfirmed"
 
 
 def test_zero_prior_oi_is_unconfirmed():
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0],
-                            "oi_sessions": _sessions("call", 0, 500)})
-    assert p.confirmation == "unconfirmed"     # can't compute a % from a zero base
+    p = derive_positioning(_canon(contracts=[_bars(0, 500)]))
+    assert p.confirmation == "unconfirmed"
 
 
 def test_positioning_is_not_a_direction():
-    p = derive_positioning({"flow_side": "call", "flow_strikes": [600.0],
-                            "oi_sessions": _sessions("call", 1000, 1300)})
-    assert not hasattr(p, "direction")         # confirms a side, never picks one
+    p = derive_positioning(_canon(contracts=[_bars(1000, 1300)]))
+    assert not hasattr(p, "direction")
 
 
-# ── golden: real oi-per-strike normalizes ─────────────────────────────────────
-def test_golden_oi_normalizes_and_one_session_is_unconfirmed():
+# ── golden: real per-contract history → normalize → derive ───────────────────
+def test_golden_real_contract_history():
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    raw = RawRecord(endpoint="/stock/SPY/oi-per-strike", params={}, ticker="SPY",
-                    fetched_at="2026-06-08T15:05:00Z", content_hash="h", payload=payload)
-    snaps = normalize(raw)
-    assert len(snaps) == 499
-    assert snaps[0].call_oi >= 0 and snaps[0].put_oi >= 0
-    # one live session alone → unconfirmed (multi-session history is integration work)
-    cluster = [s.strike for s in snaps[:3]]
-    p = derive_positioning({"flow_side": "call", "flow_strikes": cluster, "oi_sessions": [snaps]})
-    assert p.confirmation == "unconfirmed"
+    raw = RawRecord(endpoint="/option-contract/SPY260717P00710000/historic", params={},
+                    ticker="SPY260717P00710000", fetched_at="2026-06-09T15:00:00Z",
+                    content_hash="h", payload=payload)
+    bars = normalize(raw)
+    assert len(bars) == 61                      # the contract's whole life, no 7-day ceiling
+    assert bars[0].date < bars[-1].date         # oldest → newest
+    assert bars[-1].open_interest > 0           # sane non-None settled OI
+    p = derive_positioning({"flow_side": "put", "flow_strikes": [710.0],
+                            "contract_oi": [bars]})
+    assert p.confirmation in ("building", "flat", "unwinding")
+    assert p.oi_trend_pct is not None

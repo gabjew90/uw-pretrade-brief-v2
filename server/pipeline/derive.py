@@ -450,31 +450,38 @@ def _expected_move_pct(iv_term, dte: int):
     return None if row.implied_move_perc is None else row.implied_move_perc * 100
 
 
+_POS_WINDOW = 5   # settled sessions the build/unwind trend is read over (operator-tunable)
+
+
 @register("positioning")
 def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
-    """OI confirmation of the flow's bet: does the FLOW-SIDE near-dated strike cluster's OI
-    GROW (building) or shrink (unwinding) across settled sessions? Anchored to the flow
-    side + near-dated cluster (tile2-confirmation-principle — aggregate call+put OI is the
-    trap). `unconfirmed` when history is missing/insufficient — and unconfirmed NEVER blocks
-    (archive-decoupled). NOT a direction (confirms the existing side). PURE. Combines with
-    Flow via positioning_leg in decide.
+    """OI confirmation of the flow's bet: does OI on the EXACT cluster contracts the flow
+    hit GROW (building) or shrink (unwinding)? Sourced from per-contract daily history
+    (option-contract/{id}/historic — the contract's whole life, no ~7-day ceiling), summed
+    across the cluster per date, trended over the last _POS_WINDOW sessions. Contract-level
+    is the most faithful read of tile2-confirmation-principle (pooled per-strike OI mixes
+    expiries). `unconfirmed` when history is missing/insufficient — and unconfirmed NEVER
+    blocks (archive-decoupled). NOT a direction. PURE.
 
-    Inputs (orchestrator-assembled): `flow_side` ('call'/'put'), `flow_strikes` (the
-    near-dated cluster), `oi_sessions` (list of settled sessions oldest→newest, each a
-    list[OISnapshot])."""
+    Inputs (orchestrator-assembled): `flow_side`, `flow_strikes` (the cluster),
+    `contract_oi` = list of per-contract `list[ContractOIBar]` (oldest→newest each)."""
     side = canon.get("flow_side")
     strikes = set(canon.get("flow_strikes") or [])
-    sessions = canon.get("oi_sessions") or []
-    if side not in ("call", "put") or not strikes or len(sessions) < 2:
+    per_contract = [bars for bars in (canon.get("contract_oi") or []) if bars]
+    if side not in ("call", "put") or not per_contract:
         return Positioning(confirmation="unconfirmed", side=(side if side in ("call", "put") else ""),
                            cluster_strikes=sorted(strikes),
                            provenance=prov.unavailable("OI history unconfirmed (archive-decoupled)"))
 
-    def cluster_oi(snaps) -> int:
-        pick = (lambda s: s.call_oi) if side == "call" else (lambda s: s.put_oi)
-        return sum(pick(s) for s in snaps if s.strike in strikes)
-
-    first, last = cluster_oi(sessions[0]), cluster_oi(sessions[-1])
+    by_date: dict[str, int] = {}
+    for bars in per_contract:
+        for b in bars:
+            by_date[b.date] = by_date.get(b.date, 0) + b.open_interest
+    window = sorted(by_date)[-_POS_WINDOW:]
+    if len(window) < 2:
+        return Positioning(confirmation="unconfirmed", side=side, cluster_strikes=sorted(strikes),
+                           provenance=prov.unavailable("OI history unconfirmed (archive-decoupled)"))
+    first, last = by_date[window[0]], by_date[window[-1]]
     if first <= 0:
         return Positioning(confirmation="unconfirmed", side=side, cluster_strikes=sorted(strikes),
                            provenance=prov.unavailable("no prior OI at the flow cluster"))
@@ -485,8 +492,7 @@ def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
         conf = "unwinding"
     else:
         conf = "flat"
-    provs = [s.provenance for snaps in sessions for s in snaps if snaps]
-    src = prov.derived(*provs) if provs else prov.derived()
+    src = prov.derived(*[bars[0].provenance for bars in per_contract])
     return Positioning(confirmation=conf, oi_trend_pct=round(trend, 1), side=side,
                        cluster_strikes=sorted(strikes), provenance=src)
 

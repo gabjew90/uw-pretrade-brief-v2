@@ -151,11 +151,24 @@ class OptionContract(BaseModel):
     type: Literal["call", "put"]
     strike: float
     expiry: str
+    symbol: str = ""                           # the OCC option_symbol (for /historic lookups)
     bid: float = 0.0
     ask: float = 0.0
     iv: Optional[float] = None
     volume: int = 0
     open_interest: int = 0
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
+class ContractOIBar(BaseModel):
+    """One daily bar of a specific contract's history (from option-contract/{id}/historic,
+    root key 'chains'). `open_interest` is that date's settled OI. This is the DEEP OI
+    source — the contract's whole life, no ~7-day ceiling (Phase-2 finding (d) correction)."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    open_interest: int = 0
+    volume: int = 0
     provenance: Provenance = Field(default_factory=Provenance)
 
 

@@ -35,7 +35,6 @@ log = logging.getLogger(__name__)
 _FLOW_ALERTS = "/option-trades/flow-alerts"
 _NEAR_DTE = 14            # flow cluster = near-dated strikes (tile2-confirmation-principle)
 _CLUSTER_TOP_N = 5
-_OI_HISTORY_SESSIONS = 4  # settled sessions of OI to trend (Phase-2: ~7 available before 403)
 
 
 def _f(x):
@@ -199,21 +198,38 @@ def _market_now(ticker: str, spot: float | None, gamma_strikes: list, iv_term: l
             "events_known": events_known, "as_of": now.isoformat()}
 
 
-def _oi_history(ticker: str, now: datetime) -> list[list]:
-    """The last N settled sessions' OISnapshots (oldest→newest) via `date=`. Phase-2:
-    oi-per-strike is `date=` backfillable to ~7 trading days (403 beyond)."""
-    sessions: list[list] = []
-    d = clock.oi_settled_through(now)
-    days: list[date] = []
-    for _ in range(_OI_HISTORY_SESSIONS):
-        days.append(d)
-        d = clock.prev_trading_day(d)
-    for sd in reversed(days):                       # oldest → newest
-        snaps = _fetch_norm(f"/stock/{ticker}/oi-per-strike", {"date": sd.isoformat()},
-                            ticker, Priority.LOW)
-        if snaps:
-            sessions.append(snaps)
-    return sessions
+_CLUSTER_OI_CONTRACTS = 5   # cluster contracts whose OI history is trended
+
+
+def _cluster_contracts(chain, side: str, strikes: list[float], asof_d: date) -> list:
+    """The EXACT contracts the flow cluster points at: flow side, cluster strike, nearest
+    near-dated expiry (0..14 DTE) per strike, from the already-fetched chain."""
+    picks = []
+    for k in strikes:
+        cands = []
+        for c in chain or []:
+            if c.type != side or c.strike != k or not c.symbol:
+                continue
+            try:
+                dte = (date.fromisoformat(c.expiry) - asof_d).days
+            except (TypeError, ValueError):
+                continue
+            if 0 <= dte <= _NEAR_DTE:
+                cands.append((dte, c))
+        if cands:
+            picks.append(min(cands, key=lambda t: t[0])[1])
+    return picks[:_CLUSTER_OI_CONTRACTS]
+
+
+def _cluster_contract_oi(chain, side: str, strikes: list[float], asof_d: date) -> list[list]:
+    """Per-contract daily OI history for the cluster contracts (option-contract/{id}/
+    historic — the deep OI source; replaces the old 4×date= oi-per-strike loop)."""
+    out: list[list] = []
+    for c in _cluster_contracts(chain, side, strikes, asof_d):
+        bars = _fetch_norm(f"/option-contract/{c.symbol}/historic", {}, c.symbol, Priority.LOW)
+        if bars:
+            out.append(bars)
+    return out
 
 
 # ── canon assembly + pipeline ─────────────────────────────────────────────────
@@ -248,7 +264,8 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
     if side:
         canon["flow_side"] = side
         canon["flow_strikes"] = _flow_cluster(sess_alerts, side, asof_d)
-        canon["oi_sessions"] = _oi_history(ticker, now)
+        canon["contract_oi"] = _cluster_contract_oi(canon["option_contracts"], side,
+                                                    canon["flow_strikes"], asof_d)
 
     earnings = _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW)
     canon["days_to_earnings"] = _days_to_earnings(earnings, now)

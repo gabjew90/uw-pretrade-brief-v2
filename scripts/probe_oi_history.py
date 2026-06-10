@@ -18,13 +18,21 @@ from server.services.uw_client import UWError, get  # noqa: E402
 
 
 def main() -> int:
-    sym = sys.argv[1] if len(sys.argv) > 1 else "SPY260717P00710000"
+    args = [a for a in sys.argv[1:] if a != "--save"]
+    save = "--save" in sys.argv
+    sym = args[0] if args else "SPY260717P00710000"
     print(f"=== /option-contract/{sym}/historic ===")
     try:
         r = get(f"/option-contract/{sym}/historic").json
     except (UWError, ValueError) as e:
         print("ERR:", e)
         return 1
+    if save:
+        out = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "bronze" \
+            / "option-contract-historic" / f"{sym}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(r, indent=2, default=str), encoding="utf-8")
+        print("saved fixture:", out)
     rows = (r.get("chains") or r.get("data") or r) if isinstance(r, dict) else r
     if not isinstance(rows, list) or not rows:
         print("empty/odd payload:", json.dumps(r)[:300])

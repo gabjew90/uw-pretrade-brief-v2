@@ -19,8 +19,9 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from server.models import (FlowAlert, GammaStrike, GreekFlowPoint, IVTermPoint,
-                            OISnapshot, OptionContract, SkewPoint, TermStructurePoint)
+from server.models import (ContractOIBar, FlowAlert, GammaStrike, GreekFlowPoint,
+                            IVTermPoint, OISnapshot, OptionContract, SkewPoint,
+                            TermStructurePoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
 
@@ -243,7 +244,8 @@ def normalize_option_contracts(raw: RawRecord) -> list[OptionContract]:
             continue
         try:
             out.append(OptionContract.model_validate({
-                **occ, "bid": r.get("nbbo_bid"), "ask": r.get("nbbo_ask"),
+                **occ, "symbol": r.get("option_symbol"),
+                "bid": r.get("nbbo_bid"), "ask": r.get("nbbo_ask"),
                 "iv": r.get("implied_volatility"), "volume": r.get("volume"),
                 "open_interest": r.get("open_interest"), "provenance": p}))
         except ValidationError as e:
@@ -251,3 +253,23 @@ def normalize_option_contracts(raw: RawRecord) -> list[OptionContract]:
     if rows and not out:
         raise NormalizeError("option-contracts: no option_symbol parsed (OCC format drift?)")
     return out
+
+
+@register("option-contract_historic")
+def normalize_contract_historic(raw: RawRecord) -> list[ContractOIBar]:
+    """Raw option-contract/{id}/historic payload → `list[ContractOIBar]`, oldest→newest.
+    NB the root key is `chains` (probed live), not `data`. Empty is a legitimate []."""
+    payload = raw.payload
+    rows = payload.get("chains") if isinstance(payload, dict) else None
+    if rows is None:
+        rows = _unwrap(payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[ContractOIBar] = []
+    for i, r in enumerate(rows or []):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"contract-historic row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(ContractOIBar.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"contract-historic row {i} failed validation: {e}") from e
+    return sorted(out, key=lambda b: b.date)
