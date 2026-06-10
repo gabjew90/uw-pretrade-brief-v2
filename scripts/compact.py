@@ -36,7 +36,7 @@ def compact_partition(part_dir: Path, dry_run: bool) -> int:
     con = duckdb.connect(database=":memory:")
     try:
         table = con.execute(
-            f"SELECT * FROM read_parquet('{part_dir / 'part-*.parquet'}')").arrow()
+            f"SELECT * FROM read_parquet('{part_dir / 'part-*.parquet'}')").fetch_arrow_table()
     finally:
         con.close()
     merged = part_dir / f"part-merged-{parts[-1].name.split('-', 1)[1]}"
@@ -52,6 +52,25 @@ def compact_partition(part_dir: Path, dry_run: bool) -> int:
     return len(parts)
 
 
+def heal_layout(root: Path, dry_run: bool) -> int:
+    """One-time idempotent heal: part files sitting DIRECTLY under a dt= dir (written
+    before ticker=_ALL was enforced) break hive reads for the whole endpoint — move them
+    into ticker=_ALL/."""
+    moved = 0
+    for f in root.glob("endpoint=*/dt=*/part-*.parquet"):
+        dest = f.parent / "ticker=_ALL" / f.name
+        if dry_run:
+            print(f"  would move {f} -> ticker=_ALL/")
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            import os
+            os.replace(f, dest)
+        moved += 1
+    if moved:
+        print(f"  healed {moved} stray part file(s) into ticker=_ALL/")
+    return moved
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--min-parts", type=int, default=10)
@@ -60,6 +79,10 @@ def main() -> int:
     args = ap.parse_args()
 
     tiers = ["silver", "gold"] + (["bronze"] if args.include_bronze else [])
+    for tier in tiers:
+        root = {"bronze": settings.bronze, "silver": settings.silver, "gold": settings.gold}[tier]
+        if root.is_dir():
+            heal_layout(root, args.dry_run)
     total = 0
     for tier in tiers:
         root = {"bronze": settings.bronze, "silver": settings.silver, "gold": settings.gold}[tier]

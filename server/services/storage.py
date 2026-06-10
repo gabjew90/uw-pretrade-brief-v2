@@ -38,10 +38,11 @@ def _tier_root(tier: Tier) -> Path:
 
 
 def _partition_dir(tier: Tier, endpoint: str, dt: str, ticker: str | None) -> Path:
-    p = _tier_root(tier) / f"endpoint={endpoint}" / f"dt={dt}"
-    if ticker:
-        p = p / f"ticker={ticker.upper()}"
-    return p
+    # ALWAYS write a ticker partition ("_ALL" for cross-ticker fetches): mixed directory
+    # depths under one endpoint break DuckDB hive reads (live-caught — the grid's
+    # ticker-less flow-alerts writes silently emptied every hive read of that endpoint).
+    return (_tier_root(tier) / f"endpoint={endpoint}" / f"dt={dt}"
+            / f"ticker={(ticker or '_ALL').upper()}")
 
 
 def write_part(tier: Tier, endpoint: str, table: pa.Table, *,
