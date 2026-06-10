@@ -58,7 +58,9 @@ def run_all(runner=None) -> dict:
     def _default(args: list[str]) -> tuple[int, str]:
         p = subprocess.run([sys.executable, *args], cwd=repo, capture_output=True,
                            text=True, timeout=_TASK_TIMEOUT)
-        tail = (p.stdout or p.stderr or "").strip().splitlines()[-1:] or [""]
+        # on failure the TRACEBACK (stderr) is the note, not the last happy print
+        src = (p.stderr if p.returncode != 0 and p.stderr else p.stdout or p.stderr or "")
+        tail = src.strip().splitlines()[-1:] or [""]
         return p.returncode, tail[0][:200]
     runner = runner or _default
 
