@@ -108,6 +108,7 @@ def test_contract_tile_shows_pick_and_alternatives():
     assert el.surface == "600 CALL · 3d"
     assert "Δ0.45" in el.meaning and "spread 4%" in el.meaning
     assert "Alt 1" in el.detail and "605" in el.detail["Alt 1"]
+    assert el.detail["Max loss"].startswith("$468 per contract")   # premium = max loss, stated
 
 
 def test_contract_tile_unavailable_without_chain():

@@ -99,6 +99,49 @@ def _fetch_gamma(ticker: str, priority: Priority) -> tuple[float | None, list]:
     return spot, _fetch_norm(f"/stock/{ticker}/spot-exposures/strike", params, ticker, priority)
 
 
+_FLOW_MAX_PAGES = 3   # extra older_than pages chasing the session start (v2 probed working)
+
+
+def _fetch_session_flow(ticker: str) -> list:
+    """Flow alerts with the NEWEST SESSION complete: the 500-cap page is the most-recent
+    tail, so on a busy day the morning is missing — page BACKWARD via older_than (a
+    created_at cursor, v2-probed) until the oldest alert leaves the newest session or the
+    page budget runs out. Dedupes on (created_at, type, strike, premium). The session
+    filter downstream still cuts any prior-session spill."""
+    from server.pipeline.derive import _alert_session
+    alerts = _fetch_norm(_FLOW_ALERTS, {"ticker_symbol": ticker, "limit": 500},
+                         ticker, Priority.CRITICAL)
+    pages = 0
+    while alerts and pages < _FLOW_MAX_PAGES:
+        stamps = sorted(a.created_at for a in alerts if a.created_at)
+        if not stamps:
+            break
+        oldest = stamps[0]
+        newest_session = max(_alert_session(a) for a in alerts)
+        if _alert_session_of_ts(oldest) != newest_session:
+            break                                   # already reach past the session start
+        more = _fetch_norm(_FLOW_ALERTS, {"ticker_symbol": ticker, "limit": 500,
+                                          "older_than": oldest}, ticker, Priority.NORMAL)
+        pages += 1
+        if not more:
+            break
+        seen = {(a.created_at, a.type, a.strike, a.total_premium) for a in alerts}
+        fresh = [a for a in more
+                 if (a.created_at, a.type, a.strike, a.total_premium) not in seen]
+        if not fresh:
+            break
+        alerts = alerts + fresh
+    return alerts
+
+
+def _alert_session_of_ts(ts: str) -> str:
+    from server.pipeline.derive import _alert_session
+
+    class _A:                                       # tiny shim: _alert_session reads .created_at
+        created_at = ts
+    return _alert_session(_A)
+
+
 # ── pure cross-signal helpers (unit-tested offline) ───────────────────────────
 def _flow_cluster(flow_alerts, side: str, asof_d: date,
                   top_n: int = _CLUSTER_TOP_N, near: int = _NEAR_DTE) -> list[float]:
@@ -237,8 +280,7 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
     """Fetch every signal's inputs (governor-gated by priority) and assemble the canonical
     map derive_all reads. Each fetch degrades to [] independently."""
     asof_d = date.fromisoformat(asof)
-    flow_alerts = _fetch_norm(_FLOW_ALERTS, {"ticker_symbol": ticker, "limit": 500},
-                              ticker, Priority.CRITICAL)
+    flow_alerts = _fetch_session_flow(ticker)
     spot, gamma_strikes = _fetch_gamma(ticker, Priority.NORMAL)
     iv_term = _fetch_norm(f"/stock/{ticker}/interpolated-iv", {}, ticker, Priority.NORMAL)
 

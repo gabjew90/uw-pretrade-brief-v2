@@ -51,6 +51,52 @@ def test_tide_lean_empty_is_neutral():
     assert _tide_lean([]) == "neutral"
 
 
+# ── _fetch_session_flow: older_than pagination completes the session (item 5a) ─
+def test_session_flow_pages_back_until_session_start(monkeypatch):
+    from server.models import FlowAlert
+    from server.pipeline import orchestrate as orch
+
+    def fa(ts, prem=1000.0, strike=600.0):
+        return FlowAlert(ticker="SPY", type="call", total_premium=prem,
+                         volume_oi_ratio=5.0, created_at=ts, strike=strike)
+
+    page1 = [fa(f"2026-06-10T15:{m:02d}:00Z", strike=600 + m) for m in range(10, 30)]
+    page2 = ([fa(f"2026-06-10T13:{m:02d}:00Z", strike=500 + m) for m in range(0, 10)]
+             + [fa("2026-06-09T19:00:00Z", strike=400)])      # prior session → stop after this
+
+    calls = []
+
+    def fake_norm(endpoint, params, ticker, priority):
+        calls.append(params)
+        return page2 if "older_than" in params else page1
+    monkeypatch.setattr(orch, "_fetch_norm", fake_norm)
+
+    out = orch._fetch_session_flow("SPY")
+    assert len(calls) == 2                                    # one follow-up page
+    assert calls[1]["older_than"] == "2026-06-10T15:10:00Z"   # cursor = oldest of page 1
+    assert len(out) == len(page1) + len(page2)                # morning recovered
+    # stops once the oldest alert is from the prior session (covered the session start)
+
+
+def test_session_flow_no_pagination_when_session_already_covered(monkeypatch):
+    from server.models import FlowAlert
+    from server.pipeline import orchestrate as orch
+
+    def fa(ts):
+        return FlowAlert(ticker="SPY", type="call", total_premium=1000.0,
+                         volume_oi_ratio=5.0, created_at=ts)
+    page1 = [fa("2026-06-10T15:00:00Z"), fa("2026-06-09T19:00:00Z")]  # already spans sessions
+    calls = []
+
+    def fake_norm(endpoint, params, ticker, priority):
+        calls.append(params)
+        return page1
+    monkeypatch.setattr(orch, "_fetch_norm", fake_norm)
+    out = orch._fetch_session_flow("SPY")
+    assert len(calls) == 1                                    # no follow-up needed
+    assert len(out) == 2
+
+
 # ── grid_from_alerts: the hot-ticker landing scanner (list item 4) ────────────
 def test_grid_aggregates_opening_premium_per_ticker():
     from server.pipeline.orchestrate import grid_from_alerts

@@ -197,6 +197,9 @@ def _contract_el(c) -> Element:
     for i, alt in enumerate(c.candidates, 1):
         d[f"Alt {i}"] = _fmt_candidate(alt)
     d["Sane delta band"] = "0.35 to 0.55 (below = lottery ticket, above = mostly intrinsic)"
+    if ct.get("ask"):
+        d["Max loss"] = (f"${ct['ask'] * 100:,.0f} per contract. weeklies routinely expire "
+                         "worthless, size so a full loss is fine")
     return Element(key="contract", label="Which contract?",
                    surface=f"{ct['strike']:g} {ct['type'].upper()} · {ct['dte']}d",
                    meaning=_fmt_candidate(ct),
