@@ -51,6 +51,33 @@ def test_tide_lean_empty_is_neutral():
     assert _tide_lean([]) == "neutral"
 
 
+# ── grid_from_alerts: the hot-ticker landing scanner (list item 4) ────────────
+def test_grid_aggregates_opening_premium_per_ticker():
+    from server.pipeline.orchestrate import grid_from_alerts
+    from server.models import FlowAlert
+
+    def fa(tkr, side, prem, voi=5.0, ts="2026-06-10T15:00:00Z"):
+        return FlowAlert(ticker=tkr, type=side, total_premium=prem, volume_oi_ratio=voi,
+                         created_at=ts)
+    rows = grid_from_alerts([
+        fa("NVDA", "call", 9_000_000), fa("NVDA", "put", 1_000_000),
+        fa("TSLA", "put", 5_000_000),
+        fa("TSLA", "call", 50_000_000, voi=0.2),   # CLOSING — excluded from premium
+        fa("AAPL", "call", 2_000_000, ts="2026-06-09T15:00:00Z"),  # prior session — excluded
+    ])
+    assert [r["ticker"] for r in rows] == ["NVDA", "TSLA"]   # by opening premium desc
+    nvda = rows[0]
+    assert nvda["side"] == "CALLS" and nvda["premium_fmt"] == "$10.0M"
+    tsla = rows[1]
+    assert tsla["side"] == "PUTS" and tsla["premium_fmt"] == "$5.0M"
+    assert tsla["alerts"] == 2                               # closing alert still counted
+
+
+def test_grid_empty_alerts():
+    from server.pipeline.orchestrate import grid_from_alerts
+    assert grid_from_alerts([]) == []
+
+
 # ── _skew_expiry: nearest 3rd-Friday monthly >= 25 DTE ────────────────────────
 def test_skew_expiry_picks_3rd_friday_at_least_25d_out():
     # 2026-06-09: June 3rd Friday = 2026-06-19 (10d, too near) -> July 17 (38d)

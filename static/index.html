@@ -29,6 +29,19 @@
     .reasons { color: var(--text); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
     .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch; }
     .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
+    /* hot-ticker grid (landing view) */
+    .grid a { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px;
+              margin: 6px 0; border: 1px solid var(--grid); border-radius: 6px;
+              background: var(--panel); color: var(--text); text-decoration: none; }
+    .grid a:hover { border-color: var(--axis); }
+    .grid .t { font-size: 14px; }
+    .grid .s { color: var(--text-dim); font-size: 11px; }
+    .gridnote { color: var(--axis); font-size: 10px; margin: 6px 0 0; }
+    .nav { font-size: 11px; margin: 0 0 10px; }
+    .nav a { color: var(--text-dim); text-decoration: none; }
+    .nav input { background: var(--panel); border: 1px solid var(--grid); color: var(--text);
+                 font-family: var(--ff-mono); font-size: 11px; padding: 4px 8px;
+                 border-radius: 4px; width: 90px; text-transform: uppercase; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
     .el .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
@@ -141,7 +154,33 @@
         view.innerHTML = `<p class='note'>view unavailable: ${esc(err)}</p>`;
       }
     }
-    render(new URLSearchParams(location.search).get("t") || "SPY");
+    // Landing = the hot-ticker grid (one cross-ticker call); a ticker renders the brief.
+    async function renderGrid() {
+      const view = document.getElementById("view");
+      document.getElementById("status").textContent = "hot tickers · today's opening premium";
+      try {
+        const g = await (await fetch("/api/grid")).json();
+        document.getElementById("verdict").innerHTML =
+          `<div class="nav"><form onsubmit="location.search='?t='+this.t.value.trim().toUpperCase();return false;">
+             go to ticker: <input name="t" placeholder="SPY" /></form></div>`;
+        view.innerHTML = `<div class="grid">` + (g.rows || []).map(r =>
+          `<a href="?t=${encodeURIComponent(r.ticker)}">
+             <span class="t">${esc(r.ticker)} <span class="s">${esc(r.side)}</span></span>
+             <span class="s">${esc(r.premium_fmt)} · ${esc(r.call_fmt)} c · ${esc(r.put_fmt)} p · ${r.alerts} alerts</span>
+           </a>`).join("") + `</div>` +
+          (g.note ? `<p class="gridnote">${esc(g.note)}</p>` : "");
+      } catch (err) {
+        view.innerHTML = `<p class='note'>grid unavailable: ${esc(err)}</p>`;
+      }
+    }
+    const _t = new URLSearchParams(location.search).get("t");
+    if (_t) {
+      document.getElementById("verdict").insertAdjacentHTML("beforebegin",
+        `<div class="nav"><a href="./">← hot tickers</a></div>`);
+      render(_t);
+    } else {
+      renderGrid();
+    }
   </script>
 </body>
 </html>

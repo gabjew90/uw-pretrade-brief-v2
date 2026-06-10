@@ -292,6 +292,53 @@ def assemble(ticker: str, flow_raw: RawRecord, *, asof: str | None = None) -> Vi
     return assemble_from_canon(ticker, {"flow_alerts": normalize(flow_raw)}, asof=asof)
 
 
+_GRID_TOP_N = 12
+
+
+def grid_from_alerts(alerts) -> list[dict]:
+    """Pure: aggregate a cross-ticker flow-alerts pull (newest session only) into the hot
+    grid — per ticker the opening-premium totals and the side they lean. Display strings
+    are server-built (the frontend computes nothing)."""
+    by: dict[str, dict] = {}
+    for a in session_alerts(alerts):
+        d = by.setdefault(a.ticker, {"call": 0.0, "put": 0.0, "alerts": 0})
+        d["alerts"] += 1
+        try:
+            opening = float(a.volume_oi_ratio or 0.0) > 1.0
+        except (TypeError, ValueError):
+            opening = False
+        if opening:
+            d[a.type] += float(a.total_premium or 0.0)
+
+    def money(v):
+        return (f"${v/1e9:.1f}B" if v >= 1e9 else f"${v/1e6:.1f}M" if v >= 1e6
+                else f"${v/1e3:.0f}K" if v >= 1e3 else f"${v:.0f}")
+    rows = []
+    for t, d in by.items():
+        total = d["call"] + d["put"]
+        if total <= 0:
+            continue
+        side = "CALLS" if d["call"] >= d["put"] else "PUTS"
+        rows.append({"ticker": t, "side": side, "premium": total,
+                     "premium_fmt": money(total), "call_fmt": money(d["call"]),
+                     "put_fmt": money(d["put"]), "alerts": d["alerts"]})
+    rows.sort(key=lambda r: r["premium"], reverse=True)
+    return rows[:_GRID_TOP_N]
+
+
+def build_grid() -> dict:
+    """The hot-ticker landing grid: ONE cross-ticker flow-alerts call (newest session,
+    opening premium by side). Click-through loads the full per-ticker pipeline."""
+    try:
+        raw = ingest(_FLOW_ALERTS, {"limit": 500}, ticker=None, priority=Priority.NORMAL)
+        alerts = normalize(raw)
+        rows = grid_from_alerts(alerts)
+        return {"rows": rows, "as_of": raw.fetched_at,
+                "note": "opening premium by ticker, newest session, top of the 500-alert tail"}
+    except (UWError, NormalizeError) as e:
+        return {"rows": [], "as_of": None, "note": f"grid unavailable: {e}"}
+
+
 def build_view(ticker: str, *, asof: str | None = None) -> ViewModel:
     """Full pipeline for one ticker: build the canon (live, governor-gated), compute the
     market regime once (its macro event feeds the per-ticker Cost gate), then run the pure

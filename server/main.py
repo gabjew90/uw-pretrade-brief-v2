@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.config import settings
 from server.models import ViewModel
-from server.pipeline.orchestrate import build_view
+from server.pipeline.orchestrate import build_grid, build_view
 from server.services import clock
 from server.services.governor import governor
 
@@ -45,6 +45,13 @@ def health() -> dict:
         "oi_settled_through": clock.oi_settled_through().isoformat(),
         "budget": governor.snapshot(),
     }
+
+
+@app.get("/api/grid")
+def grid() -> dict:
+    """The hot-ticker landing grid (ONE cross-ticker flow-alerts call). Where a session
+    starts: which tickers does today's opening premium point at."""
+    return build_grid()
 
 
 @app.get("/api/view/{ticker}", response_model=ViewModel)
