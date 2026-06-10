@@ -1,6 +1,19 @@
 # Present & ViewModel — Design (v3, Phase 4+)
 
-**Status:** PLAN (awaiting approval) · **Conforms to:** CLAUDE.md, docs/architecture.md
+> **AS-BUILT (2026-06-10).** Shipped in `server/pipeline/present.py`; deltas:
+> - Tiles are plain QUESTIONS with number-led `meaning` + a `logic` ("how:") line; copy is
+>   terse/number-first (operator: no em-dashes/semicolons, let numbers speak).
+> - One signal may emit two tiles: cost → "Is it worth the cost?" + "Which contract?"
+>   (pick + alternatives + max-loss line).
+> - **No regime tile/posture.** Market context is ONE data tile ("What's the market
+>   backdrop?" — gamma/IV/tide/next-event; a failed calendar reads `EVENTS N/A`, never an
+>   implied all-clear) and `ViewModel.verdict_logic` states how the call is made. Only
+>   THE CALL carries a verdict word.
+> - Every evidence tile forwards chart data via `Element.series` {kind, points[]}.
+> - `detail` is a dict of READABLE rows (words + units), not raw field names.
+> - tone vocabulary: positive|cautionary|negative|neutral|unavailable, as shipped.
+
+**Status:** AS-BUILT (was PLAN) · **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** Phase 0 (contracts — `Element`, `ViewModel`, `Verdict`, `Provenance`); Phase 3 (Derive signals); Phase 4+ (Decide verdict)
 **Starting point:** `server/pipeline/present.py` (scaffold: stub emits one `Element` per signal + verdict)
 

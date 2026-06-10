@@ -1,6 +1,31 @@
 # Contracts & Domain Models — Design (v3, Phase 0)
 
-**Status:** PLAN (awaiting operator approval) · **Conforms to:** CLAUDE.md, docs/architecture.md
+> **AS-BUILT (2026-06-10).** `server/models/__init__.py` is the truth. Deltas:
+> - `Element` grew `meaning` (terse number readout), `logic` (the rule that turns data
+>   into the word), and `series` ({kind, points[]} chart data for the future UI). `tone`
+>   vocabulary is `positive|cautionary|negative|neutral|unavailable`.
+> - `ViewModel` grew `regime` (the market-context Element, data not posture) and
+>   `verdict_logic` (how the call is reached).
+> - **There is no Regime Signal** (deleted; market context is raw parts assembled in the
+>   orchestrator). Domain entities: Flow, Conviction, Positioning, DealerGamma, Skew, Cost.
+> - Canonicals beyond FlowAlert (all golden-tested): GreekFlowPoint, GammaStrike,
+>   SkewPoint, IVTermPoint, OISnapshot, OptionContract (carries the OCC `symbol`),
+>   TermStructurePoint, GreeksRow, ContractOIBar (root key `chains`).
+>
+> **CROSS-STAGE INVARIANTS** (added after review — the bugs lived BETWEEN stages):
+> 1. **One side-picker.** `derive.flow_side(alerts)` is the ONLY function that picks the
+>    call/put side; verdict direction, the cost contract, and the OI cluster all consume
+>    it. A second picker re-creates the verdict/cost split bug.
+> 2. **One session window.** `derive.session_alerts` is the ONLY flow-window filter;
+>    every flow consumer (direction, cluster, grid) reads through it.
+> 3. **Fetch params must match the golden capture's params.** A fixture captured with
+>    `expiry=` pins THAT series; fetching without it may 200 a DIFFERENT series
+>    (live-caught: the no-expiry RR series differs 7×). If orchestrator params diverge
+>    from `tests/fixtures/bronze/*/SPY._meta.json`, re-capture or justify.
+> 4. **Band coverage is part of the gamma contract**: derive refuses a one-sided strike
+>    band rather than computing a sign from it.
+
+**Status:** AS-BUILT (was PLAN) · **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** nothing (gates every other component) · **Starting point:** existing `server/models/__init__.py`
 
 ## Purpose

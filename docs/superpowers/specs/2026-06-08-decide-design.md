@@ -1,6 +1,21 @@
 # Decide — Design (v3, Phase 4+)
 
-**Status:** PLAN (awaiting approval) · **Conforms to:** CLAUDE.md, docs/architecture.md
+> **AS-BUILT (2026-06-10).** Implemented in `server/pipeline/decide.py`; divergences from
+> the plan below, all operator-driven — the CODE is the truth where they conflict:
+> - **Regime is NOT a verdict leg** (deleted as a Signal entirely; its macro-event check
+>   feeds Cost via `event_within_hold`). Ignore every regime step below.
+> - **Skew-unavailable CAPS Favorable at Mixed** (orthogonal leg dark = the divergence
+>   check can't run; same treatment as structural). Supersedes the acceptance below that
+>   said unavailable-skew resolves to the neutral path. Neutral (readable, no lean) still
+>   permits Favorable.
+> - **Cost severities split**: EV-killers block (spread-vs-move burden, earnings, macro
+>   event); degraders caution (IV rank, term inversion, tight move, delta band, theta).
+>   The funnel consumes only `cost.guard`.
+> - `Verdict` gained `overall`, `direction`, `signal_conflict`, `conflict_legs`.
+> - The locked combination structure (families, divergence-veto-not-agreement-bonus)
+>   shipped exactly as written and is test-enforced.
+
+**Status:** AS-BUILT (was PLAN) · **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** Phase 0 (contracts — `Signal`, `Verdict`); Phase 3 (Derive — `dict[str, Signal]`)
 **Starting point:** `server/pipeline/decide.py` (scaffold: stub returns `Verdict` with `signals_used=sorted(signals.keys())`)
 

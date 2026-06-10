@@ -1,6 +1,18 @@
 # Frontend — Design (v3, Phase 5)
 
-**Status:** PLAN (awaiting approval) · **Conforms to:** CLAUDE.md, docs/architecture.md
+> **AS-BUILT (2026-06-10).** Shipped in `static/index.html`; deltas:
+> - The "multi-ticker view" flagged below as out-of-scope SHIPPED: `/api/grid` hot-ticker
+>   landing (one cross-ticker call), click-through to `?t=<ticker>`, back link, go-to box.
+> - Header = THE CALL block (labelled, tone-colored verdict + reasons + verdict_logic);
+>   the market context renders as a normal tile.
+> - `detail` is rendered as key/value rows (it is a dict, resolving the open question).
+> - `element.series` arrives ({kind, points[]}) and is currently IGNORED by this renderer
+>   — it is the contract the future chart UI draws from, computing nothing.
+> - The CI gate exists: `tests/test_no_client_compute.py` (banned patterns + no threshold
+>   constants); REPLAY parity is gated by `tests/test_replay_parity.py` against a
+>   committed golden ViewModel (re-capture via `scripts/capture_golden_vm.py`).
+
+**Status:** AS-BUILT (was PLAN) · **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** Phase 3 (a ViewModel exists at `/api/view/<ticker>`) · **Starting point:** `static/index.html`
 
 ## Purpose / role

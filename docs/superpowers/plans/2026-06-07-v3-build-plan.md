@@ -1,9 +1,20 @@
 # v3 Build Plan
 
+> **STATUS (2026-06-10): BUILT.** Phases 0–6 are shipped, tested (219), and deployed —
+> see the dated **AS-BUILT** blocks atop the contracts/derive/decide/present/frontend
+> specs for where reality diverged (regime deleted; skew = change-vs-baseline at an
+> explicit monthly expiry, sign pinned live; positioning on per-contract OI history;
+> cost severity split; scanner grid + contract-guidance + chart-series shipped beyond
+> plan). Where a spec and the code conflict, the code + its tests are the truth.
+> Data-unknown corrections live in the golden-bronze spec findings — notably (d): deep
+> per-contract OI exists via `/option-contract/{id}/historic`; the ~7-day ceiling is
+> stock-history-family only. Open items: Railway crons (operator, docs/crons.md),
+> outcome-vs-price backtest view, threshold tuning once history accumulates, the real
+> chart UI (own spec cycle).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
-> Steps use checkbox (`- [ ]`) syntax for tracking. **Do not implement past Phase 0
-> until the operator approves this plan and the per-component specs.**
+> Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rebuild the pretrade brief on the v3 architecture — a typed 5-stage pipeline
 over cross-cutting services — by first proving ONE signal end-to-end (a walking

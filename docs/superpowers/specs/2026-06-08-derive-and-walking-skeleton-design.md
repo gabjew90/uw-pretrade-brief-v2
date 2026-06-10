@@ -1,6 +1,28 @@
 # Derive Stage + Walking Skeleton — Design (v3, Phase 3 & 4)
 
-**Status:** PLAN (awaiting approval) · **Conforms to:** CLAUDE.md, docs/architecture.md
+> **AS-BUILT (2026-06-10).** All signals shipped in `server/pipeline/derive.py`; deltas
+> from the table below — the CODE is the truth where they conflict:
+> - **`positioning` consumes `ContractOIBar` history** (`/option-contract/{id}/historic`,
+>   the contract's whole life, root key `chains`), NOT the per-strike `OISnapshot`
+>   archive — the ~7-day `date=` ceiling made that path shallow, and per-contract is more
+>   faithful to the cluster anyway. Common-coverage window only (contract births must not
+>   read as building); trend over the last `_POS_WINDOW=5` sessions.
+> - **`skew` is CHANGE vs its own recent baseline** (last `_SKEW_BASELINE_N=10` priors),
+>   not a fixed level, read at an explicit 3rd-Friday ≥25-DTE monthly expiry (the
+>   no-expiry series is a different tenor). Sign pinned LIVE 2026-06-09: vendor=put−call,
+>   negation correct (derived −0.0498 vs vendor +0.0494).
+> - **`regime` is not a signal** (deleted; `next_macro_event` is the only survivor).
+> - **`conviction` sign is pinned** (positive dir_delta = calls): r=+0.62 / 88% sign
+>   agreement vs the independent net call−put premium.
+> - `session_alerts` (newest-ET-session filter) and `flow_side` (the ONE side-picker)
+>   live here and are consumed by the orchestrator too — cross-stage invariants in the
+>   contracts spec.
+> - `cost` gained the spread-vs-move burden gate, delta-band/theta-drag degraders,
+>   candidates[], term-curve; severities split EV-killer/degrader (decide spec AS-BUILT).
+> - Each signal also emits its chart `series` (oi_series, cum_series, ladder, rr series,
+>   term_curve, top_strikes) — present forwards them to `Element.series`.
+
+**Status:** AS-BUILT (was PLAN) · **Conforms to:** CLAUDE.md, docs/architecture.md
 **Depends on:** Phase 0 (contracts), Phase 1 (clock), Phase 2 (golden bronze + sign findings)
 **Starting point:** `server/pipeline/derive.py` (registry stub exists)
 
