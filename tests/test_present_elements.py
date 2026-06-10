@@ -7,19 +7,35 @@ from server.pipeline.decide import decide
 from server.pipeline.present import present
 
 
-def test_market_line_is_data_not_a_posture():
-    """Market context is a muted data line (gamma/IV/tide/event) — NO posture word, not a
-    second verdict (Fix 5)."""
+def test_market_tile_is_data_not_a_posture():
+    """Market context is a real TILE (label, surface, meaning, logic, tap detail) like the
+    others — but its surface is DATA (the event), never a posture/verdict word."""
     market = {"gamma_sign": "NEG", "iv": 0.20, "tide": "bear", "event_line": "CPI <1d",
-              "event_within_hold": True, "as_of": "2026-06-09T15:00:00Z"}
+              "event_within_hold": True, "events_known": True,
+              "as_of": "2026-06-09T15:00:00Z"}
     sigs = _full_signals()
     vm = present("SPY", sigs, decide(sigs), market=market)
-    assert vm.regime is not None
-    assert vm.regime.surface is None                                  # no posture word
-    assert "gamma NEG" in vm.regime.meaning and "IV 20%" in vm.regime.meaning
-    assert "CPI" in vm.regime.meaning and "bear" in vm.regime.meaning
-    assert vm.regime.provenance.source.value == "live"
-    assert vm.verdict_logic                                            # how the call is made
+    r = vm.regime
+    assert r is not None
+    assert r.surface == "CPI/FOMC: CPI <1d"                            # data, not a posture
+    assert r.surface not in ("Favorable", "Mixed", "Stand down")
+    assert "SPY gamma NEG" in r.meaning and "IV 20%" in r.meaning and "bear" in r.meaning
+    assert r.logic and r.detail["Next macro event (5d)"] == "CPI <1d"  # tap variables
+    assert r.provenance.source.value == "live"
+    assert vm.verdict_logic
+
+
+def test_market_tile_failed_calendar_is_na_not_all_clear():
+    """A FAILED calendar/tide fetch must read n/a — never 'no event in 5d' (SEVERE #2)."""
+    market = {"gamma_sign": None, "iv": None, "tide": None, "event_line": None,
+              "event_within_hold": False, "events_known": False,
+              "as_of": "2026-06-09T15:00:00Z"}
+    sigs = _full_signals()
+    vm = present("SPY", sigs, decide(sigs), market=market)
+    assert vm.regime.surface == "EVENTS N/A"
+    assert vm.regime.detail["Next macro event (5d)"] == "n/a"
+    assert "no event" not in str(vm.regime.detail)
+    assert vm.regime.detail["Tape tide"] == "n/a"
 
 
 def test_every_tile_has_logic():

@@ -119,6 +119,34 @@ def test_macro_event_blocks():
     assert derive_cost(canon, asof=ASOF).guard == "block"
 
 
+# ── failed calendars are unknown, never an all-clear (review SEVERE #2) ───────
+def test_failed_macro_calendar_caps_ok_to_caution():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["event_calendar_ok"] = False              # fetch FAILED (vs absent key = not run)
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert "macro calendar n/a" in c.reason
+
+
+def test_failed_earnings_calendar_caps_ok_to_caution():
+    canon = _tradeable(ivr_pct=0.20)
+    canon["earnings_calendar_ok"] = False
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert "earnings dates n/a" in c.reason
+
+
+def test_null_iv_percentile_is_na_not_zero():
+    """A vendor-null percentile must read 'IV rank n/a', never 0/100 ('cheapest ever')."""
+    canon = _tradeable(ivr_pct=0.20)
+    canon["iv_term"] = [IVTermPoint(date=ASOF, days=30, percentile=None,
+                                    implied_move_perc=0.05)]
+    c = derive_cost(canon, asof=ASOF)
+    assert c.ivr is None
+    assert "IV rank n/a" in c.reason
+    assert c.guard == "caution"
+
+
 # ── honest-degrade: no chain → caution, never a confident green ───────────────
 def test_no_chain_is_caution_not_ok():
     c = derive_cost({"iv_term": _term((30, 0.20))}, asof=ASOF)   # cheap IV but no chain

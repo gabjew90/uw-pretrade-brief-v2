@@ -82,7 +82,11 @@ def _do_get(path: str, params: dict | None, priority: Priority, max_retries: int
             time.sleep(delay); delay *= 2; continue
         if r.status_code >= 400:
             raise UWError(f"HTTP {r.status_code} for {path}")
+        try:
+            body = r.json()
+        except ValueError as e:    # a 200 with a non-JSON body (HTML error page) is a typed
+            raise UWError(f"non-JSON body for {path}") from e   # failure, not a view-killer
         from datetime import datetime, timezone
         return UWResponse(endpoint=path, params=params or {}, status=r.status_code,
-                          json=r.json(), fetched_at=datetime.now(timezone.utc).isoformat())
+                          json=body, fetched_at=datetime.now(timezone.utc).isoformat())
     raise UWError("exhausted retries")

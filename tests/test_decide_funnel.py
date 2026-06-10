@@ -113,6 +113,16 @@ def test_unavailable_noncore_named_but_not_fatal():
     assert v.overall in ("Favorable", "Mixed")          # not forced to Stand down
 
 
+def test_skew_dark_caps_favorable_at_mixed():
+    """With the orthogonal leg unreadable the divergence check can't run → the rare green
+    is not certifiable (same treatment as structural). Neutral skew still permits it."""
+    base = _favorable_inputs("calls")
+    base["skew"] = Skew(lean="unavailable", provenance=Provenance(quality=Quality.UNAVAILABLE))
+    assert decide(base).overall == "Mixed"
+    base["skew"] = Skew(rr25=0.0, rr_delta=0.0, lean="neutral")
+    assert decide(base).overall == "Favorable"          # readable + no lean = fine
+
+
 def test_no_same_family_stacking_two_concordant_flow_reads():
     """opening-$ flow bullish AND greek-flow conviction bullish must NOT beat flow alone:
     both Favorable, identical overall — agreement added no promotion."""

@@ -245,8 +245,8 @@ class DealerGamma(Signal):
     gex_sign: Literal["POS", "NEG"] = "POS"
     flip_pct: float = 0.0                       # (flip - spot) / spot * 100
     flip_status: Literal["ok", "no_flip", "unavailable"] = "unavailable"
-    call_wall_pct: float = 0.0                  # call wall distance above spot (%)
-    put_wall_pct: float = 0.0                   # put wall distance below spot (%)
+    call_wall_pct: Optional[float] = None       # call wall distance above spot (%); None = n/a
+    put_wall_pct: Optional[float] = None        # put wall distance below spot (%); None = n/a
     agg_b: float = 0.0                          # aggregate net gamma, $bn (signed)
 
 

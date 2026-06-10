@@ -77,15 +77,32 @@ def test_no_spot_price_is_unavailable():
     assert dg.flip_status == "unavailable"
 
 
+# ── band guard: a one-sided strike band is UNTRUSTWORTHY, not a reading ───────
+def test_one_sided_band_is_unavailable():
+    """Below-spot-only coverage would invert gex_sign and fake the call wall at the band
+    edge (review SEVERE #1) — must read unavailable, never a confident wrong EXTEND."""
+    rungs = [_g(k, 10.0, -50.0, price=100.0) for k in (70, 80, 90, 95, 100)]  # nothing above
+    dg = derive_dealer_gamma({"gamma_strikes": rungs})
+    assert dg.flip_status == "unavailable"
+    assert "one-sided" in dg.provenance.note
+
+
+def test_canon_spot_preferred_over_rung_price():
+    rungs = [_g(90, 100.0, -10.0, price=None), _g(110, 10.0, -200.0, price=None)]
+    dg = derive_dealer_gamma({"gamma_strikes": rungs, "spot": 100.0})
+    assert dg.flip_status in ("ok", "no_flip")     # spot came from canon
+
+
 # ── golden: real spot-exposures bronze → normalize → derive ───────────────────
-def test_golden_real_spot_exposures():
+def test_golden_real_spot_exposures_default_band_is_rejected():
+    """The captured fixture used UW's DEFAULT band: strikes 525→750 with spot 744.94 =
+    -29.5%/+0.68% — one-sided. The guard must refuse it (this band inverted gex_sign to
+    NEG and put the 'call wall' at the band edge before the fix)."""
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
     raw = RawRecord(endpoint="/stock/SPY/spot-exposures/strike", params={}, ticker="SPY",
                     fetched_at="2026-06-08T15:05:00Z", content_hash="h", payload=payload)
     rungs = normalize(raw)
     assert len(rungs) == 50
     dg = derive_dealer_gamma({"gamma_strikes": rungs})
-    assert dg.gex_sign in ("POS", "NEG")
-    assert dg.flip_status in ("ok", "no_flip")
-    # walls bracket spot: call wall above (positive %), put wall below (positive %)
-    assert dg.call_wall_pct > 0 and dg.put_wall_pct > 0
+    assert dg.flip_status == "unavailable"
+    assert "one-sided" in dg.provenance.note

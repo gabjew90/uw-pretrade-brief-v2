@@ -207,24 +207,39 @@ def derive_conviction(canon: dict, *, asof: str | None = None) -> Conviction:
                       accumulation=state, efficiency=eff, provenance=src)
 
 
+# The strike band must extend at least this far BOTH sides of spot, or the gamma read is
+# structurally one-sided: agg/gex_sign skew toward the covered side, the "wall" is just the
+# band edge, and the flip can't be seen (the v2 "band-edge garbage" bug, re-found in review).
+_GAMMA_MIN_BAND_PCT = 2.0
+
+
 @register("dealer_gamma")
 def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
     """Dealer-gamma structural levels from per-strike OI gamma. NET per strike is the
     SIGNED SUM call_gamma_oi + put_gamma_oi (UW pre-signs the put negative — summing, not
     subtracting, is what fixed the 2026-05-30 flip bug). flip = cumulative-net zero-crossing
     NEAREST spot; walls = max call-γ above / max |put-γ| below spot (kept separate — net
-    peaks ATM). PURE. Ported from `e1d6c5e:server/gex.py::compute_levels`. A GUARD, not a
-    direction (decide spec)."""
+    peaks ATM). GUARDS the band: if the strikes don't cover ±_GAMMA_MIN_BAND_PCT of spot the
+    whole read is unavailable (a one-sided band inverts the sign and fakes walls); a missing
+    side never fabricates a wall (None, not spot±5%). PURE. Ported from
+    `e1d6c5e:server/gex.py::compute_levels`. A GUARD, not a direction (decide spec)."""
     rungs = canon.get("gamma_strikes") or []
     if not rungs:
         return DealerGamma(flip_status="unavailable",
                            provenance=prov.unavailable("no spot-exposures data"))
-    spot = next((r.price for r in rungs if r.price), 0.0) or 0.0
+    spot = canon.get("spot") or next((r.price for r in rungs if r.price), 0.0) or 0.0
     if spot <= 0:
         return DealerGamma(flip_status="unavailable",
                            provenance=prov.unavailable("no spot price in spot-exposures"))
-    src: Provenance = prov.derived(rungs[0].provenance)
     rs = sorted(rungs, key=lambda r: r.strike)
+
+    above_pct = (rs[-1].strike - spot) / spot * 100
+    below_pct = (spot - rs[0].strike) / spot * 100
+    if above_pct < _GAMMA_MIN_BAND_PCT or below_pct < _GAMMA_MIN_BAND_PCT:
+        return DealerGamma(flip_status="unavailable", provenance=prov.unavailable(
+            f"strike band one-sided ({below_pct:+.1f}%/{above_pct:+.1f}% of spot) — "
+            "gamma sign/flip/walls not trustworthy"))
+    src: Provenance = prov.derived(rungs[0].provenance)
 
     cum, crossings, prev = 0.0, [], None
     for r in rs:
@@ -242,15 +257,13 @@ def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
     below = [r for r in rs if r.strike < spot]
     cwall = max(above, key=lambda r: r.call_gamma_oi, default=None)
     pwall = max(below, key=lambda r: abs(r.put_gamma_oi), default=None)
-    cwall_k = cwall.strike if cwall else spot * 1.05
-    pwall_k = pwall.strike if pwall else spot * 0.95
     agg = sum(r.call_gamma_oi + r.put_gamma_oi for r in rs) / 1e9
 
     return DealerGamma(
         gex_sign="POS" if agg >= 0 else "NEG",
         flip_pct=(flip - spot) / spot * 100, flip_status=flip_status,
-        call_wall_pct=(cwall_k - spot) / spot * 100,
-        put_wall_pct=(spot - pwall_k) / spot * 100,
+        call_wall_pct=(cwall.strike - spot) / spot * 100 if cwall else None,
+        put_wall_pct=(spot - pwall.strike) / spot * 100 if pwall else None,
         agg_b=agg, provenance=src)
 
 
@@ -301,7 +314,8 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     ivsrc = prov.unavailable("no interpolated-iv")
     if iv:
         row = min(iv, key=lambda p: abs((p.days or 0) - _IVR_TARGET_DTE))
-        ivr = round((row.percentile or 0.0) * 100, 1)
+        # a vendor-null percentile stays None ("IV rank n/a"), never 0 ("cheapest ever")
+        ivr = round(row.percentile * 100, 1) if row.percentile is not None else None
         ivsrc = prov.derived(row.provenance)
 
     # Tradeability: on the realistic contract you'd actually buy (near-the-money, near-dated,
@@ -363,6 +377,11 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
             flags.append(f"term inverted {front_iv:.0%}/{back_iv:.0%}")
         if ivr is None:
             flags.append("IV rank n/a")
+        # a FAILED calendar fetch is unknown, not an all-clear (review SEVERE #2)
+        if canon.get("event_calendar_ok") is False:
+            flags.append("macro calendar n/a")
+        if canon.get("earnings_calendar_ok") is False:
+            flags.append("earnings dates n/a")
         if flags:
             guard, reason = "caution", " · ".join(flags)
         else:

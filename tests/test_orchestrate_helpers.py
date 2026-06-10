@@ -68,7 +68,7 @@ def test_market_now_uses_spy_iv_not_viewed_ticker(monkeypatch):
     monkeypatch.setattr(orch, "_fetch_raw", lambda *a, **k: [])
 
     tsla_iv = [IVTermPoint(date="2026-06-09", days=5, volatility=0.99)]        # viewed ticker
-    m = orch._market_now("TSLA", [], tsla_iv, now)
+    m = orch._market_now("TSLA", None, [], tsla_iv, now)
     assert m["iv"] == 0.30                          # SPY's IV, NOT TSLA's 0.99
 
 
@@ -77,9 +77,11 @@ def test_market_now_spy_iv_fetch_fails_degrades_to_none(monkeypatch):
     from server.pipeline import orchestrate as orch
     now = datetime(2026, 6, 9, 15, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(orch, "_fetch_norm", lambda *a, **k: [])    # every fetch fails/empty
-    monkeypatch.setattr(orch, "_fetch_raw", lambda *a, **k: [])
-    m = orch._market_now("TSLA", [], [], now)
+    monkeypatch.setattr(orch, "_fetch_raw", lambda *a, **k: None)   # raw fetches FAIL
+    m = orch._market_now("TSLA", None, [], [], now)
     assert m["iv"] is None                          # never the viewed ticker's number
+    assert m["events_known"] is False               # failed calendar ≠ all-clear
+    assert m["tide"] is None
 
 
 # ── _flow_cluster ─────────────────────────────────────────────────────────────

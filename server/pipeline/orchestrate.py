@@ -60,13 +60,44 @@ def _fetch_norm(endpoint: str, params: dict, ticker: str, priority: Priority) ->
         return []
 
 
-def _fetch_raw(endpoint: str, ticker: str | None, priority: Priority) -> list:
+def _fetch_raw(endpoint: str, ticker: str | None, priority: Priority) -> list | None:
     """Ingest one endpoint and return its raw rows (for inputs with no canonical model
-    yet — market-tide, economic-calendar). [] on failure."""
+    yet — market-tide, economic-calendar, stock-state, earnings). Returns None on FAILURE
+    (distinct from [] = a genuinely empty 200) so callers can render "n/a" instead of
+    stating a confident wrong all-clear like "no event in 5d" (review SEVERE #2)."""
     try:
         return _rows(ingest(endpoint, {}, ticker=ticker, priority=priority).payload)
     except UWError:
-        return []
+        return None
+
+
+def _spot_of(ticker: str, priority: Priority) -> float | None:
+    """Current spot from stock-state (close, falling back to prev_close)."""
+    rows = _fetch_raw(f"/stock/{ticker}/stock-state", ticker, priority)
+    for r in rows or []:
+        for k in ("close", "last_price", "price", "prev_close"):
+            v = _f(r.get(k))
+            if v:
+                return v
+    return None
+
+
+# Strike band for spot-exposures: without min/max_strike UW returns a ONE-SIDED default
+# band (captured SPY: 525→750 with spot 744.94 = -29.5%/+0.68%), which inverts gex_sign and
+# fakes walls (review SEVERE #1; the v2 "band-edge garbage" bug). Fetch spot first, bracket it.
+_GAMMA_BAND_PCT = 15.0
+
+
+def _fetch_gamma(ticker: str, priority: Priority) -> tuple[float | None, list]:
+    """(spot, gamma_strikes) with the strike band bracketed around spot. Without a spot the
+    unbracketed fetch is still made — derive's band guard will then declare it unavailable
+    rather than trust a one-sided read."""
+    spot = _spot_of(ticker, priority)
+    params: dict = {"limit": 500}
+    if spot:
+        params["min_strike"] = int(spot * (1 - _GAMMA_BAND_PCT / 100))
+        params["max_strike"] = int(spot * (1 + _GAMMA_BAND_PCT / 100)) + 1
+    return spot, _fetch_norm(f"/stock/{ticker}/spot-exposures/strike", params, ticker, priority)
 
 
 # ── pure cross-signal helpers (unit-tested offline) ───────────────────────────
@@ -122,28 +153,34 @@ def _latest_iv(iv_term) -> float | None:
     return min(iv_term, key=lambda p: p.days if p.days is not None else 999).volatility
 
 
-def _market_now(ticker: str, gamma_strikes: list, iv_term: list, now: datetime) -> dict:
+def _market_now(ticker: str, spot: float | None, gamma_strikes: list, iv_term: list,
+                now: datetime) -> dict:
     """Raw market context (market-wide, computed ONCE per page load): SPY index gamma sign,
     SPY IV, tide lean, next macro event. NO posture, no Signal — present formats these into
-    the muted 'Market now' line, and the event feeds the Cost gate. SPY-based regardless of
-    the viewed ticker (Fix 3: SPY IV too, not the viewed ticker's); reuses viewed data when
-    the view IS SPY."""
-    spy_gamma = gamma_strikes if (ticker == "SPY" and gamma_strikes) else \
-        _fetch_norm("/stock/SPY/spot-exposures/strike", {"limit": 500}, "SPY", Priority.LOW)
-    dg = derive_dealer_gamma({"gamma_strikes": spy_gamma})
+    the Market-today tile, and the event feeds the Cost gate. SPY-based regardless of the
+    viewed ticker; reuses viewed data when the view IS SPY. A FAILED calendar/tide fetch is
+    None ("n/a"), never an implied all-clear (review SEVERE #2); `events_known` lets Cost
+    flag the missing macro check."""
+    if ticker == "SPY" and gamma_strikes:
+        spy_spot, spy_gamma = spot, gamma_strikes
+    else:
+        spy_spot, spy_gamma = _fetch_gamma("SPY", Priority.LOW)
+    dg = derive_dealer_gamma({"gamma_strikes": spy_gamma, "spot": spy_spot})
     gamma_sign = dg.gex_sign if dg.flip_status != "unavailable" else None
     spy_iv = iv_term if (ticker == "SPY" and iv_term) else \
         _fetch_norm("/stock/SPY/interpolated-iv", {}, "SPY", Priority.LOW)
     tide = _fetch_raw("/market/market-tide", None, Priority.LOW)
     events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
-    nxt = next_macro_event(events, now)
+    events_known = events is not None
+    nxt = next_macro_event(events or [], now)
     event_line = None
     if nxt is not None:
         name, days = nxt
         event_line = f"{name} <1d" if days <= 1 else f"{name} {int(round(days))}d"
-    return {"gamma_sign": gamma_sign, "iv": _latest_iv(spy_iv), "tide": _tide_lean(tide),
+    return {"gamma_sign": gamma_sign, "iv": _latest_iv(spy_iv),
+            "tide": _tide_lean(tide) if tide is not None else None,
             "event_line": event_line, "event_within_hold": nxt is not None,
-            "as_of": now.isoformat()}
+            "events_known": events_known, "as_of": now.isoformat()}
 
 
 def _oi_history(ticker: str, now: datetime) -> list[list]:
@@ -170,8 +207,7 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
     asof_d = date.fromisoformat(asof)
     flow_alerts = _fetch_norm(_FLOW_ALERTS, {"ticker_symbol": ticker, "limit": 500},
                               ticker, Priority.CRITICAL)
-    gamma_strikes = _fetch_norm(f"/stock/{ticker}/spot-exposures/strike", {"limit": 500},
-                                ticker, Priority.NORMAL)
+    spot, gamma_strikes = _fetch_gamma(ticker, Priority.NORMAL)
     iv_term = _fetch_norm(f"/stock/{ticker}/interpolated-iv", {}, ticker, Priority.NORMAL)
 
     canon: dict = {
@@ -184,7 +220,7 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         # the chain for the spread-cost / expected-move gate (load-bearing risk check)
         "option_contracts": _fetch_norm(f"/stock/{ticker}/option-contracts", {"limit": 500},
                                         ticker, Priority.NORMAL),
-        "spot": next((g.price for g in gamma_strikes if g.price), None),
+        "spot": spot or next((g.price for g in gamma_strikes if g.price), None),
         # term structure for the overpay check (front vs back IV)
         "term_structure": _fetch_norm(f"/stock/{ticker}/volatility/term-structure", {},
                                       ticker, Priority.LOW),
@@ -197,8 +233,9 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         canon["flow_strikes"] = _flow_cluster(sess_alerts, side, asof_d)
         canon["oi_sessions"] = _oi_history(ticker, now)
 
-    canon["days_to_earnings"] = _days_to_earnings(
-        _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW), now)
+    earnings = _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW)
+    canon["days_to_earnings"] = _days_to_earnings(earnings, now)
+    canon["earnings_calendar_ok"] = earnings is not None
     return canon
 
 
@@ -226,9 +263,10 @@ def build_view(ticker: str, *, asof: str | None = None) -> ViewModel:
     asof = asof or clock.session_date(now).isoformat()
     try:
         canon = build_canon(ticker, asof=asof, now=now)
-        market = _market_now(ticker, canon.get("gamma_strikes") or [],
+        market = _market_now(ticker, canon.get("spot"), canon.get("gamma_strikes") or [],
                              canon.get("iv_term") or [], now)
         canon["event_within_hold"] = market["event_within_hold"]   # macro veto → Cost gate
+        canon["event_calendar_ok"] = market["events_known"]        # missing calendar ≠ all-clear
     except Exception:                               # last-resort honest-degrade (Fix 4b)
         log.exception("build_view pipeline error for %s", ticker)
         canon = {"flow_alerts": [], "flow_error": "pipeline error"}   # honest note, not "no flow"

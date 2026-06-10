@@ -152,7 +152,10 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     if positioning_color == "red" or cost_guard == "block":
         overall = "Stand down"
     elif (positioning_color == "green" and not signal_conflict and cost_guard == "ok"
-          and skew_st != "oppose" and structural == "green"):
+          and skew_st not in ("oppose", "unavailable") and structural == "green"):
+        # skew dark caps at Mixed (like structural): with the orthogonal leg unreadable,
+        # the divergence check can't run, so the rare green is not certifiable. Neutral
+        # skew (readable, no lean) still permits Favorable.
         overall = "Favorable"
     else:
         overall = "Mixed"

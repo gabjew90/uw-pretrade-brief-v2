@@ -81,7 +81,7 @@ def _positioning_el(p) -> Element:
     tone = {"building": "positive", "unwinding": "cautionary"}.get(p.confirmation, "neutral")
     return Element(key="positioning", label="Is the bet being held?", surface=surf,
                    meaning=f"{_pct(p.oi_trend_pct, 0, sign=True)} OI at the bet's strikes",
-                   logic="OI up = held, down = closing (vs prior settled session)",
+                   logic="OI up = held, down = closing (across recent settled sessions)",
                    detail={"OI change (settled)": _pct(p.oi_trend_pct, 1, sign=True),
                            "Side": p.side, "Strikes watched": p.cluster_strikes},
                    tone=tone, provenance=p.provenance)
@@ -99,7 +99,8 @@ def _structural_el(dg) -> Element:
                    logic="negative gamma extends moves, positive pins them",
                    detail={"Dealer gamma": _money(dg.agg_b * 1e9), "Gamma flip": flip,
                            "Call wall (resistance)": _pct(dg.call_wall_pct, sign=True),
-                           "Put wall (support)": _pct(-dg.put_wall_pct, sign=True)},
+                           "Put wall (support)": _pct(-dg.put_wall_pct, sign=True)
+                                                 if dg.put_wall_pct is not None else "n/a"},
                    tone="neutral" if trend else "cautionary", provenance=dg.provenance)
 
 
@@ -147,16 +148,27 @@ def _cost_el(c) -> Element:
 
 
 def _market_el(m: dict) -> Element:
-    """The muted 'Market now' line — raw market context (gamma sign, SPY IV, tide, next macro
-    event). NOT a posture, NOT a verdict (only THE CALL gets a verdict word). The macro event
-    here is the same one that can make the Cost gate say PASS."""
+    """The 'Market today' tile — raw market context (SPY gamma sign, SPY IV, tide, next
+    macro event), shaped like every other tile (label, surface, meaning, how, tap detail)
+    but with DATA on the surface, never a posture/verdict word (only THE CALL gets one).
+    A FAILED calendar/tide fetch reads n/a, never an implied all-clear."""
     gs = m.get("gamma_sign")
-    gamma = f"gamma {gs} ({'trend' if gs == 'NEG' else 'pinned'})" if gs else "gamma n/a"
-    vol = f"IV {m['iv']:.0%}" if m.get("iv") is not None else "IV n/a"
-    tide = f"tide {m.get('tide', 'neutral')}"
-    event = f"event {m['event_line']}" if m.get("event_line") else "no event in 5d"
-    return Element(key="regime", label="Market now", surface=None,
-                   meaning=f"{gamma} · {vol} · {tide} · {event}",
+    gamma = f"{gs} ({'trend' if gs == 'NEG' else 'pinned'})" if gs else "n/a"
+    vol = f"{m['iv']:.0%}" if m.get("iv") is not None else "n/a"
+    tide = m.get("tide") or "n/a"
+    if m.get("event_line"):
+        event = m["event_line"]
+    elif m.get("events_known"):
+        event = "none in 5d"
+    else:
+        event = "n/a"
+    return Element(key="regime", label="What's the market backdrop?",
+                   surface=f"CPI/FOMC: {event}" if event not in ("none in 5d", "n/a")
+                           else ("NO MACRO EVENT 5D" if event == "none in 5d" else "EVENTS N/A"),
+                   meaning=f"SPY gamma {gamma} · IV {vol} · tide {tide}",
+                   logic="same for every ticker. a macro event inside 5d also gates Cost",
+                   detail={"SPY index gamma": gamma, "SPY IV (near-term)": vol,
+                           "Tape tide": tide, "Next macro event (5d)": event},
                    provenance=prov.live(m.get("as_of")))
 
 

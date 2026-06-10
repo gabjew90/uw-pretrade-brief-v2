@@ -73,6 +73,16 @@ def test_get_429_exhausts_raises(env):
 
 
 @responses.activate
+def test_non_json_200_raises_uwerror_not_view_killer(env):
+    """A 200 with an HTML body (gateway error page) must be a typed UWError so ONE bad
+    endpoint degrades to unavailable instead of nuking the whole view (review MOD #4)."""
+    responses.add(responses.GET, URL, body="<html>bad gateway</html>", status=200,
+                  content_type="text/html")
+    with pytest.raises(uw_client.UWError, match="non-JSON"):
+        uw_client.get(PATH)
+
+
+@responses.activate
 def test_get_4xx_raises_immediately(env):
     responses.add(responses.GET, URL, json={"err": "nope"}, status=404)
     with pytest.raises(uw_client.UWError, match="HTTP 404"):

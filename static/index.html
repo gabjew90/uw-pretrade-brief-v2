@@ -28,10 +28,6 @@
     .v-cautionary { color: var(--warn); }
     .reasons { color: var(--text); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
     .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch; }
-    /* market context = ONE muted line, no posture word (only the call gets a verdict word) */
-    .market { font-size: 11px; color: var(--text-dim); margin: 0 0 16px; }
-    .market b { color: var(--text-dim); font-weight: normal; text-transform: uppercase;
-                font-size: 9px; letter-spacing: 0.06em; margin-right: 4px; }
     .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
@@ -114,13 +110,9 @@
         <div class="detail">${detailRows(e.detail)}</div>
       </div>`;
     }
-    // Market context — ONE muted line of today's market data (no posture word, no box):
-    // these are inputs/conditions, not a second verdict. The macro event here is the same
-    // one that can show up in the Cost tile, which is why the call may say Stand down.
-    function regimeHeader(r) {
-      if (!r || !r.meaning) return "";
-      return `<div class="market"><b>Market now</b>${esc(r.meaning)}</div>`;
-    }
+    // Market context renders as a NORMAL tile (clear, clickable, variables on tap) —
+    // same card as every other element. Its surface is DATA (the next macro event),
+    // never a posture word; only THE CALL carries a verdict.
     function verdictTone(v) {
       return { "Favorable": "v-positive", "Stand down": "v-negative" }[v.overall] || "v-cautionary";
     }
@@ -139,10 +131,9 @@
           (v.reasons && v.reasons.length
             ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "") +
           (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "") +
-          `</div>` +
-          // MARKET BACKDROP — secondary context, below the call
-          regimeHeader(vm.regime);
-        view.innerHTML = (vm.elements || []).map(elementCard).join("")
+          `</div>`;
+        const cards = (vm.regime ? [vm.regime] : []).concat(vm.elements || []);
+        view.innerHTML = cards.map(elementCard).join("")
           || "<p class='note'>No elements.</p>";
         view.querySelectorAll(".el").forEach(c =>
           c.addEventListener("click", () => c.classList.toggle("open")));
