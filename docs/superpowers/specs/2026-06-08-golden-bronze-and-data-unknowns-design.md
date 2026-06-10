@@ -244,6 +244,13 @@ _FINDING (d): OI live-vs-settled and lookback depth — EXECUTED 2026-06-08 (~11
     the OI publish time (~9:15 ET next session), as the v3 clock already does.
   clock_cadence_implication: OI is FORMING intraday; settled OI for a prior session via
     date=; governor lookback bound = measured ~6-7 trading days (requests beyond 403).
+  CORRECTION (2026-06-09, operator prompt): the ~7-day ceiling applies to the STOCK-HISTORY
+    family only. /option-contract/{id}/historic (accessible category) returns the contract's
+    WHOLE LIFE of daily bars under a "chains" root key — probed live: SPY260717P00710000 ->
+    61 daily rows, 2026-03-13 through today, each with open_interest + volume + IV + bid/ask
+    volume splits. Deep per-contract OI history IS available (scripts/probe_oi_history.py).
+    Positioning can trend months of OI on the flow-cluster contracts (~5 calls) instead of
+    4 date= sessions.
 ```
 
 ---
