@@ -128,6 +128,7 @@ class Flow(Signal):
     call_prem: float = 0.0
     put_prem: float = 0.0
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
+    top_strikes: list[dict] = Field(default_factory=list)  # {strike, side, premium} chart rows
 
 
 class TermStructurePoint(BaseModel):
@@ -252,6 +253,7 @@ class Conviction(Signal):
     total_delta: float = 0.0        # session net of total_delta_flow (all-flow, secondary)
     accumulation: Literal["building", "fading", "choppy", "reversed", "flat"] = "flat"
     efficiency: float = 0.0
+    cum_series: list[dict] = Field(default_factory=list)   # {t, v} cumulative curve (≤48 pts)
 
 
 class Positioning(Signal):
@@ -264,6 +266,7 @@ class Positioning(Signal):
     oi_trend_pct: float = 0.0                    # cluster OI change, first→last settled session
     side: Literal["call", "put", ""] = ""        # the flow side this confirms
     cluster_strikes: list[float] = Field(default_factory=list)
+    oi_series: list[dict] = Field(default_factory=list)     # {date, oi} summed cluster per day
 
 
 class DealerGamma(Signal):
@@ -276,6 +279,7 @@ class DealerGamma(Signal):
     call_wall_pct: Optional[float] = None       # call wall distance above spot (%); None = n/a
     put_wall_pct: Optional[float] = None        # put wall distance below spot (%); None = n/a
     agg_b: float = 0.0                          # aggregate net gamma, $bn (signed)
+    ladder: list[dict] = Field(default_factory=list)   # {strike, net_b} per-strike gamma (chart)
 
 
 class Skew(Signal):
@@ -289,6 +293,7 @@ class Skew(Signal):
     rr_baseline: Optional[float] = None       # trailing mean (excl. today), call−put
     rr_delta: Optional[float] = None          # rr25 − rr_baseline
     lean: Literal["call_skew", "put_skew", "neutral", "unavailable"] = "unavailable"
+    series: list[dict] = Field(default_factory=list)   # {date, rr} daily, call−put (chart)
 
 
 class Cost(Signal):
@@ -309,6 +314,7 @@ class Cost(Signal):
     front_iv: Optional[float] = None            # near-dated IV (term-structure overpay check)
     back_iv: Optional[float] = None             # ~30d IV
     term_inverted: bool = False                 # front >> back ⇒ overpaying for near vol
+    term_curve: list[dict] = Field(default_factory=list)   # {dte, iv} IV term structure (chart)
     reason: str = ""
 
 
@@ -340,7 +346,9 @@ class Element(BaseModel):
     surface: Any = None                     # the glanceable value (string/number/struct)
     meaning: str = ""                        # terse number readout (the data behind the word)
     logic: str = ""                          # the RULE: how this word is decided from the data
-    detail: Any = None                      # tap payload (secondary numbers, graphs)
+    detail: Any = None                      # tap payload (readable rows)
+    series: Any = None                      # chart-ready data {kind, points[]} for the future
+                                            # UI — server-built; the frontend only draws it
     provenance: Provenance = Field(default_factory=Provenance)
     # the ONLY sentiment cue the frontend acts on; it never reads signal values to render
     tone: Literal["positive", "cautionary", "negative", "neutral", "unavailable"] = "neutral"

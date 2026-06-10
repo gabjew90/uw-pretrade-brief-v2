@@ -53,6 +53,7 @@ def _direction_el(flow) -> Element:
                    logic="side with more opening premium wins",
                    detail={"Call premium": _money(flow.call_prem),
                            "Put premium": _money(flow.put_prem), "Read from": basis},
+                   series={"kind": "strike_bars", "points": flow.top_strikes},
                    tone="neutral", provenance=flow.provenance)
 
 
@@ -66,6 +67,7 @@ def _conviction_el(c) -> Element:
                    logic="sign of the session net delta (calls if positive)",
                    detail={"Net directional delta": f"{c.dir_delta:,.0f}",
                            "Path this session": c.accumulation, "One-way %": f"{c.efficiency:.0%}"},
+                   series={"kind": "line", "points": c.cum_series},
                    tone="neutral", provenance=c.provenance)
 
 
@@ -84,6 +86,7 @@ def _positioning_el(p) -> Element:
                    logic="OI up = held, down = closing (across recent settled sessions)",
                    detail={"OI change (settled)": _pct(p.oi_trend_pct, 1, sign=True),
                            "Side": p.side, "Strikes watched": p.cluster_strikes},
+                   series={"kind": "bars", "points": p.oi_series},
                    tone=tone, provenance=p.provenance)
 
 
@@ -101,6 +104,7 @@ def _structural_el(dg) -> Element:
                            "Call wall (resistance)": _pct(dg.call_wall_pct, sign=True),
                            "Put wall (support)": _pct(-dg.put_wall_pct, sign=True)
                                                  if dg.put_wall_pct is not None else "n/a"},
+                   series={"kind": "ladder", "points": dg.ladder},
                    tone="neutral" if trend else "cautionary", provenance=dg.provenance)
 
 
@@ -117,6 +121,7 @@ def _skew_el(s) -> Element:
                    logic="today's risk reversal vs its own recent normal, calls bid = richer than usual",
                    detail={"Today (25Δ RR)": rr, "Recent normal": base,
                            "Change vs normal": f"{s.rr_delta:+.3f}" if s.rr_delta is not None else "n/a"},
+                   series={"kind": "line", "points": s.series},
                    tone="neutral", provenance=s.provenance)
 
 
@@ -144,7 +149,8 @@ def _cost_el(c) -> Element:
         d["Days to earnings"] = c.days_to_earnings
     return Element(key="cost", label="Is it worth the cost?", surface=surf, meaning=c.reason,
                    logic="PASS on event, earnings, or spread bigger than the move",
-                   detail=d, tone=tone, provenance=c.provenance)
+                   detail=d, series={"kind": "line", "points": c.term_curve},
+                   tone=tone, provenance=c.provenance)
 
 
 def _market_el(m: dict) -> Element:

@@ -141,4 +141,8 @@ def test_http_api_view_serializes_cleanly(monkeypatch):
     assert {e["key"] for e in body["elements"]} >= {"direction", "flow_truncation"}
     # the response carries only view-model keys — no raw signal/canonical fields
     direction = next(e for e in body["elements"] if e["key"] == "direction")
-    assert set(direction) == {"key", "label", "surface", "meaning", "logic", "detail", "provenance", "tone"}
+    assert set(direction) == {"key", "label", "surface", "meaning", "logic", "detail",
+                              "series", "provenance", "tone"}
+    # chart-ready series for the future UI: top strikes by premium, per side
+    assert direction["series"]["kind"] == "strike_bars"
+    assert direction["series"]["points"], "top-strike chart rows must be populated"

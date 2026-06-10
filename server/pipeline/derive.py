@@ -153,8 +153,18 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     opening_only = basis == "opening_flow"
     call_prem = _side_prem(alerts, "call", opening_only)
     put_prem = _side_prem(alerts, "put", opening_only)
+    # chart rows: top strikes by premium PER SIDE (per-side selection — a dominant side
+    # must not bury the other; the v2 SPY "no flow" lesson)
+    by_ks: dict[tuple, float] = {}
+    for a in alerts:
+        if a.strike is not None and (_opening(a) or not opening_only):
+            by_ks[(a.strike, a.type)] = by_ks.get((a.strike, a.type), 0.0) + float(a.total_premium or 0.0)
+    def _top(sd):
+        ks = sorted((k for k in by_ks if k[1] == sd), key=lambda k: by_ks[k], reverse=True)[:5]
+        return [{"strike": k[0], "side": sd, "premium": round(by_ks[k])} for k in ks]
     return Flow(direction="calls" if side == "call" else "puts", direction_basis=basis,
                 truncated=truncated, call_prem=call_prem, put_prem=put_prem,
+                top_strikes=_top("call") + _top("put"),
                 provenance=prov.derived(alerts[0].provenance))
 
 
@@ -203,13 +213,19 @@ def derive_conviction(canon: dict, *, asof: str | None = None) -> Conviction:
         run += v
         cum.append(run)
     state, eff = _accumulation_read(cum)
+    # chart: the cumulative curve, evenly downsampled to <=48 points (keeps the last)
+    n = len(cum)
+    idxs = list(range(n)) if n <= 48 else \
+        sorted({min(n - 1, int(i * n / 48)) for i in range(48)} | {n - 1})
+    cum_series = [{"t": points[i].timestamp[11:16], "v": round(cum[i])} for i in idxs]
     if dir_net == 0:
         return Conviction(direction=None, dir_delta=0.0, total_delta=round(total_net),
-                          accumulation=state, efficiency=eff,
+                          accumulation=state, efficiency=eff, cum_series=cum_series,
                           provenance=prov.unavailable("dir_delta net is zero (no lean)"))
     return Conviction(direction="calls" if dir_net > 0 else "puts",
                       dir_delta=round(dir_net), total_delta=round(total_net),
-                      accumulation=state, efficiency=eff, provenance=src)
+                      accumulation=state, efficiency=eff, cum_series=cum_series,
+                      provenance=src)
 
 
 # The strike band must extend at least this far BOTH sides of spot, or the gamma read is
@@ -264,12 +280,20 @@ def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
     pwall = max(below, key=lambda r: abs(r.put_gamma_oi), default=None)
     agg = sum(r.call_gamma_oi + r.put_gamma_oi for r in rs) / 1e9
 
+    # chart: the per-strike net-gamma ladder within ±10% of spot, <=48 rungs (the v2
+    # Tile-3 ladder's data, $bn per strike)
+    near = [r for r in rs if abs(r.strike - spot) / spot <= 0.10]
+    step = max(1, len(near) // 48)
+    ladder = [{"strike": r.strike,
+               "net_b": round((r.call_gamma_oi + r.put_gamma_oi) / 1e9, 3)}
+              for r in near[::step]]
+
     return DealerGamma(
         gex_sign="POS" if agg >= 0 else "NEG",
         flip_pct=(flip - spot) / spot * 100, flip_status=flip_status,
         call_wall_pct=(cwall.strike - spot) / spot * 100 if cwall else None,
         put_wall_pct=(spot - pwall.strike) / spot * 100 if pwall else None,
-        agg_b=agg, provenance=src)
+        agg_b=agg, ladder=ladder, provenance=src)
 
 
 @register("skew")
@@ -293,8 +317,9 @@ def derive_skew(canon: dict, *, asof: str | None = None) -> Skew:
         lean = "neutral"
     else:
         lean = "call_skew" if delta > 0 else "put_skew"
+    series = [{"date": p.date, "rr": round(-p.risk_reversal, 4)} for p in ordered]  # call−put
     return Skew(rr25=round(rr_today, 4), rr_baseline=round(baseline, 4), rr_delta=round(delta, 4),
-                lean=lean, provenance=prov.derived(latest.provenance))
+                lean=lean, series=series, provenance=prov.derived(latest.provenance))
 
 
 @register("cost")
@@ -400,10 +425,14 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
             guard, reason = "ok", f"spread {spread_pct:.0f}%, move {em_pct:.1f}% > be {be_pct:.1f}%"
 
     src = prov.derived(ivsrc, pick.provenance) if pick else ivsrc
+    term_curve = [{"dte": t.dte, "iv": round(t.volatility, 4)}
+                  for t in (canon.get("term_structure") or [])
+                  if t.volatility is not None and t.dte <= 90]
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,
                 spread_pct=spread_pct, breakeven_move_pct=be_pct, expected_move_pct=em_pct,
                 contract=contract_d, candidates=candidates, front_iv=front_iv,
-                back_iv=back_iv, term_inverted=inverted, reason=reason, provenance=src)
+                back_iv=back_iv, term_inverted=inverted, term_curve=term_curve,
+                reason=reason, provenance=src)
 
 
 def _pick_contract(contracts, side, spot, asof_d):
@@ -546,8 +575,10 @@ def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
     else:
         conf = "flat"
     src = prov.derived(*[bars[0].provenance for bars in per_contract])
+    # chart: summed cluster OI per day, last 30 sessions (the bar-chart series)
+    oi_series = [{"date": d, "oi": by_date[d]} for d in sorted(by_date)[-30:]]
     return Positioning(confirmation=conf, oi_trend_pct=round(trend, 1), side=side,
-                       cluster_strikes=sorted(strikes), provenance=src)
+                       cluster_strikes=sorted(strikes), oi_series=oi_series, provenance=src)
 
 
 # Macro events crossable within a weekly hold window (1–5d); a high-impact one inside it

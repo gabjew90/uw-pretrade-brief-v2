@@ -83,6 +83,25 @@ def test_conflict_leg_element_tinted_cautionary():
     assert skew_el.tone == "cautionary"
 
 
+def test_series_carry_chart_data_for_the_future_ui():
+    """Every evidence tile must carry its chart-ready series (the raw data the future
+    UI will draw): OI per day, cum-delta curve, gamma ladder, RR series, term curve,
+    top strikes. Summaries alone are not enough to build the frontend on."""
+    from server.pipeline.derive import derive_positioning
+    from server.models import ContractOIBar
+    sigs = _full_signals()
+    bars = [ContractOIBar(date=f"2026-06-{d:02d}", open_interest=1000 + d * 100)
+            for d in range(1, 7)]
+    sigs["positioning"] = derive_positioning(
+        {"flow_side": "call", "flow_strikes": [600.0], "contract_oi": [bars]})
+    vm = present("SPY", sigs, decide(sigs))
+    pos = next(e for e in vm.elements if e.key == "positioning")
+    assert pos.series["kind"] == "bars"
+    assert [p["oi"] for p in pos.series["points"]] == [1100, 1200, 1300, 1400, 1500, 1600]
+    assert all(e.series is not None for e in vm.elements
+               if e.key in ("direction", "conviction", "positioning", "structural", "skew", "cost"))
+
+
 def test_verdict_forwarded_verbatim():
     sigs = _full_signals()
     v = decide(sigs)
