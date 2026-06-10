@@ -22,7 +22,8 @@ from datetime import date, datetime, timezone
 
 from server.models import ViewModel
 from server.pipeline.decide import decide
-from server.pipeline.derive import derive_all, derive_dealer_gamma, flow_side, next_macro_event
+from server.pipeline.derive import (derive_all, derive_dealer_gamma, flow_side,
+                                     next_macro_event, session_alerts)
 from server.pipeline.ingest import RawRecord, ingest
 from server.pipeline.normalize import NormalizeError, normalize
 from server.pipeline.present import present
@@ -189,10 +190,11 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
                                       ticker, Priority.LOW),
     }
 
-    side, _basis = flow_side(flow_alerts)           # SAME picker the verdict direction uses
+    sess_alerts = session_alerts(flow_alerts)       # newest session only (no prior-day mix)
+    side, _basis = flow_side(sess_alerts)           # SAME picker the verdict direction uses
     if side:
         canon["flow_side"] = side
-        canon["flow_strikes"] = _flow_cluster(flow_alerts, side, asof_d)
+        canon["flow_strikes"] = _flow_cluster(sess_alerts, side, asof_d)
         canon["oi_sessions"] = _oi_history(ticker, now)
 
     canon["days_to_earnings"] = _days_to_earnings(

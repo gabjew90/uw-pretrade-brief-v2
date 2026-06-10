@@ -91,6 +91,40 @@ def test_provenance_is_derived_from_alerts():
     assert f.provenance.as_of == "2026-06-08T15:00:00Z"
 
 
+# ── session window: the 500-cap tail must not mix sessions ───────────────────
+def test_session_filter_drops_prior_day_flow():
+    """A pull spanning Fri+Mon must read ONLY Monday: a huge Friday call bias cannot flip
+    Monday's put direction (staleness-review fix)."""
+    from server.pipeline.derive import session_alerts
+    from server.models import FlowAlert
+
+    def fa(side, prem, ts):
+        return FlowAlert(ticker="SPY", type=side, total_premium=prem, volume_oi_ratio=5.0,
+                         created_at=ts)
+    alerts = [
+        fa("call", 50_000_000, "2026-06-05T19:00:00Z"),   # Friday RTH (ET 15:00) — stale
+        fa("put", 1_000_000, "2026-06-08T14:00:00Z"),     # Monday
+        fa("call", 200_000, "2026-06-08T15:00:00Z"),      # Monday
+    ]
+    kept = session_alerts(alerts)
+    assert len(kept) == 2 and all(a.created_at.startswith("2026-06-08") for a in kept)
+    f = derive_direction({"flow_alerts": alerts})
+    assert f.direction == "puts"                          # Friday's $50M call ignored
+    assert f.call_prem == 200_000 and f.put_prem == 1_000_000
+
+
+def test_session_filter_et_boundary():
+    """A 00:30 UTC Tuesday alert is Monday 20:30 ET — same ET session as Monday RTH."""
+    from server.pipeline.derive import session_alerts
+    from server.models import FlowAlert
+
+    def fa(ts):
+        return FlowAlert(ticker="SPY", type="call", total_premium=1, volume_oi_ratio=5.0,
+                         created_at=ts)
+    kept = session_alerts([fa("2026-06-08T15:00:00Z"), fa("2026-06-09T00:30:00Z")])
+    assert len(kept) == 2                                  # both are ET 2026-06-08
+
+
 # ── golden: real bronze → normalize → derive ──────────────────────────────────
 def test_golden_real_flow_alerts_yields_sane_direction():
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -101,3 +135,20 @@ def test_golden_real_flow_alerts_yields_sane_direction():
     assert f.direction in ("calls", "puts")               # a real, non-None side
     assert f.direction_basis in ("opening_flow", "total_flow")
     assert (f.call_prem > 0) or (f.put_prem > 0)
+
+
+def test_golden_excludes_prior_session_premium():
+    """The golden pull spans Fri 16:53 ET → Mon: derived premiums must equal the MONDAY
+    subset only, strictly less than the whole-pull sums."""
+    from server.pipeline.derive import session_alerts
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    raw = RawRecord(endpoint="/option-trades/flow-alerts", params={}, ticker="SPY",
+                    fetched_at="2026-06-08T15:05:00Z", content_hash="h", payload=payload)
+    alerts = normalize(raw)
+    kept = session_alerts(alerts)
+    assert 0 < len(kept) < len(alerts)                    # the fixture IS multi-session
+    f = derive_direction({"flow_alerts": alerts})
+    whole_call = sum(a.total_premium for a in alerts if a.type == "call" and a.volume_oi_ratio > 1)
+    sess_call = sum(a.total_premium for a in kept if a.type == "call" and a.volume_oi_ratio > 1)
+    assert f.call_prem == sess_call
+    assert f.call_prem < whole_call                       # Friday's flow excluded

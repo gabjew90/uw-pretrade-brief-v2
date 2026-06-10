@@ -192,9 +192,10 @@ def normalize_interpolated_iv(raw: RawRecord) -> list[IVTermPoint]:
 
 @register("stock_oi-per-strike")
 def normalize_oi_per_strike(raw: RawRecord) -> list[OISnapshot]:
-    """Raw oi-per-strike payload → validated `list[OISnapshot]`. `provisional` is stamped
-    by the caller (the clock decides if this session's OI has settled — Phase-2 finding:
-    intraday OI is FORMING, settled via date=). Empty is a legitimate []."""
+    """Raw oi-per-strike payload → validated `list[OISnapshot]`. `provisional` stays False
+    because the pipeline only fetches SETTLED sessions (date= ≤ clock.oi_settled_through;
+    Phase-2 finding: intraday OI is FORMING). If an intraday no-date fetch is ever added,
+    its caller MUST stamp provisional=True or positioning would trend unsettled OI."""
     rows = _unwrap(raw.payload)
     p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
     out: list[OISnapshot] = []

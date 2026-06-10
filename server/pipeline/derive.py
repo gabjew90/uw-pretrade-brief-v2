@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
                             Signal, Skew)
@@ -78,6 +79,34 @@ def _opening(a) -> bool:
         return False
 
 
+_ET = ZoneInfo("America/New_York")
+
+
+def _alert_session(a) -> str:
+    """The ET trading date this alert belongs to ('' if unparseable)."""
+    try:
+        t = datetime.fromisoformat((a.created_at or "").replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return t.astimezone(_ET).date().isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
+def session_alerts(alerts) -> list:
+    """Filter a flow-alerts pull to its NEWEST session (ET date). The 500-cap pull is the
+    most-recent TAIL and can span multiple sessions (our golden capture runs Fri 16:53 ET →
+    Mon 11:02 ET), so summing the whole pull mixes the prior session's flow into today's
+    direction. Pure: the session is the max ET date present in the data itself (pre-market,
+    that is naturally the last completed session). Unparseable timestamps drop; if none
+    parse, the original list is returned (shape problem, not a window problem)."""
+    dated = [(_alert_session(a), a) for a in (alerts or [])]
+    latest = max((d for d, _ in dated if d), default="")
+    if not latest:
+        return list(alerts or [])
+    return [a for d, a in dated if d == latest]
+
+
 def _side_prem(alerts, side: str, opening_only: bool) -> float:
     return sum(float(a.total_premium or 0.0) for a in (alerts or [])
                if a.type == side and (_opening(a) or not opening_only))
@@ -86,8 +115,10 @@ def _side_prem(alerts, side: str, opening_only: bool) -> float:
 def flow_side(alerts) -> tuple[str | None, str]:
     """THE single side-picker (used by both derive_direction and the orchestrator's canon
     assembly, so the verdict side, the cost contract, and the OI cluster are always the same
-    side). OPENING flow leads (Ge-Lin-Pearson: opening bets predict, closing don't); falls
-    back to TOTAL signed flow. Returns (side|None, basis) with side in {'call','put'}."""
+    side). Reads ONLY the newest session in the pull (session_alerts). OPENING flow leads
+    (Ge-Lin-Pearson: opening bets predict, closing don't); falls back to TOTAL signed flow.
+    Returns (side|None, basis) with side in {'call','put'}."""
+    alerts = session_alerts(alerts)
     oc, op = _side_prem(alerts, "call", True), _side_prem(alerts, "put", True)
     if oc or op:
         return ("call" if oc >= op else "put"), "opening_flow"
@@ -99,14 +130,17 @@ def flow_side(alerts) -> tuple[str | None, str]:
 
 @register("flow")
 def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
-    """Pick the call/put side via the shared `flow_side` (OPENING leads, TOTAL fallback). NO
-    gamma fallback; with no flow at all the signal is `unavailable` — never a guessed side.
-    PURE. Ported from `e1d6c5e:server/gates.py::derive_direction`."""
-    alerts = canon.get("flow_alerts") or []
-    if not alerts:
+    """Pick the call/put side via the shared `flow_side` (OPENING leads, TOTAL fallback),
+    reading ONLY the newest session in the pull (the 500-cap tail can span sessions — the
+    prior day's flow must not contaminate today's read). NO gamma fallback; with no flow at
+    all the signal is `unavailable` — never a guessed side. PURE. Ported from
+    `e1d6c5e:server/gates.py::derive_direction`."""
+    raw = canon.get("flow_alerts") or []
+    if not raw:
         return Flow(direction=None, direction_basis="unavailable",
                     provenance=prov.unavailable(canon.get("flow_error") or "no flow alerts"))
-    truncated = any(getattr(a, "truncated", False) for a in alerts)
+    truncated = any(getattr(a, "truncated", False) for a in raw)
+    alerts = session_alerts(raw)                    # newest session only
     side, basis = flow_side(alerts)
     if side is None:
         return Flow(direction=None, direction_basis="unavailable", truncated=truncated,
