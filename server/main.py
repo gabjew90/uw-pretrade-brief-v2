@@ -16,10 +16,12 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from fastapi import HTTPException
+
 from server.config import settings
 from server.models import ViewModel
 from server.pipeline.orchestrate import build_grid, build_view
-from server.services import clock
+from server.services import clock, maintenance
 from server.services.governor import governor
 
 _STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -29,6 +31,9 @@ _STATIC = Path(__file__).resolve().parent.parent / "static"
 async def lifespan(_app: FastAPI):
     # Restore today's UW call count so a redeploy doesn't reset the daily meter to 0.
     governor.load_persisted()
+    # Arm the nightly 03:00-ET maintenance thread (backup/compact/backtest — all offline;
+    # in-app because the Railway volume mounts to this one service).
+    maintenance.start()
     yield
 
 
@@ -44,7 +49,17 @@ def health() -> dict:
         "session_date": clock.session_date().isoformat(),
         "oi_settled_through": clock.oi_settled_through().isoformat(),
         "budget": governor.snapshot(),
+        "maintenance": maintenance.last_run(),
     }
+
+
+@app.post("/admin/maintenance")
+def run_maintenance(token: str) -> dict:
+    """Manually trigger the nightly maintenance (backup/compact/backtest) — token-guarded
+    (BACKFILL_TOKEN). Used to verify the tasks on prod without waiting for 03:00 ET."""
+    if not settings.backfill_token or token != settings.backfill_token:
+        raise HTTPException(status_code=403, detail="bad token")
+    return maintenance.run_all()
 
 
 @app.get("/api/grid")
