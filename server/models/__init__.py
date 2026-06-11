@@ -270,6 +270,8 @@ class Conviction(Signal):
     accumulation: Literal["building", "fading", "choppy", "reversed", "flat"] = "flat"
     efficiency: float = 0.0
     cum_series: list[dict] = Field(default_factory=list)   # {t, v} cumulative curve (≤48 pts)
+    share_volume: Optional[float] = None    # today's RTH stock share volume (the yardstick)
+    vol_ratio: Optional[float] = None       # |dir_delta| / share_volume — sizes the lean
 
 
 class Positioning(Signal):

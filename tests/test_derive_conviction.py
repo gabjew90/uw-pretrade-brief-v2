@@ -5,7 +5,7 @@ dir_delta_flow net = calls/bullish); these lock it as a regression guard.
 import json
 from pathlib import Path
 
-from server.models import GreekFlowPoint, Provenance, Quality
+from server.models import GreekFlowPoint, OhlcBar, Provenance, Quality
 from server.pipeline.derive import derive_conviction
 from server.pipeline.ingest import RawRecord
 from server.pipeline.normalize import normalize
@@ -77,6 +77,38 @@ def test_provenance_carried_worst_case():
         pt.provenance = p
     f = derive_conviction({"greek_flow": pts})
     assert f.provenance.quality == Quality.DEGRADED
+
+
+# ── vol_ratio: |net delta| sized against the day's RTH share volume ───────────
+def _ohlc(ts, vol, market_time="r"):
+    return OhlcBar(start_time=ts, open=100.0, high=101.0, low=99.0, close=100.5,
+                   volume=vol, market_time=market_time)
+
+
+def test_vol_ratio_sizes_net_against_session_share_volume():
+    bars = [_ohlc("2026-06-08T13:30:00Z", 6000), _ohlc("2026-06-08T13:45:00Z", 4000)]
+    f = derive_conviction({"greek_flow": _series(100.0, 200.0, 50.0), "ohlc": bars})
+    assert f.share_volume == 10000.0
+    assert f.vol_ratio == 0.035                  # |350| / 10000
+
+
+def test_vol_ratio_excludes_prior_session_and_extended_hours():
+    bars = [
+        _ohlc("2026-06-05T14:00:00Z", 90000),                       # prior session
+        _ohlc("2026-06-08T11:00:00Z", 50000, market_time="pr"),     # pre-market
+        _ohlc("2026-06-08T13:30:00Z", 7000),
+        _ohlc("2026-06-08T23:45:00Z", 50000, market_time="po"),     # post-market
+    ]
+    f = derive_conviction({"greek_flow": _series(-100.0, -200.0, 50.0), "ohlc": bars})
+    assert f.share_volume == 7000.0
+    assert f.vol_ratio == round(250 / 7000, 4)   # sized on |net|, sign-free
+
+
+def test_vol_ratio_none_without_ohlc():
+    f = derive_conviction({"greek_flow": _series(100.0, 200.0, 50.0)})
+    assert f.vol_ratio is None and f.share_volume is None
+    f2 = derive_conviction({"greek_flow": _series(100.0, 200.0, 50.0), "ohlc": []})
+    assert f2.vol_ratio is None
 
 
 # ── golden: real greek-flow bronze → normalize → derive ───────────────────────

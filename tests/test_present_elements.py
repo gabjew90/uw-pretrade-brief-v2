@@ -102,6 +102,20 @@ def test_series_carry_chart_data_for_the_future_ui():
                if e.key in ("direction", "conviction", "positioning", "structural", "skew", "cost"))
 
 
+def test_conviction_meaning_sized_against_share_volume():
+    sigs = _full_signals()
+    sigs["conviction"] = Conviction(direction="calls", dir_delta=350, accumulation="building",
+                                    share_volume=10000.0, vol_ratio=0.035)
+    vm = present("SPY", sigs, decide(sigs))
+    el = next(e for e in vm.elements if e.key == "conviction")
+    assert "3.5% of share volume" in el.meaning
+    assert el.detail["Vs shares traded"] == "3.5% of today's 10K shares"
+    # and without the yardstick the meaning stays size-free (no fake 0%)
+    vm2 = present("SPY", _full_signals(), decide(_full_signals()))
+    el2 = next(e for e in vm2.elements if e.key == "conviction")
+    assert "share volume" not in el2.meaning
+
+
 def test_verdict_forwarded_verbatim():
     sigs = _full_signals()
     v = decide(sigs)

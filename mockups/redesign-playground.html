@@ -158,7 +158,7 @@ const DEF={screen:"ticker",grouping:"grouped",density:"cozy",labels:"questions",
 const EXPL={
   price:"15-minute price candles for today's regular session. Context for where the walls and breakeven sit — price never decides the call.",
   dir:"Today's opening option premium, split calls vs puts. New money picking a side is the day's directional bet.",
-  tape:"Every option trade pushes with or against the stock (its 'delta'), signed by whether the buyer or seller was the aggressor. Summed minute by minute, this shows which way the tape is really leaning — against the flow means the bet is contested.",
+  tape:"Every option trade pushes with or against the stock (its 'delta'), signed by whether the buyer or seller was the aggressor. Summed minute by minute from zero at the open, this shows which way the tape is really leaning — against the flow means the bet is contested. The % sizes that push against the day's share volume, so you can tell a real lean from noise.",
   oi:"Open interest on the bet's exact contracts over the last 5 sessions. Increasing supports that bets are building rather than exiting.",
   gam:"Dealer hedging pressure by strike. Negative near price amplifies moves (helps a directional bet); positive pins price to a range.",
   rr:"What protection costs today vs its own 10-day normal. Puts suddenly richer than usual = fear being bid; calls richer = upside chase.",
@@ -269,7 +269,7 @@ function tickerScreen(){
   if(S.showCandles)h+=tile("Today's tape","Price",`$725.41 <span style="font-size:11px;color:var(--neg)">−1.09%</span>`,expl("price")+candleChart()+how("price context only, the call never comes from price"));
   const g1=tile("Where's the money betting?","Direction","PUTS",expl("dir")+dirChart()+how("side with more opening premium wins"))
     +(S.conflictTie?`<div class="conflictNote">⚠ the live tape disagrees with the flow ↓</div>`:"")
-    +tile("Does the live tape agree?","Tape","CALLS <span class='chip red'>disagrees</span>",expl("tape")+svgLine(D.cum,360,H(),"#9ECE6A")+`<div class="m">+3.6K net directional delta, building</div>`+how("sign of the session net delta"),S.conflictTie?"conflict":"")
+    +tile("Does the live tape agree?","Tape","CALLS <span class='chip red'>disagrees</span>",expl("tape")+svgLine(D.cum,360,H(),"#9ECE6A")+`<div class="m">+3.6K net directional delta, building · 4.2% of share volume</div>`+how("sign of the session net delta"),S.conflictTie?"conflict":"")
     +tile("Is the bet being held?","OI","GROWING",expl("oi")+oiChart()+how("OI up = held, down = closing"));
   const g2=tile("Will moves extend or fade?","Gamma","EXTEND",expl("gam")+gamChart()+how("negative gamma extends moves, positive pins"))
     +tile("Which way is fear priced?","Skew","BALANCED",expl("rr")+rrChart()+how("today's risk reversal vs its own recent normal"));

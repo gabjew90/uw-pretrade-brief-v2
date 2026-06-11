@@ -61,12 +61,18 @@ def _conviction_el(c) -> Element:
     if c is None or getattr(c, "direction", None) is None:
         return _unavail("conviction", "Does the live tape agree?", c, "no greek-flow",
                         "sign of the session net delta")
+    size = f" · {c.vol_ratio:.1%} of share volume" if c.vol_ratio is not None else ""
+    detail = {"Net directional delta": f"{c.dir_delta:,.0f}",
+              "Path this session": c.accumulation, "One-way %": f"{c.efficiency:.0%}"}
+    if c.vol_ratio is not None:
+        detail["Vs shares traded"] = (f"{c.vol_ratio:.1%} of today's "
+                                      f"{_num(c.share_volume)} shares")
     return Element(key="conviction", label="Does the live tape agree?",
                    surface=c.direction.upper(),
-                   meaning=f"{_num(c.dir_delta)} net delta, {c.accumulation}",
-                   logic="sign of the session net delta (calls if positive)",
-                   detail={"Net directional delta": f"{c.dir_delta:,.0f}",
-                           "Path this session": c.accumulation, "One-way %": f"{c.efficiency:.0%}"},
+                   meaning=f"{_num(c.dir_delta)} net delta, {c.accumulation}{size}",
+                   logic="sign of the session net delta (calls if positive), "
+                         "sized against the day's share volume",
+                   detail=detail,
                    series={"kind": "line", "points": c.cum_series},
                    tone="neutral", provenance=c.provenance)
 

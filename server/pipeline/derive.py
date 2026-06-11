@@ -194,6 +194,24 @@ def _accumulation_read(cumsum: list[float]) -> tuple[str, float]:
     return state, round(eff, 2)
 
 
+def _session_share_volume(bars) -> float | None:
+    """Today's regular-hours stock share volume from the 15m OHLC bars (newest ET session,
+    market_time 'r' — the same filter the price axis uses). The yardstick for the delta
+    net: dir_delta is share-equivalent pressure, so |net| / shares-traded says whether the
+    lean is big FOR THIS TICKER TODAY, which a raw cross-ticker number can't."""
+    reg = [b for b in (bars or []) if b.market_time == "r"]
+    if not reg:
+        return None
+    def et_date(b):
+        t = datetime.fromisoformat(b.start_time.replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return t.astimezone(_ET).date()
+    newest = max(et_date(b) for b in reg)
+    vol = sum((b.volume or 0) for b in reg if et_date(b) == newest)
+    return float(vol) or None
+
+
 @register("conviction")
 def derive_conviction(canon: dict, *, asof: str | None = None) -> Conviction:
     """Greek-flow directional conviction from the per-minute `dir_delta_flow` series.
@@ -224,9 +242,12 @@ def derive_conviction(canon: dict, *, asof: str | None = None) -> Conviction:
         return Conviction(direction=None, dir_delta=0.0, total_delta=round(total_net),
                           accumulation=state, efficiency=eff, cum_series=cum_series,
                           provenance=prov.unavailable("dir_delta net is zero (no lean)"))
+    share_vol = _session_share_volume(canon.get("ohlc"))
     return Conviction(direction="calls" if dir_net > 0 else "puts",
                       dir_delta=round(dir_net), total_delta=round(total_net),
                       accumulation=state, efficiency=eff, cum_series=cum_series,
+                      share_volume=share_vol,
+                      vol_ratio=round(abs(dir_net) / share_vol, 4) if share_vol else None,
                       provenance=src)
 
 
