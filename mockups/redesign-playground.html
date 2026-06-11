@@ -159,7 +159,7 @@ const EXPL={
   price:"15-minute price candles for today's regular session. Context for where the walls and breakeven sit — price never decides the call.",
   dir:"Today's opening option premium, split calls vs puts. New money picking a side is the day's directional bet.",
   tape:"Every option trade pushes with or against the stock (its 'delta'), signed by whether the buyer or seller was the aggressor. Summed minute by minute from zero at the open, this shows which way the tape is really leaning — against the flow means the bet is contested. The % sizes that push against the day's share volume, so you can tell a real lean from noise.",
-  oi:"Open interest on the bet's exact contracts over the last 5 sessions. Increasing supports that bets are building rather than exiting.",
+  oi:"Open interest on the bet's exact contracts, one bar per settled day (OI settles overnight, so the newest bar is yesterday). Green bars are the 5 days the verdict scores; grey is older context. Rising green supports bets building rather than exiting.",
   gam:"Dealer hedging pressure by strike. Negative near price amplifies moves (helps a directional bet); positive pins price to a range.",
   rr:"What protection costs today vs its own 10-day normal. Puts suddenly richer than usual = fear being bid; calls richer = upside chase.",
   cost:"The move the options market is pricing vs the move your contract needs to break even. If needed exceeds priced, the math is against you before you start.",
@@ -176,13 +176,19 @@ const PRESETS={
 /* ── helpers ── */
 const M=v=>"$"+v.toFixed(1)+"M";
 const H=()=>S.chartH==="regular"?64:34;
-function svgLine(pts,w,h,color,extra=""){
+function svgLine(pts,w,h,color,extra="",endLbl=null){
   const xs=pts.map((p,i)=>i/(pts.length-1)*w),mn=Math.min(...pts),mx=Math.max(...pts);
   const ys=pts.map(p=>h-4-((p-mn)/(mx-mn||1))*(h-8));
   const d=xs.map((x,i)=>(i?"L":"M")+x.toFixed(1)+","+ys[i].toFixed(1)).join(" ");
   let zero="";
   if(mn<0&&mx>0){const zy=h-4-((0-mn)/(mx-mn))*(h-8);zero=`<line x1="0" y1="${zy}" x2="${w}" y2="${zy}" stroke="#5a6378" stroke-dasharray="3 3"/>`}
-  return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${zero}${extra}<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/></svg>`;
+  let lbls="";
+  if(endLbl!==null){
+    const ey=ys[ys.length-1],sy=ys[0];
+    lbls=`<text x="2" y="${sy-4<10?sy+10:sy-4}" font-size="8" fill="#5a6378">${pts[0]===0?"0 at open (9:30)":""}</text>
+    <text x="${w-2}" y="${ey-5<10?ey+11:ey-5}" font-size="8" fill="${color}" text-anchor="end">${endLbl} now</text>`;
+  }
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${zero}${extra}<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/>${lbls}</svg>`;
 }
 const lbl=(q,s)=>S.labels==="questions"?q:s;
 const how=t=>S.howLines?`<div class="how">how: ${t}</div>`:"";
@@ -203,9 +209,13 @@ function dirChart(){
   <div class="m">bet strikes vs price (blue) · ${M(D.dir.c)} c / ${M(D.dir.p)} p</div>`;
 }
 function oiChart(){
-  const h=H(),mx=Math.max(...D.oi);
-  const bars=D.oi.map((v,i)=>`<rect x="${i*10.4+.8}" y="${h-(v/mx)*(h-6)-2}" width="8" height="${(v/mx)*(h-6)}" rx="1.5" fill="${i>=D.oi.length-5?"#9ECE6A":"#3b4254"}"/>`).join("");
-  return `<svg width="100%" viewBox="0 0 104 ${h}" preserveAspectRatio="none">${bars}</svg><div class="m">+15% over the last 5 settled sessions (green)</div>`;
+  const h=H()+22,w=360,mx=Math.max(...D.oi),n=D.oi.length,bw=w/n;
+  const bars=D.oi.map((v,i)=>`<rect x="${i*bw+4}" y="${h-12-(v/mx)*(h-26)}" width="${bw-8}" height="${(v/mx)*(h-26)}" rx="2" fill="${i>=n-5?"#9ECE6A":"#3b4254"}"/>`).join("");
+  const vals=[0,n-1].map(i=>`<text x="${i*bw+bw/2}" y="${h-16-(D.oi[i]/mx)*(h-26)}" font-size="9" fill="${i?"#9ECE6A":"#8b93a7"}" text-anchor="middle">${D.oi[i]}K</text>`).join("");
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${bars}${vals}
+    <text x="4" y="${h-2}" font-size="8" fill="#5a6378">May 27</text>
+    <text x="${w-4}" y="${h-2}" font-size="8" fill="#9ECE6A" text-anchor="end">Jun 9 (last settled)</text></svg>
+  <div class="m">one bar = one settled day's OI (contracts) on the bet's strikes · green = the 5 days the verdict scores (+15%) · grey = older context</div>`;
 }
 function gamChart(){
   const h=H()+18,w=360,ks=D.gam.rungs.map(r=>r[0]),mn=Math.min(...ks),mx=Math.max(...ks);
@@ -217,7 +227,11 @@ function gamChart(){
     <line x1="${x(D.gam.spot)}" y1="4" x2="${x(D.gam.spot)}" y2="${h-4}" stroke="#7AA2F7" stroke-dasharray="3 2"/>
     <line x1="${x(D.gam.cw)}" y1="4" x2="${x(D.gam.cw)}" y2="${h-4}" stroke="#9ECE6A" stroke-dasharray="2 3"/>
     <text x="${x(D.gam.cw)+3}" y="12" font-size="8" fill="#9ECE6A">wall +1.9%</text>
-    <text x="${x(D.gam.spot)+3}" y="${h-7}" font-size="8" fill="#7AA2F7">price</text></svg>
+    <text x="${x(D.gam.spot)+3}" y="${h-7}" font-size="8" fill="#7AA2F7">price</text>
+    <text x="${x(mn)}" y="${h-7}" font-size="8" fill="#5a6378">${mn}</text>
+    <text x="${x(mx)}" y="${h-7}" font-size="8" fill="#5a6378" text-anchor="end">${mx} strike</text>
+    <text x="2" y="11" font-size="8" fill="#9ECE6A">+ pins</text>
+    <text x="2" y="${h-14}" font-size="8" fill="#F7768E">− extends</text></svg>
   <div class="m">net dealer gamma by strike · negative near price = moves extend</div>`;
 }
 function rrChart(){
@@ -228,9 +242,11 @@ function rrChart(){
   const path=xs.map((x,i)=>(i?"L":"M")+x+","+y(s[i]).toFixed(1)).join(" ");
   return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${band}
     <line x1="0" y1="${y(D.rr.base)}" x2="${w}" y2="${y(D.rr.base)}" stroke="#E0AF68" stroke-dasharray="3 3" opacity=".6"/>
+    <text x="2" y="${y(D.rr.base)-3}" font-size="7" fill="#E0AF68">normal ${D.rr.base}</text>
     <path d="${path}" fill="none" stroke="#7AA2F7" stroke-width="1.5"/>
-    <circle cx="${xs[xs.length-1]}" cy="${y(s[s.length-1])}" r="3.4" fill="#d7dbe6"/></svg>
-  <div class="m">today's dot inside the "normal" band = BALANCED</div>`;
+    <circle cx="${xs[xs.length-1]}" cy="${y(s[s.length-1])}" r="3.4" fill="#d7dbe6"/>
+    <text x="${xs[xs.length-1]-6}" y="${y(s[s.length-1])-6}" font-size="7" fill="#d7dbe6" text-anchor="end">today ${s[s.length-1]}</text></svg>
+  <div class="m">last 7 days · today's dot inside the "normal" band = BALANCED</div>`;
 }
 function costScale(){
   const w=340,mx=1.0,x=v=>v/mx*(w-30)+15;
@@ -251,7 +267,11 @@ function candleChart(){
   let walls="";
   if(S.wallsOnPrice){walls=`<line x1="8" y1="${y(D.gam.cw)}" x2="${w-8}" y2="${y(D.gam.cw)}" stroke="#9ECE6A" stroke-dasharray="2 4" opacity=".7"/><text x="${w-66}" y="${y(D.gam.cw)-3}" font-size="8" fill="#9ECE6A">call wall 739</text>
   <line x1="8" y1="${y(D.gam.pw)}" x2="${w-8}" y2="${y(D.gam.pw)}" stroke="#F7768E" stroke-dasharray="2 4" opacity=".7"/><text x="${w-62}" y="${y(D.gam.pw)-3}" font-size="8" fill="#F7768E">put wall 725</text>`}
-  return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${walls}${bars}</svg><div class="m">15-min candles · regular hours · −1.09% session</div>`;
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${walls}${bars}
+    <text x="10" y="${y(cs[cs.length-1].c)-4}" font-size="8" fill="#7AA2F7">last ${cs[cs.length-1].c.toFixed(2)}</text>
+    <text x="10" y="${h-2}" font-size="8" fill="#5a6378">9:30</text>
+    <text x="${w-8}" y="${h-2}" font-size="8" fill="#5a6378" text-anchor="end">15:45 ET</text></svg>
+  <div class="m">15-min candles · regular hours · −1.09% session</div>`;
 }
 function histStrip(){
   const dots=D.hist.map(v=>`<span class="hd" style="background:${v===1?"#9ECE6A":v===0?"#F7768E":"#3b4254"}"></span>`).join("");
@@ -269,7 +289,7 @@ function tickerScreen(){
   if(S.showCandles)h+=tile("Today's tape","Price",`$725.41 <span style="font-size:11px;color:var(--neg)">−1.09%</span>`,expl("price")+candleChart()+how("price context only, the call never comes from price"));
   const g1=tile("Where's the money betting?","Direction","PUTS",expl("dir")+dirChart()+how("side with more opening premium wins"))
     +(S.conflictTie?`<div class="conflictNote">⚠ the live tape disagrees with the flow ↓</div>`:"")
-    +tile("Does the live tape agree?","Tape","CALLS <span class='chip red'>disagrees</span>",expl("tape")+svgLine(D.cum,360,H(),"#9ECE6A")+`<div class="m">+3.6K net directional delta, building · 4.2% of share volume</div>`+how("sign of the session net delta"),S.conflictTie?"conflict":"")
+    +tile("Does the live tape agree?","Tape","CALLS <span class='chip red'>disagrees</span>",expl("tape")+svgLine(D.cum,360,H(),"#9ECE6A","","+3.6K")+`<div class="m">+3.6K net directional delta, building · 4.2% of share volume</div>`+how("sign of the session net delta"),S.conflictTie?"conflict":"")
     +tile("Is the bet being held?","OI","GROWING",expl("oi")+oiChart()+how("OI up = held, down = closing"));
   const g2=tile("Will moves extend or fade?","Gamma","EXTEND",expl("gam")+gamChart()+how("negative gamma extends moves, positive pins"))
     +tile("Which way is fear priced?","Skew","BALANCED",expl("rr")+rrChart()+how("today's risk reversal vs its own recent normal"));
@@ -316,6 +336,7 @@ function updatePrompt(){
   p.push(`Evidence: ${S.grouping==="grouped"?'three named groups — "The bet — and is it real?" (direction tug-of-war bar, cum-delta sparkline with zero line, OI daily bars with the 5-session window highlighted), "The terrain" (gamma profile with price line + walls, RR dot against its 10-day normal band), "The gate & the ticket" (breakeven-vs-priced-move two-marker scale, broker-ticket contract card)':"a flat tile list with the same charts"}; ${S.chartH==="regular"?"regular-height charts":"sparkline-height charts"}; direction drawn as ${S.dirStyle==="tug"?"a green/red tug-of-war bar":"a split bar plus bet-strike tick marks against the price"}.`);
   p.push(`${S.showCandles?`Include the "Today's tape" 15-min candle tile${S.wallsOnPrice?" with the call/put walls overlaid on the price axis":""}.`:"Omit the price-candles tile."}`);
   if(S.explain)p.push(`Every tile carries a 1-2 sentence plain-English explainer of WHAT data it shows and WHY it matters, in this exact pattern (final copy lives server-side in present.py): direction "${EXPL.dir}" · tape "${EXPL.tape}" · OI "${EXPL.oi}" · gamma "${EXPL.gam}" · skew "${EXPL.rr}" · cost "${EXPL.cost}" · ticket "${EXPL.ticket}" · price "${EXPL.price}" · history "${EXPL.hist}"`);
+  p.push(`Chart literacy (hard rule): every chart carries minimal axis anchors — a caption saying what ONE bar/point IS (with units), first/last x labels (dates or times), and the key y values (zero line, latest value, baseline). Any grey-vs-color encoding is explained in the caption. No naked sparklines. Sizes are only comparable within a tile's own yardstick (delta vs share volume, OI vs its own history); never imply premium dollars and delta shares are the same scale.`);
   p.push(`Trust layer: ${S.howLines?"keep":"drop"} the italic "how:" rule lines; ${S.provDots?"show":"hide"} live/stale provenance dots; ${S.conflictTie?"visually flag flow-vs-tape disagreement between the two tiles (amber tie)":"no special conflict treatment"}; ${S.showHistory?'end with a "Was it right?" history dot-strip (green/red/grey) and the hit-rate figure':"no history strip"}. Density: ${S.density}. Tile labels: ${S.labels==="questions"?"plain-English questions":"short titles"}.`);
   p.push(`Grid screen: rows as premium-length bars split green-calls/red-puts (no side word — it is a sample), alert counts, tap-through to the brief.`);
   p.push(`Hard rules: one verdict word on the page; no posture words on the market line; unavailable/n-a/truncation states stay visible; no math in JS (CI-enforced); re-run scripts/capture_golden_vm.py after copy changes.`);
