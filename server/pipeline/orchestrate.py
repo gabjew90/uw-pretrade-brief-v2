@@ -175,6 +175,23 @@ def _skew_expiry(asof_d: date, min_dte: int = 25) -> str:
             y, m = y + 1, 1
 
 
+def session_candles(bars) -> list[dict]:
+    """Regular-hours 15m candles for the NEWEST session present in the data (matches the
+    flow session by construction) — the price axis the design overlays walls/flip on.
+    Pure; chart rows {t,o,h,l,c,v} with t in ET HH:MM."""
+    from server.pipeline.derive import _ET
+    reg = [b for b in (bars or []) if b.market_time == "r"]
+    if not reg:
+        return []
+    def et(b):
+        t = datetime.fromisoformat(b.start_time.replace("Z", "+00:00")).astimezone(_ET)
+        return t
+    newest = max(et(b).date() for b in reg)
+    return [{"t": et(b).strftime("%H:%M"), "o": b.open, "h": b.high, "l": b.low,
+             "c": b.close, "v": b.volume}
+            for b in reg if et(b).date() == newest]
+
+
 def _days_to_earnings(earnings_rows, now: datetime) -> int | None:
     """Days until the next future earnings date, or None (no/unknown earnings — e.g. an
     ETF). Tolerant of the field name since we lack a non-empty golden fixture to pin it."""
@@ -299,6 +316,8 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         # term structure for the overpay check (front vs back IV)
         "term_structure": _fetch_norm(f"/stock/{ticker}/volatility/term-structure", {},
                                       ticker, Priority.LOW),
+        # 15m candles (price axis for the chart UI; regular hours, newest session)
+        "ohlc": _fetch_norm(f"/stock/{ticker}/ohlc/15m", {}, ticker, Priority.LOW),
     }
 
     sess_alerts = session_alerts(flow_alerts)       # newest session only (no prior-day mix)
@@ -325,7 +344,8 @@ def assemble_from_canon(ticker: str, canon: dict, *, asof: str | None = None,
     """derive → decide → present over an assembled canon. Pure (REPLAY-reproducible)."""
     signals = derive_all(canon, asof=asof)
     verdict = decide(signals)
-    return present(ticker, signals, verdict, as_of=asof, market=market)
+    return present(ticker, signals, verdict, as_of=asof, market=market,
+                   candles=session_candles(canon.get("ohlc")))
 
 
 def assemble(ticker: str, flow_raw: RawRecord, *, asof: str | None = None) -> ViewModel:

@@ -161,6 +161,22 @@ class OptionContract(BaseModel):
     provenance: Provenance = Field(default_factory=Provenance)
 
 
+class OhlcBar(BaseModel):
+    """One 15-minute OHLC candle (from /stock/{t}/ohlc/15m). `market_time` distinguishes
+    regular hours ('r') from pre/post; the price series the UI draws is regular-hours only
+    (operator decision). Strings coerced."""
+    model_config = ConfigDict(extra="ignore")
+
+    start_time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int = 0
+    market_time: str = ""
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
 class GreeksRow(BaseModel):
     """One per-strike greeks row for a single expiry (from /stock/{t}/greeks?expiry=).
     SEPARATE call_/put_ legs (v2 live-confirmed — there is no flat delta/theta). Feeds the

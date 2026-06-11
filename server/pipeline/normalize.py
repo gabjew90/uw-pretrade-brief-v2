@@ -20,7 +20,7 @@ from typing import Callable
 from pydantic import ValidationError
 
 from server.models import (ContractOIBar, FlowAlert, GammaStrike, GreekFlowPoint,
-                            GreeksRow, IVTermPoint, OISnapshot, OptionContract,
+                            GreeksRow, IVTermPoint, OhlcBar, OISnapshot, OptionContract,
                             SkewPoint, TermStructurePoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
@@ -253,6 +253,22 @@ def normalize_option_contracts(raw: RawRecord) -> list[OptionContract]:
     if rows and not out:
         raise NormalizeError("option-contracts: no option_symbol parsed (OCC format drift?)")
     return out
+
+
+@register("stock_ohlc_15m")
+def normalize_ohlc(raw: RawRecord) -> list[OhlcBar]:
+    """Raw /stock/{t}/ohlc/15m payload → `list[OhlcBar]`, oldest→newest. Empty is []."""
+    rows = _unwrap(raw.payload)
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out: list[OhlcBar] = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"ohlc row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(OhlcBar.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"ohlc row {i} failed validation: {e}") from e
+    return sorted(out, key=lambda b: b.start_time)
 
 
 @register("stock_greeks")

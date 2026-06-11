@@ -239,12 +239,31 @@ def _next_step(verdict: Verdict, cost) -> str:
             "it's your judgment over the data: the contract tile shows what you'd buy.")
 
 
+def _price_el(candles: list[dict], provenance) -> Element:
+    """The session's regular-hours 15m candles — price CONTEXT for the chart UI (walls,
+    flip, and breakeven overlay on this axis). Not a signal; never feeds the verdict."""
+    last, first = candles[-1], candles[0]
+    chg = (last["c"] - first["o"]) / first["o"] * 100 if first["o"] else 0.0
+    return Element(key="price", label="Today's tape", surface=f"${last['c']:g}",
+                   meaning=f"{chg:+.2f}% session · {len(candles)} 15m bars",
+                   logic="price context only. the call never comes from price",
+                   detail={"Open": f"${first['o']:g}", "Last": f"${last['c']:g}",
+                           "High": f"${max(c['h'] for c in candles):g}",
+                           "Low": f"${min(c['l'] for c in candles):g}"},
+                   series={"kind": "candles", "points": candles},
+                   tone="neutral", provenance=provenance)
+
+
 def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
-            *, as_of: str | None = None, market: dict | None = None) -> ViewModel:
+            *, as_of: str | None = None, market: dict | None = None,
+            candles: list[dict] | None = None) -> ViewModel:
     """Assemble the renderable view model. Verdict forwarded VERBATIM. Conflicting legs are
     tinted cautionary. The `market` context (if computed) becomes the muted Market-now line;
     `verdict_logic` states how the overall call is reached from the gates."""
     elements: list[Element] = []
+    if candles:
+        flow = signals.get("flow")
+        elements.append(_price_el(candles, flow.provenance if flow else None))
     for name, build in _BUILDERS:
         if name in signals:
             elements.append(build(signals[name]))
