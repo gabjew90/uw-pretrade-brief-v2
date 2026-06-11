@@ -347,12 +347,13 @@ def derive_skew(canon: dict, *, asof: str | None = None) -> Skew:
 
 @register("cost")
 def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
-    """Non-directional cost/risk guard. Earnings or a macro event inside the hold window
-    BLOCKS (don't buy premium into a known vol event) regardless of IV; otherwise the IV
-    rank (interpolated-iv `percentile`, at ~30d) bands ok/caution/block. Missing IV with no
-    event → `caution` (conservative, never a silent ok). PURE. `days_to_earnings` and
-    `event_within_hold` are inputs (computed upstream from earnings + clock/regime).
-    Ported from `e1d6c5e:server/gates.py::_cost_gate`."""
+    """Non-directional cost/risk guard. Earnings inside the hold window BLOCKS (gap risk +
+    IV crush on the exact contract); a macro event inside it only FLAGS (caution with name
+    and days — prints are weekly-cadence, so blocking would PASS most weeks); otherwise the
+    IV rank (interpolated-iv `percentile`, at ~30d) bands ok/caution/block. Missing IV with
+    no event → `caution` (conservative, never a silent ok). PURE. `days_to_earnings`,
+    `event_within_hold` and `macro_event` are inputs (computed upstream from earnings +
+    clock/regime). Ported from `e1d6c5e:server/gates.py::_cost_gate`."""
     iv = canon.get("iv_term") or []
     dte_e = canon.get("days_to_earnings")
     event = bool(canon.get("event_within_hold"))
@@ -403,8 +404,6 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     # Reasons are number-led and terse (let the numbers speak), never prose.
     if dte_e is not None and dte_e < _EARNINGS_DAYS_MIN:
         guard, reason = "block", f"earnings {dte_e}d out"
-    elif event:
-        guard, reason = "block", "macro event in hold window"
     elif spread_block:
         mv = f" vs {em_pct:.1f}% move" if em_pct is not None else ""
         guard, reason = "block", f"spread {spread_pct:.0f}%{mv}"
@@ -415,6 +414,11 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
         # ── DEGRADERS → caution (cap to Mixed + flag): a correct, large, imminent move can
         # still win through these. Collect every applicable warning, number-led.
         flags: list[str] = []
+        # macro prints are weekly-cadence (CPI/PPI/NFP/FOMC) — a hard block would PASS most
+        # weeks by construction. Operator policy 2026-06-11: inform, never halt; you can
+        # plan the exit around a named date. Earnings (above) stays the hard event block.
+        if event:
+            flags.append(f"macro {canon.get('macro_event') or 'event in 5d'}")
         if em_pct < be_pct:
             flags.append(f"move {em_pct:.1f}% < breakeven {be_pct:.1f}%")
         if _ge(ivr, _IVR_YELLOW_MAX):
@@ -610,7 +614,8 @@ def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
 
 
 # Macro events crossable within a weekly hold window (1–5d); a high-impact one inside it
-# vetoes new premium buying (feeds Cost.event_within_hold too).
+# FLAGS new premium buying as caution (feeds Cost.event_within_hold + macro_event) — never
+# a block, by operator policy: the prints are weekly-cadence, a veto would halt most weeks.
 _HOLD_DAYS = 5
 _HIGH_IMPACT = ("fomc", "cpi", "consumer price", "nonfarm", "payroll", "jobs report",
                 "employment situation", "pce", "fed rate", "interest rate decision", "ppi")

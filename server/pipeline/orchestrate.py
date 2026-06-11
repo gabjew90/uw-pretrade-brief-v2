@@ -419,7 +419,8 @@ def build_view(ticker: str, *, asof: str | None = None,
         canon = build_canon(ticker, asof=asof, now=now)
         market = _market_now(ticker, canon.get("spot"), canon.get("gamma_strikes") or [],
                              canon.get("iv_term") or [], now)
-        canon["event_within_hold"] = market["event_within_hold"]   # macro veto → Cost gate
+        canon["event_within_hold"] = market["event_within_hold"]   # macro flag → Cost caution
+        canon["macro_event"] = market["event_line"]                 # name + days for the flag
         canon["event_calendar_ok"] = market["events_known"]        # missing calendar ≠ all-clear
     except Exception:                               # last-resort honest-degrade (Fix 4b)
         log.exception("build_view pipeline error for %s", ticker)

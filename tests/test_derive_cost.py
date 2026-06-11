@@ -113,10 +113,18 @@ def test_earnings_blocks_and_still_reports_spread_data():
     assert c.spread_pct is not None and c.ivr is not None     # data shown even when blocked
 
 
-def test_macro_event_blocks():
+def test_macro_event_cautions_with_name_never_blocks():
+    """Operator policy 2026-06-11: macro prints are weekly-cadence, so a hard block would
+    PASS most weeks by construction. Inform (name + days) and let the human plan the exit."""
     canon = _tradeable(ivr_pct=0.20)
     canon["event_within_hold"] = True
-    assert derive_cost(canon, asof=ASOF).guard == "block"
+    canon["macro_event"] = "CPI 2d"
+    c = derive_cost(canon, asof=ASOF)
+    assert c.guard == "caution"
+    assert "macro CPI 2d" in c.reason
+    # without the name line the flag still appears, generically
+    canon.pop("macro_event")
+    assert "macro event in 5d" in derive_cost(canon, asof=ASOF).reason
 
 
 # ── failed calendars are unknown, never an all-clear (review SEVERE #2) ───────
@@ -183,9 +191,9 @@ def test_normal_term_structure_leaves_ok():
 
 def test_overpay_never_overrides_a_block():
     canon = _tradeable(ivr_pct=0.20)
-    canon["event_within_hold"] = True              # hard block
+    canon["days_to_earnings"] = 2                  # hard block (earnings, not macro)
     canon["term_structure"] = _termstruct((5, 0.40), (30, 0.20))   # inverted
-    assert derive_cost(canon, asof=ASOF).guard == "block"    # event block wins
+    assert derive_cost(canon, asof=ASOF).guard == "block"    # earnings block wins
 
 
 # ── weekly-DTE floor on the contract pick ─────────────────────────────────────

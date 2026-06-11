@@ -215,7 +215,7 @@
     },
     "key": "regime",
     "label": "What's the market backdrop?",
-    "logic": "same for every ticker. a macro event inside 5d also gates Cost",
+    "logic": "same for every ticker. a macro event inside 5d flags Cost (caution), only earnings block",
     "meaning": "SPY gamma n/a \u00b7 IV n/a \u00b7 tide n/a",
     "provenance": {
       "as_of": "2026-06-08T15:05:00+00:00",

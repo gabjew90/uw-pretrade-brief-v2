@@ -178,7 +178,7 @@ def _market_el(m: dict) -> Element:
                    surface=f"CPI/FOMC: {event}" if event not in ("none in 5d", "n/a")
                            else ("NO MACRO EVENT 5D" if event == "none in 5d" else "EVENTS N/A"),
                    meaning=f"SPY gamma {gamma} · IV {vol} · tide {tide}",
-                   logic="same for every ticker. a macro event inside 5d also gates Cost",
+                   logic="same for every ticker. a macro event inside 5d flags Cost (caution), only earnings block",
                    detail={"SPY index gamma": gamma, "SPY IV (near-term)": vol,
                            "Tape tide": tide, "Next macro event (5d)": event},
                    provenance=prov.live(m.get("as_of")))
