@@ -76,12 +76,27 @@ a.gridrow{display:block;text-decoration:none;color:var(--text);background:var(--
 .hd{width:10px;height:10px;border-radius:50%}
 .mktline{font-size:10px;color:var(--dim);margin:2px 0 4px}
 .mktline b{color:var(--warn);font-weight:500}
+/* ── mobile: stack panes, free the phone frame ── */
+@media (max-width:760px){
+  body{flex-direction:column;height:auto;overflow:auto}
+  #controls{width:100%;min-width:0;border-right:0;border-bottom:1px solid var(--grid);max-height:none}
+  #controls .cwrap{display:none}
+  #controls.open .cwrap{display:block}
+  #ctoggle{display:block;width:100%;background:var(--panel);color:var(--blue);border:1px solid var(--grid);border-radius:8px;padding:9px;font-size:13px;font-family:var(--mono);cursor:pointer;margin-top:8px}
+  #stage{overflow:visible}
+  #phoneWrap{padding:8px 0;overflow:visible}
+  #phone{width:100%;max-height:none;height:auto;border-radius:0;border-left:0;border-right:0;overflow:visible}
+  #promptBar{position:static}
+}
+@media (min-width:761px){#ctoggle{display:none}}
 </style>
 </head>
 <body>
 <div id="controls">
   <h1>Redesign Playground</h1>
   <div class="sub">tweak → preview → copy the prompt into the Claude-design session</div>
+  <button id="ctoggle" onclick="document.getElementById('controls').classList.toggle('open');this.textContent=this.textContent.startsWith('⚙')?'✕ close options':'⚙ options & presets'">⚙ options &amp; presets</button>
+  <div class="cwrap">
   <fieldset><legend>Presets</legend><div class="presets" id="presets"></div></fieldset>
   <fieldset><legend>Screen</legend>
     <label>Preview screen <select data-k="screen"><option value="ticker">Ticker brief</option><option value="grid">Hot-ticker grid</option></select></label>
@@ -107,6 +122,7 @@ a.gridrow{display:block;text-decoration:none;color:var(--text);background:var(--
     <label>History dot-strip <input type="checkbox" data-k="showHistory" checked></label>
     <label>Conflict tie-line <input type="checkbox" data-k="conflictTie" checked></label>
   </fieldset>
+  </div>
 </div>
 <div id="stage">
   <div id="phoneWrap"><div id="phone"><div id="screen"></div></div></div>
