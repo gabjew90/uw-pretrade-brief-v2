@@ -44,6 +44,7 @@ button.preset.active{border-color:var(--blue);color:var(--blue)}
 .tile .big{font-size:17px;margin:2px 0}
 .tile .m{font-size:10px;color:var(--dim)}
 .tile .how{font-size:9px;color:var(--axis);font-style:italic;margin-top:4px}
+.expl{font-size:10px;color:var(--dim);line-height:1.5;margin:3px 0 7px;font-family:var(--sys)}
 .prov{float:right;font-size:8px;color:var(--axis);text-transform:uppercase}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);margin-right:3px;vertical-align:1px}
 .groupHead{font-size:9px;color:var(--axis);text-transform:uppercase;letter-spacing:.1em;margin:14px 2px 2px}
@@ -117,6 +118,7 @@ a.gridrow{display:block;text-decoration:none;color:var(--text);background:var(--
     <label>Walls on price chart <input type="checkbox" data-k="wallsOnPrice" checked></label>
   </fieldset>
   <fieldset><legend>Trust layer</legend>
+    <label>What-&amp;-why explainers <input type="checkbox" data-k="explain" checked></label>
     <label>"how:" rule lines <input type="checkbox" data-k="howLines" checked></label>
     <label>Provenance dots <input type="checkbox" data-k="provDots" checked></label>
     <label>History dot-strip <input type="checkbox" data-k="showHistory" checked></label>
@@ -151,7 +153,19 @@ const D={
 /* ── state ── */
 const DEF={screen:"ticker",grouping:"grouped",density:"cozy",labels:"questions",heroStyle:"banner",
   reasonsOpen:false,chartH:"regular",dirStyle:"tug",showCandles:true,wallsOnPrice:true,
-  howLines:true,provDots:true,showHistory:true,conflictTie:true};
+  howLines:true,provDots:true,showHistory:true,conflictTie:true,explain:true};
+/* per-tile explainers: WHAT data this is + WHY it matters (operator-requested pattern) */
+const EXPL={
+  price:"15-minute price candles for today's regular session. Context for where the walls and breakeven sit — price never decides the call.",
+  dir:"Today's opening option premium, split calls vs puts. New money picking a side is the day's directional bet.",
+  tape:"The delta actually traded today, summed minute by minute. Leaning against the flow means the bet is contested.",
+  oi:"Open interest on the bet's exact contracts over the last 5 sessions. Increasing supports that bets are building rather than exiting.",
+  gam:"Dealer hedging pressure by strike. Negative near price amplifies moves (helps a directional bet); positive pins price to a range.",
+  rr:"What protection costs today vs its own 10-day normal. Puts suddenly richer than usual = fear being bid; calls richer = upside chase.",
+  cost:"The move the options market is pricing vs the move your contract needs to break even. If needed exceeds priced, the math is against you before you start.",
+  ticket:"The realistic weekly you'd actually buy on the flow side, with its true costs. The premium is the most you can lose.",
+  hist:"One dot per past session: did the direction call match the next day's move. Grey = the tool said stand down."
+};
 let S={...DEF};
 const PRESETS={
   "Decision spine ★":{...DEF},
@@ -172,6 +186,7 @@ function svgLine(pts,w,h,color,extra=""){
 }
 const lbl=(q,s)=>S.labels==="questions"?q:s;
 const how=t=>S.howLines?`<div class="how">how: ${t}</div>`:"";
+const expl=k=>S.explain?`<div class="expl">${EXPL[k]}</div>`:"";
 const prov=()=>S.provDots?`<span class="prov"><span class="dot"></span>live · 15:45</span>`:"";
 function tile(q,s,big,body,extra=""){return `<div class="tile ${extra}">${prov()}<div class="q">${lbl(q,s)}</div>${big?`<div class="big">${big}</div>`:""}${body}</div>`}
 /* ── chart builders ── */
@@ -239,7 +254,7 @@ function candleChart(){
 function histStrip(){
   const dots=D.hist.map(v=>`<span class="hd" style="background:${v===1?"#9ECE6A":v===0?"#F7768E":"#3b4254"}"></span>`).join("");
   return tile("Was it right?","Track record",`6 / 8`,
-   `<div class="m">direction calls that matched the next session's move</div><div class="hist">${dots}<span class="m" style="margin-left:4px">grey = stood down</span></div>`+how("scored nightly vs the next session's close"));
+   expl("hist")+`<div class="m">direction calls that matched the next session's move</div><div class="hist">${dots}<span class="m" style="margin-left:4px">grey = stood down</span></div>`+how("scored nightly vs the next session's close"));
 }
 /* ── screens ── */
 function tickerScreen(){
@@ -249,15 +264,15 @@ function tickerScreen(){
   h+=S.heroStyle==="banner"
     ?`<div class="hero sd"><div class="k">The call · SPY</div><div class="verdict">${D.call.verdict}</div><div class="next">${D.call.next}</div>${reasons}</div>`
     :`<div style="margin:12px 0"><div class="k" style="font-size:9px;color:var(--dim)">THE CALL · SPY</div><div class="verdict" style="font-size:24px;color:var(--neg)">${D.call.verdict}</div><div class="next" style="font-size:11px;margin-top:4px">${D.call.next}</div>${reasons}</div>`;
-  if(S.showCandles)h+=tile("Today's tape","Price",`$725.41 <span style="font-size:11px;color:var(--neg)">−1.09%</span>`,candleChart()+how("price context only, the call never comes from price"));
-  const g1=tile("Where's the money betting?","Direction","PUTS",dirChart()+how("side with more opening premium wins"))
+  if(S.showCandles)h+=tile("Today's tape","Price",`$725.41 <span style="font-size:11px;color:var(--neg)">−1.09%</span>`,expl("price")+candleChart()+how("price context only, the call never comes from price"));
+  const g1=tile("Where's the money betting?","Direction","PUTS",expl("dir")+dirChart()+how("side with more opening premium wins"))
     +(S.conflictTie?`<div class="conflictNote">⚠ the live tape disagrees with the flow ↓</div>`:"")
-    +tile("Does the live tape agree?","Tape","CALLS <span class='chip red'>disagrees</span>",svgLine(D.cum,360,H(),"#F7768E")+`<div class="m">net directional delta, choppy session</div>`+how("sign of the session net delta"),S.conflictTie?"conflict":"")
-    +tile("Is the bet being held?","OI","GROWING",oiChart()+how("OI up = held, down = closing"));
-  const g2=tile("Will moves extend or fade?","Gamma","EXTEND",gamChart()+how("negative gamma extends moves, positive pins"))
-    +tile("Which way is fear priced?","Skew","BALANCED",rrChart()+how("today's risk reversal vs its own recent normal"));
-  const g3=tile("Is it worth the cost?","Cost",`PASS <span class="chip">spread 1%</span><span class="chip">IV rank 61</span>`,costScale()+how("pass on event, earnings, or spread bigger than the move"))
-    +`<div class="ticket">${prov()}<div class="q">${lbl("Which contract (if you act anyway)?","The ticket")}</div>
+    +tile("Does the live tape agree?","Tape","CALLS <span class='chip red'>disagrees</span>",expl("tape")+svgLine(D.cum,360,H(),"#F7768E")+`<div class="m">net directional delta, choppy session</div>`+how("sign of the session net delta"),S.conflictTie?"conflict":"")
+    +tile("Is the bet being held?","OI","GROWING",expl("oi")+oiChart()+how("OI up = held, down = closing"));
+  const g2=tile("Will moves extend or fade?","Gamma","EXTEND",expl("gam")+gamChart()+how("negative gamma extends moves, positive pins"))
+    +tile("Which way is fear priced?","Skew","BALANCED",expl("rr")+rrChart()+how("today's risk reversal vs its own recent normal"));
+  const g3=tile("Is it worth the cost?","Cost",`PASS <span class="chip">spread 1%</span><span class="chip">IV rank 61</span>`,expl("cost")+costScale()+how("pass on event, earnings, or spread bigger than the move"))
+    +`<div class="ticket">${prov()}<div class="q">${lbl("Which contract (if you act anyway)?","The ticket")}</div>${expl("ticket")}
       <div class="head"><span class="sym">SPY ${D.ticket.sym} · ${D.ticket.dte}</span><span class="px">$${D.ticket.ask}</span></div>
       <div class="stats"><div class="stat"><b>0.49</b><span>delta</span></div><div class="stat"><b>1%</b><span>spread</span></div><div class="stat"><b>17%/d</b><span>theta</span></div><div class="stat"><b>0.69%</b><span>breakeven</span></div></div>
       <div class="maxloss">max loss $537 per contract — weeklies routinely expire worthless</div>
@@ -298,6 +313,7 @@ function updatePrompt(){
   p.push(`Hero: "${S.heroStyle==="banner"?"a tinted traffic-light banner":"a plain colored verdict word"}" for THE CALL with the next_step sentence directly beneath; reasons ${S.reasonsOpen?"expanded by default":"collapsed behind a tap"}.`);
   p.push(`Evidence: ${S.grouping==="grouped"?'three named groups — "The bet — and is it real?" (direction tug-of-war bar, cum-delta sparkline with zero line, OI daily bars with the 5-session window highlighted), "The terrain" (gamma profile with price line + walls, RR dot against its 10-day normal band), "The gate & the ticket" (breakeven-vs-priced-move two-marker scale, broker-ticket contract card)':"a flat tile list with the same charts"}; ${S.chartH==="regular"?"regular-height charts":"sparkline-height charts"}; direction drawn as ${S.dirStyle==="tug"?"a green/red tug-of-war bar":"a split bar plus bet-strike tick marks against the price"}.`);
   p.push(`${S.showCandles?`Include the "Today's tape" 15-min candle tile${S.wallsOnPrice?" with the call/put walls overlaid on the price axis":""}.`:"Omit the price-candles tile."}`);
+  if(S.explain)p.push(`Every tile carries a 1-2 sentence plain-English explainer of WHAT data it shows and WHY it matters, in this exact pattern (final copy lives server-side in present.py): direction "${EXPL.dir}" · tape "${EXPL.tape}" · OI "${EXPL.oi}" · gamma "${EXPL.gam}" · skew "${EXPL.rr}" · cost "${EXPL.cost}" · ticket "${EXPL.ticket}" · price "${EXPL.price}" · history "${EXPL.hist}"`);
   p.push(`Trust layer: ${S.howLines?"keep":"drop"} the italic "how:" rule lines; ${S.provDots?"show":"hide"} live/stale provenance dots; ${S.conflictTie?"visually flag flow-vs-tape disagreement between the two tiles (amber tie)":"no special conflict treatment"}; ${S.showHistory?'end with a "Was it right?" history dot-strip (green/red/grey) and the hit-rate figure':"no history strip"}. Density: ${S.density}. Tile labels: ${S.labels==="questions"?"plain-English questions":"short titles"}.`);
   p.push(`Grid screen: rows as premium-length bars split green-calls/red-puts (no side word — it is a sample), alert counts, tap-through to the brief.`);
   p.push(`Hard rules: one verdict word on the page; no posture words on the market line; unavailable/n-a/truncation states stay visible; no math in JS (CI-enforced); re-run scripts/capture_golden_vm.py after copy changes.`);
