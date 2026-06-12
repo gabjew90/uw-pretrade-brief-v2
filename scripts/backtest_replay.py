@@ -91,7 +91,8 @@ def backtest(ticker: str) -> list[dict]:
         sig = {e.key: e.surface for e in vm.elements}
         out.append({"date": dt, "ticker": t, "action": vm.verdict.action,
                     "overall": vm.verdict.overall, "direction": vm.verdict.direction,
-                    "reasons": vm.verdict.reasons, "surfaces": sig})
+                    "reasons": vm.verdict.reasons, "caps": vm.verdict.caps,
+                    "surfaces": sig})
 
     # OUTCOME JOIN — "was it right": next archived session's close move, from bronze
     # stock-state (zero UW calls; coverage matches the flow bronze by construction).
@@ -118,6 +119,22 @@ def backtest(ticker: str) -> list[dict]:
     return out
 
 
+def summarize(rows: list[dict]) -> dict:
+    """Favorable base rate + the gate-binding histogram (reviewer 2026-06-11): rare-by-
+    construction is the thesis, but NEVER is a broken product — the user can't learn and
+    the thresholds can't be validated. If the rate is ~0, the histogram says which cap
+    binds most, so tuning starts from data, not vibes."""
+    n = len(rows)
+    fav = sum(1 for r in rows if r.get("overall") == "Favorable")
+    hist: dict[str, int] = {}
+    for r in rows:
+        for c in r.get("caps") or []:
+            hist[c] = hist.get(c, 0) + 1
+    return {"sessions": n, "favorable": fav,
+            "favorable_rate": round(fav / n, 3) if n else None,
+            "cap_histogram": dict(sorted(hist.items(), key=lambda kv: -kv[1]))}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ticker", default="SPY")
@@ -135,6 +152,12 @@ def main() -> int:
     print(f"{len(rows)} session(s) re-derived -> {out}")
     for r in rows:
         print(f"  {r['date']}  {r['overall']:<10}  {r['action']}")
+    summ = summarize(rows)
+    (out_dir / "summary.json").write_text(json.dumps(summ, indent=1), encoding="utf-8")
+    rate = f"{summ['favorable_rate']:.1%}" if summ["favorable_rate"] is not None else "n/a"
+    print(f"Favorable base rate: {summ['favorable']}/{summ['sessions']} ({rate})")
+    for cap, k in summ["cap_histogram"].items():
+        print(f"  binds: {cap} x{k}")
     return 0
 
 

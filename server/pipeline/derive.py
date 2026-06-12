@@ -135,13 +135,33 @@ def flow_side(alerts) -> tuple[str | None, str]:
     return None, "unavailable"
 
 
+# The side's own quality bar (reviewer 2026-06-11): the Pan-Poteshman edge lives in the
+# EXTREME of signed flow, not its sign. A picked side must dominate by ratio AND clear an
+# absolute floor, else lean_quality="weak" → decide caps at Mixed ("weak evidence,
+# unopposed" must never read Favorable). The flat floor is v1 — per-name scaling
+# (percentile vs the ticker's own history) joins the threshold-tuning pass once the
+# archive has ~20 sessions.
+_LEAN_DOMINANCE = 2.0       # winner premium must be >= 2x the loser's
+_LEAN_FLOOR_USD = 500_000.0  # and >= this in absolute opening dollars
+
+
+def _lean_quality(win: float, lose: float) -> tuple[float | None, str, str]:
+    """(lean_ratio, lean_quality, lean_note) for a picked side's premium split."""
+    ratio = round(win / lose, 1) if lose > 0 else None
+    if win < _LEAN_FLOOR_USD:
+        return ratio, "weak", f"thin ${win/1e3:.0f}K"
+    if ratio is not None and ratio < _LEAN_DOMINANCE:
+        return ratio, "weak", f"{ratio:g}:1"
+    return ratio, "qualified", f"{ratio:g}:1" if ratio is not None else "one-sided"
+
+
 @register("flow")
 def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     """Pick the call/put side via the shared `flow_side` (OPENING leads, TOTAL fallback),
     reading ONLY the newest session in the pull (the 500-cap tail can span sessions — the
     prior day's flow must not contaminate today's read). NO gamma fallback; with no flow at
-    all the signal is `unavailable` — never a guessed side. PURE. Ported from
-    `e1d6c5e:server/gates.py::derive_direction`."""
+    all the signal is `unavailable` — never a guessed side. The picked side then meets its
+    own bar (`_lean_quality`). PURE. Ported from `e1d6c5e:server/gates.py::derive_direction`."""
     raw = canon.get("flow_alerts") or []
     if not raw:
         return Flow(direction=None, direction_basis="unavailable",
@@ -164,8 +184,11 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     def _top(sd):
         ks = sorted((k for k in by_ks if k[1] == sd), key=lambda k: by_ks[k], reverse=True)[:5]
         return [{"strike": k[0], "side": sd, "premium": round(by_ks[k])} for k in ks]
+    win, lose = (call_prem, put_prem) if side == "call" else (put_prem, call_prem)
+    lean_ratio, lean_q, lean_note = _lean_quality(win, lose)
     return Flow(direction="calls" if side == "call" else "puts", direction_basis=basis,
                 truncated=truncated, call_prem=call_prem, put_prem=put_prem,
+                lean_ratio=lean_ratio, lean_quality=lean_q, lean_note=lean_note,
                 top_strikes=_top("call") + _top("put"),
                 provenance=prov.derived(alerts[0].provenance))
 

@@ -94,6 +94,48 @@ def test_oi_unwinding_caps_to_mixed():
     assert decide(base).overall == "Mixed"
 
 
+# ── the side's own bar: weak lean caps at Mixed (reviewer 2026-06-11) ─────────
+def test_weak_lean_caps_at_mixed_never_favorable():
+    """'Weak evidence, unopposed' must not read Favorable — the base signal has its own
+    bar (dominance + floor), and failing it caps exactly like a weaker basis."""
+    base = _favorable_inputs("calls")
+    base["flow"] = Flow(direction="calls", direction_basis="opening_flow",
+                        call_prem=6e5, put_prem=4.5e5, lean_quality="weak",
+                        lean_note="1.3:1", provenance=Provenance())
+    v = decide(base)
+    assert v.overall == "Mixed"
+    assert any("flow lean weak (1.3:1)" in r for r in v.reasons)
+    assert "weak lean" in v.caps
+
+
+def test_qualified_lean_still_favorable():
+    base = _favorable_inputs("calls")
+    base["flow"] = Flow(direction="calls", direction_basis="opening_flow",
+                        call_prem=2e6, put_prem=5e5, lean_quality="qualified",
+                        lean_note="4:1", provenance=Provenance())
+    assert decide(base).overall == "Favorable"
+
+
+# ── caps: every gate that blocked Favorable, named (the base-rate instrument) ──
+def test_caps_empty_on_favorable():
+    assert decide(_favorable_inputs("calls")).caps == []
+
+
+def test_caps_name_every_binding_gate_not_just_the_first():
+    base = _favorable_inputs("calls")
+    base["dealer_gamma"] = DealerGamma(gex_sign="POS", flip_status="ok")
+    base["cost"] = Cost(guard="caution", ivr=70)
+    base["conviction"] = Conviction(direction="puts", dir_delta=-100)
+    v = decide(base)
+    assert set(v.caps) == {"gamma pinned", "cost flags", "tape diverges"}
+
+
+def test_caps_on_stand_down_include_cost_block():
+    base = _favorable_inputs("calls")
+    base["cost"] = Cost(guard="block", reason="earnings 2d out")
+    assert "cost block" in decide(base).caps
+
+
 # ── honest-degrade gated ──────────────────────────────────────────────────────
 def test_unavailable_flow_is_stand_down_and_named():
     v = decide({"flow": Flow(direction=None, direction_basis="unavailable",

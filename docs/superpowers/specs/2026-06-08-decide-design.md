@@ -219,3 +219,29 @@ records accessed directly) · REPLAY-reproducible: same signal map → identical
 - `signal_conflict` and `conflict_legs` should remain on `Verdict` (not moved to
   Present) because Present's tone logic depends on them for the `tone` field on
   conflicted elements.
+
+## AS-BUILT addendum (2026-06-11, reviewer items 5-6)
+
+- **The side meets its OWN bar** — `derive._lean_quality`: the picked side must
+  dominate >=2:1 in opening premium AND clear a $500K absolute floor, else
+  `Flow.lean_quality="weak"` -> `_positioning_leg` caps yellow (never Favorable).
+  Rationale: the Pan-Poteshman edge lives in the EXTREME of signed flow, not its
+  sign; "weak evidence, unopposed" must not read Favorable. The flat floor is v1 —
+  per-name scaling (percentile vs the ticker's own history) joins the threshold-
+  tuning pass once the archive has ~20 sessions.
+- **`Verdict.caps`** — every gate that blocked Favorable, named (not just the first).
+  `scripts/backtest_replay.summarize` aggregates them per run into the Favorable
+  base rate + gate-binding histogram (written to summary.json, printed nightly).
+  If Favorable is <1%, tune from that data, not vibes.
+- **Dead 'red' branch deleted** — `_positioning_leg` red was unreachable (an
+  unavailable basis implies direction None, caught by the core flow gate first).
+- **Macro event: caution-only** (operator policy 2026-06-11) — see cost spec; only
+  earnings + spread-vs-move block.
+- **Hold-window honesty** — NEG gamma extends moves but excess short-horizon momentum
+  reverts over days (Baltussen et al.); guidance leans 1-3 day holds with a time
+  stop (in `present._next_step` Favorable copy + the structural tile detail).
+- **Two flavors of Mixed surfaced** — contradicted (`signal_conflict`, reads closer to
+  Stand down: wavy red underline) vs fell-short (plain amber); frontend styles the
+  server's flag, computes nothing.
+- **Skew-dark badge** — a name with no RR baseline says "no baseline yet — needs 3+
+  prior sessions" on the tile instead of silently capping.

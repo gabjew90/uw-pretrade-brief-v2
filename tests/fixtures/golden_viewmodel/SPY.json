@@ -4,13 +4,15 @@
     {
       "detail": {
         "Call premium": "$6.2M",
+        "Lean (needs 2:1 + $500K)": "1.5:1 weak",
         "Put premium": "$9.2M",
-        "Read from": "opening flow"
+        "Read from": "opening flow",
+        "Why it matters": "opening bets predict near-term moves, but the edge lives in EXTREME one-sided flow \u2014 a near-even lean is a coin flip. Even the best academic flow signals are worth ~0.4-1% over days, which is why every other gate must also hold"
       },
       "key": "direction",
       "label": "Where's the money betting?",
-      "logic": "side with more opening premium wins",
-      "meaning": "$6.2M call \u00b7 $9.2M put",
+      "logic": "side with more opening premium wins; needs 2:1 dominance and $500K+ to count as qualified, else it caps the call at Mixed",
+      "meaning": "$6.2M call \u00b7 $9.2M put \u00b7 weak lean (1.5:1)",
       "provenance": {
         "as_of": "2026-06-08T15:05:00Z",
         "note": "",
@@ -73,7 +75,7 @@
         ]
       },
       "surface": "PUTS",
-      "tone": "neutral"
+      "tone": "cautionary"
     },
     {
       "detail": {
@@ -135,8 +137,8 @@
       },
       "key": "skew",
       "label": "Which way is fear priced?",
-      "logic": "risk-reversal sign vs your side (oppose caps the verdict)",
-      "meaning": "no risk reversal",
+      "logic": "risk-reversal change vs its own normal (oppose caps the verdict)",
+      "meaning": "no baseline yet \u2014 needs 3+ prior sessions of risk-reversal history, so this name can't reach Favorable today",
       "provenance": {
         "as_of": null,
         "note": "insufficient RR history",
@@ -149,7 +151,8 @@
     },
     {
       "detail": {
-        "The call": "no chain to price the trade"
+        "The call": "no chain to price the trade",
+        "Why it matters": "the costs are certain, the move isn't: a wide spread can eat 10%+ round trip and a weekly bleeds theta every day \u2014 that's why cost alone can kill an otherwise good setup"
       },
       "key": "cost",
       "label": "Is it worth the cost?",
@@ -230,6 +233,12 @@
   "ticker": "SPY",
   "verdict": {
     "action": "Mixed, puts weak",
+    "caps": [
+      "weak lean",
+      "skew dark",
+      "gamma dark",
+      "cost flags"
+    ],
     "conflict_legs": [],
     "direction": "puts",
     "overall": "Mixed",
@@ -241,6 +250,7 @@
     },
     "reasons": [
       "opening flow puts",
+      "flow lean weak (1.5:1)",
       "OI unconfirmed",
       "tape n/a",
       "skew n/a",
@@ -257,5 +267,5 @@
       "cost"
     ]
   },
-  "verdict_logic": "Stand down if cost says PASS or OI is red. Favorable needs opening-flow direction, OI not shrinking, trend gamma, no skew/tape conflict, cost clear. Anything else is Mixed."
+  "verdict_logic": "Stand down if cost says PASS or there's no flow to read. Favorable needs a qualified opening-flow lean (2:1 and $500K+), OI not shrinking, trend gamma, readable skew, no skew/tape conflict, cost fully clean. Anything else is Mixed \u2014 and 'disagree' Mixed (something contradicts the bet) is closer to Stand down than 'weak' Mixed (something fell short)."
 }

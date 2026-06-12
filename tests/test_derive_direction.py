@@ -52,6 +52,39 @@ def test_no_opening_flow_falls_back_to_total():
     assert f.direction_basis == "total_flow"
 
 
+# ── the side's own bar (reviewer 2026-06-11): dominance ratio + premium floor ──
+def test_dominant_lean_over_floor_is_qualified():
+    alerts = [_fa("call", 1_000_000, 5.0), _fa("put", 100_000, 5.0)]   # 10:1, $1M
+    f = derive_direction({"flow_alerts": alerts})
+    assert f.lean_quality == "qualified"
+    assert f.lean_ratio == 10.0
+    assert f.lean_note == "10:1"
+
+
+def test_near_even_lean_is_weak():
+    """A 1.3:1 lean is a coin flip even with big dollars — must not ride to Favorable."""
+    alerts = [_fa("call", 1_300_000, 5.0), _fa("put", 1_000_000, 5.0)]
+    f = derive_direction({"flow_alerts": alerts})
+    assert f.direction == "calls"                       # side still picked (shown honestly)
+    assert f.lean_quality == "weak"
+    assert f.lean_note == "1.3:1"
+
+
+def test_thin_premium_is_weak_even_if_one_sided():
+    """$400K of one-sided premium on a big name is noise — the absolute floor catches it."""
+    alerts = [_fa("call", 400_000, 5.0)]
+    f = derive_direction({"flow_alerts": alerts})
+    assert f.lean_quality == "weak"
+    assert "thin $400K" in f.lean_note
+
+
+def test_one_sided_over_floor_is_qualified():
+    f = derive_direction({"flow_alerts": [_fa("put", 900_000, 5.0)]})
+    assert f.lean_quality == "qualified"
+    assert f.lean_ratio is None                         # no loser premium
+    assert f.lean_note == "one-sided"
+
+
 def test_empty_flow_is_unavailable_not_guessed():
     f = derive_direction({"flow_alerts": []})
     assert f.direction is None

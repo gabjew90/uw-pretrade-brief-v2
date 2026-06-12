@@ -8,6 +8,9 @@ The funnel is ported from `e1d6c5e:server/verdict.py::compute_verdict` + `positi
 + `skew_state`, with the v3 combination STRUCTURE locked by the decide spec:
 
 - **Flow + OI are ONE family** → collapsed by `_positioning_leg` (the side + its strength).
+- **The side meets its OWN bar** (reviewer 2026-06-11): a lean below 2:1 dominance or the
+  premium floor is "weak" → caps at Mixed. Favorable must never mean "weak evidence,
+  unopposed" — that is exactly the false confidence the rest of the funnel prevents.
 - **Conviction (greek-flow) is the SAME flow family** → agreement adds NOTHING; only
   DIVERGENCE vs the flow side is informative and acts as a caution (no agreement bonus).
 - **Skew is the orthogonal leg** → asymmetric: opposition vetoes/caps; agreement is
@@ -19,6 +22,10 @@ The funnel is ported from `e1d6c5e:server/verdict.py::compute_verdict` + `positi
 
 Honest-degrade is GATED as behavior: an unavailable CORE input (flow) → Stand down with
 the reason NAMED; unavailable non-core inputs take the conservative path AND are named.
+
+Hold-window honesty: NEG gamma helps moves extend, but excess short-horizon momentum tends
+to REVERT over the following days (Baltussen et al.) — so the product's guidance leans
+1–3 day holds with a time stop, never riding the week.
 """
 from __future__ import annotations
 
@@ -28,17 +35,19 @@ _CORE = ("flow",)
 
 
 def _positioning_leg(flow, positioning) -> str:
-    """Collapse Flow + OI into green/yellow/red (the side's strength). Green requires the
-    OPENING basis; total_flow caps at yellow; OI unwinding caps green→yellow; OI building
-    or flat/unconfirmed leaves opening flow standing (green). `unconfirmed` NEVER blocks
-    (archive-decoupled). Ported from `e1d6c5e:verdict.py::positioning_leg`."""
+    """Collapse Flow + OI into green/yellow (the side's strength). Green requires the
+    OPENING basis AND the lean meeting its own bar (dominance + floor — the Pan-Poteshman
+    edge is in the EXTREME of signed flow, not its sign); total_flow caps at yellow; a weak
+    lean caps at yellow; OI unwinding caps green→yellow; OI building or flat/unconfirmed
+    leaves opening flow standing (green). `unconfirmed` NEVER blocks (archive-decoupled).
+    There is deliberately no 'red' path: an unavailable basis implies direction None, which
+    the core gate already turned into Stand down (dead branch deleted, reviewer 2026-06-11).
+    Ported from `e1d6c5e:verdict.py::positioning_leg`."""
     basis = getattr(flow, "direction_basis", "unavailable")
-    if basis == "gamma_fallback":
-        return "yellow"                       # gamma-only side is weak (skeleton has none yet)
-    if basis == "total_flow":
-        return "yellow"                       # weaker basis — caps below Favorable
     if basis != "opening_flow":
-        return "red"
+        return "yellow"                       # total_flow / gamma_fallback — weaker basis
+    if getattr(flow, "lean_quality", "n/a") == "weak":
+        return "yellow"                       # side picked, but on coin-flip evidence
     conf = getattr(positioning, "confirmation", "unconfirmed") if positioning else "unconfirmed"
     if conf == "unwinding":
         return "yellow"                       # the 'buying' was closing → cap down
@@ -78,10 +87,11 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     if flow is None or getattr(flow, "direction", None) is None:
         note = flow.provenance.note if flow else "no flow signal"
         return Verdict(action="Stand down", overall="Stand down",
-                       reasons=[f"flow n/a: {note}"],
+                       reasons=[f"flow n/a: {note}"], caps=["flow n/a"],
                        signals_used=["flow"] if flow is not None else [],
                        provenance=flow.provenance if flow else Provenance())
     direction = flow.direction
+    lean_weak = getattr(flow, "lean_quality", "n/a") == "weak"
 
     positioning = signals.get("positioning")
     if positioning is not None:
@@ -91,6 +101,8 @@ def decide(signals: dict[str, Signal]) -> Verdict:
         reasons.append(f"opening flow {direction}")
     else:
         reasons.append(f"{direction} on {flow.direction_basis} flow")
+    if lean_weak:
+        reasons.append(f"flow lean weak ({flow.lean_note})")
     conf = getattr(positioning, "confirmation", "unconfirmed") if positioning else "unconfirmed"
     if conf == "building":
         reasons.append("OI building")
@@ -146,16 +158,41 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     signal_conflict = bool(conflict_legs)
 
     # ── resolution ────────────────────────────────────────────────────────────
+    # `caps` names EVERY gate that blocked Favorable (not just the first) — the backtest
+    # aggregates them into the gate-binding histogram, so "is Favorable reachable at all,
+    # and which gate binds most?" is answered from data, not vibes (reviewer 2026-06-11).
     # (Market regime is NOT a per-ticker leg — its only decision-relevant datum, a macro
     # event in the hold window, routes through Cost above. The verdict rests on the
     # ticker's own evidence.)
-    if positioning_color == "red" or cost_guard == "block":
-        overall = "Stand down"
-    elif (positioning_color == "green" and not signal_conflict and cost_guard == "ok"
-          and skew_st not in ("oppose", "unavailable") and structural == "green"):
+    caps: list[str] = []
+    if flow.direction_basis != "opening_flow":
+        caps.append(f"basis {flow.direction_basis}")
+    if lean_weak:
+        caps.append("weak lean")
+    conf_p = getattr(positioning, "confirmation", "unconfirmed") if positioning else "unconfirmed"
+    if conf_p == "unwinding":
+        caps.append("OI unwinding")
+    if "conviction" in conflict_legs:
+        caps.append("tape diverges")
+    if skew_st == "oppose":
+        caps.append("skew opposes")
+    elif skew_st == "unavailable":
         # skew dark caps at Mixed (like structural): with the orthogonal leg unreadable,
         # the divergence check can't run, so the rare green is not certifiable. Neutral
         # skew (readable, no lean) still permits Favorable.
+        caps.append("skew dark")
+    if structural == "yellow":
+        caps.append("gamma pinned")
+    elif structural == "unavailable":
+        caps.append("gamma dark")
+    if cost_guard == "block":
+        caps.append("cost block")
+    elif cost_guard != "ok":
+        caps.append("cost flags")
+
+    if cost_guard == "block":
+        overall = "Stand down"
+    elif not caps:
         overall = "Favorable"
     else:
         overall = "Mixed"
@@ -172,5 +209,5 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     consumed = [signals[n].provenance for n in used if signals.get(n) is not None]
     return Verdict(action=action, overall=overall, direction=direction, reasons=reasons,
                    signals_used=used, signal_conflict=signal_conflict,
-                   conflict_legs=conflict_legs,
+                   conflict_legs=conflict_legs, caps=caps,
                    provenance=Provenance.worst(*consumed) if consumed else Provenance())

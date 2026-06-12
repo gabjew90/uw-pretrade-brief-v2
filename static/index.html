@@ -26,6 +26,11 @@
     .v-negative { color: var(--neg); }
     .v-positive { color: var(--ok); }
     .v-cautionary { color: var(--warn); }
+    /* Mixed-with-conflict: something actively contradicts the bet — reads closer to
+       Stand down than to "fell short" Mixed (the flag comes from the server) */
+    .v-conflicted { color: var(--warn);
+                    text-decoration: underline wavy var(--neg) 1px;
+                    text-underline-offset: 5px; }
     .reasons { color: var(--text); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
     .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch; }
     .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
@@ -129,7 +134,10 @@
     // same card as every other element. Its surface is DATA (the next macro event),
     // never a posture word; only THE CALL carries a verdict.
     function verdictTone(v) {
-      return { "Favorable": "v-positive", "Stand down": "v-negative" }[v.overall] || "v-cautionary";
+      if (v.overall === "Favorable") return "v-positive";
+      if (v.overall === "Stand down") return "v-negative";
+      // two flavors of Mixed (server-flagged): contradicted vs merely fell short
+      return v.signal_conflict ? "v-conflicted" : "v-cautionary";
     }
     async function render(ticker) {
       const view = document.getElementById("view");

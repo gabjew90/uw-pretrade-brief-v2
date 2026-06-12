@@ -47,14 +47,24 @@ def _direction_el(flow) -> Element:
         return _unavail("direction", "Where's the money betting?", flow, "no opening flow",
                         "side with more opening premium wins")
     basis = "opening flow" if flow.direction_basis == "opening_flow" else "total flow"
+    weak = flow.lean_quality == "weak"
+    meaning = f"{_money(flow.call_prem)} call · {_money(flow.put_prem)} put"
+    if weak:
+        meaning += f" · weak lean ({flow.lean_note})"
     return Element(key="direction", label="Where's the money betting?",
                    surface=flow.direction.upper(),
-                   meaning=f"{_money(flow.call_prem)} call · {_money(flow.put_prem)} put",
-                   logic="side with more opening premium wins",
+                   meaning=meaning,
+                   logic="side with more opening premium wins; needs 2:1 dominance and "
+                         "$500K+ to count as qualified, else it caps the call at Mixed",
                    detail={"Call premium": _money(flow.call_prem),
-                           "Put premium": _money(flow.put_prem), "Read from": basis},
+                           "Put premium": _money(flow.put_prem), "Read from": basis,
+                           "Lean (needs 2:1 + $500K)": f"{flow.lean_note} {flow.lean_quality}",
+                           "Why it matters": "opening bets predict near-term moves, but the "
+                           "edge lives in EXTREME one-sided flow — a near-even lean is a "
+                           "coin flip. Even the best academic flow signals are worth ~0.4-1% "
+                           "over days, which is why every other gate must also hold"},
                    series={"kind": "strike_bars", "points": flow.top_strikes},
-                   tone="neutral", provenance=flow.provenance)
+                   tone="cautionary" if weak else "neutral", provenance=flow.provenance)
 
 
 def _conviction_el(c) -> Element:
@@ -67,6 +77,9 @@ def _conviction_el(c) -> Element:
     if c.vol_ratio is not None:
         detail["Vs shares traded"] = (f"{c.vol_ratio:.1%} of today's "
                                       f"{_num(c.share_volume)} shares")
+    detail["Why it matters"] = ("this is the same money as the flow read a different way, "
+                                "so agreement adds nothing — but the tape pushing AGAINST "
+                                "the flow means the bet is contested")
     return Element(key="conviction", label="Does the live tape agree?",
                    surface=c.direction.upper(),
                    meaning=f"{_num(c.dir_delta)} net delta, {c.accumulation}{size}",
@@ -91,7 +104,10 @@ def _positioning_el(p) -> Element:
                    meaning=f"{_pct(p.oi_trend_pct, 0, sign=True)} OI at the bet's strikes",
                    logic="OI up = held, down = closing (across recent settled sessions)",
                    detail={"OI change (settled)": _pct(p.oi_trend_pct, 1, sign=True),
-                           "Side": p.side, "Strikes watched": p.cluster_strikes},
+                           "Side": p.side, "Strikes watched": p.cluster_strikes,
+                           "Why it matters": "if open interest doesn't grow, what looked "
+                           "like buying was actually closing — the bet isn't being held "
+                           "overnight, and yesterday's conviction is already gone"},
                    series={"kind": "bars", "points": p.oi_series},
                    tone=tone, provenance=p.provenance)
 
@@ -109,15 +125,23 @@ def _structural_el(dg) -> Element:
                    detail={"Dealer gamma": _money(dg.agg_b * 1e9), "Gamma flip": flip,
                            "Call wall (resistance)": _pct(dg.call_wall_pct, sign=True),
                            "Put wall (support)": _pct(-dg.put_wall_pct, sign=True)
-                                                 if dg.put_wall_pct is not None else "n/a"},
+                                                 if dg.put_wall_pct is not None else "n/a",
+                           "Why it matters": "a directional weekly needs the move to RUN — "
+                           "negative gamma means dealer hedging amplifies it, positive "
+                           "smothers it. Caution: extended moves tend to revert within "
+                           "days, so plan a 1-3 day hold, not the week"},
                    series={"kind": "ladder", "points": dg.ladder},
                    tone="neutral" if trend else "cautionary", provenance=dg.provenance)
 
 
 def _skew_el(s) -> Element:
     if s is None or s.lean == "unavailable":
-        return _unavail("skew", "Which way is fear priced?", s, "no risk reversal",
-                        "risk-reversal sign vs your side (oppose caps the verdict)")
+        # visible badge, not a silent cap: a name with no RR baseline (newly watched /
+        # thin options history) structurally can't reach Favorable — say so
+        return _unavail("skew", "Which way is fear priced?", s,
+                        "no baseline yet — needs 3+ prior sessions of risk-reversal "
+                        "history, so this name can't reach Favorable today",
+                        "risk-reversal change vs its own normal (oppose caps the verdict)")
     surf = {"call_skew": "CALLS BID", "put_skew": "PUTS BID", "neutral": "BALANCED"}.get(
         s.lean, s.lean.upper())
     rr = f"{s.rr25:+.3f}" if s.rr25 is not None else "n/a"
@@ -126,7 +150,10 @@ def _skew_el(s) -> Element:
                    meaning=f"RR {rr} vs {base} normal",
                    logic="today's risk reversal vs its own recent normal, calls bid = richer than usual",
                    detail={"Today (25Δ RR)": rr, "Recent normal": base,
-                           "Change vs normal": f"{s.rr_delta:+.3f}" if s.rr_delta is not None else "n/a"},
+                           "Change vs normal": f"{s.rr_delta:+.3f}" if s.rr_delta is not None else "n/a",
+                           "Why it matters": "the one check from an independent data "
+                           "source: what protection actually costs. Fear leaning against "
+                           "your side means someone is paying real money to disagree"},
                    series={"kind": "line", "points": s.series},
                    tone="neutral", provenance=s.provenance)
 
@@ -153,6 +180,9 @@ def _cost_el(c) -> Element:
         d["Near vs far IV"] = f"{c.front_iv:.0%} · {c.back_iv:.0%}" + (" inverted" if c.term_inverted else "")
     if c.days_to_earnings is not None:
         d["Days to earnings"] = c.days_to_earnings
+    d["Why it matters"] = ("the costs are certain, the move isn't: a wide spread can eat "
+                           "10%+ round trip and a weekly bleeds theta every day — that's "
+                           "why cost alone can kill an otherwise good setup")
     return Element(key="cost", label="Is it worth the cost?", surface=surf, meaning=c.reason,
                    logic="PASS on event, earnings, or spread bigger than the move",
                    detail=d, series={"kind": "line", "points": c.term_curve},
@@ -224,9 +254,11 @@ _BUILDERS = [
     ("dealer_gamma", _structural_el), ("skew", _skew_el), ("cost", _cost_el),
 ]
 
-_VERDICT_LOGIC = ("Stand down if cost says PASS or OI is red. Favorable needs opening-flow "
-                  "direction, OI not shrinking, trend gamma, no skew/tape conflict, cost clear. "
-                  "Anything else is Mixed.")
+_VERDICT_LOGIC = ("Stand down if cost says PASS or there's no flow to read. Favorable needs "
+                  "a qualified opening-flow lean (2:1 and $500K+), OI not shrinking, trend "
+                  "gamma, readable skew, no skew/tape conflict, cost fully clean. Anything "
+                  "else is Mixed — and 'disagree' Mixed (something contradicts the bet) is "
+                  "closer to Stand down than 'weak' Mixed (something fell short).")
 
 
 def _next_step(verdict: Verdict, cost) -> str:
@@ -239,7 +271,8 @@ def _next_step(verdict: Verdict, cost) -> str:
     if verdict.overall == "Favorable":
         side = verdict.direction or "the flow side"
         return (f"Setup aligns for {side}. The contract tile shows the exact one and its "
-                "max loss. Size so a full loss is fine, exit before the next event/expiry.")
+                "max loss. Size so a full loss is fine, plan the exit in 1-3 days "
+                "(extended moves tend to revert) and always before the next event/expiry.")
     legs = f" ({', '.join(verdict.conflict_legs)} disagree)" if verdict.conflict_legs else ""
     return (f"Nothing compelling{legs}. Doing nothing is the default. If you trade anyway "
             "it's your judgment over the data: the contract tile shows what you'd buy.")

@@ -122,11 +122,17 @@ class Flow(Signal):
     """Opening-flow direction. `direction` is the call/put side the money is betting;
     `direction_basis` records HOW it was derived (opening_flow leads per Ge-Lin-Pearson;
     total_flow is the fallback; gamma_fallback arrives in Phase 4; unavailable = no flow,
-    never a guessed side). call_prem/put_prem are the premium totals the side won by."""
+    never a guessed side). call_prem/put_prem are the premium totals the side won by.
+    `lean_quality` is the side picking its OWN bar (reviewer 2026-06-11): the predictive
+    edge lives in the EXTREME of signed flow (Pan-Poteshman), not its sign — a near-even
+    or thin lean is a coin flip and must not ride to Favorable unopposed."""
     direction: Optional[Literal["calls", "puts"]] = None
     direction_basis: Literal["opening_flow", "total_flow", "gamma_fallback", "unavailable"] = "unavailable"
     call_prem: float = 0.0
     put_prem: float = 0.0
+    lean_ratio: Optional[float] = None      # winner premium / loser premium (None = no loser $)
+    lean_quality: Literal["qualified", "weak", "n/a"] = "n/a"
+    lean_note: str = ""                     # terse, number-led: "1.4:1" / "thin $400K"
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
     top_strikes: list[dict] = Field(default_factory=list)  # {strike, side, premium} chart rows
 
@@ -352,6 +358,8 @@ class Verdict(BaseModel):
     signals_used: list[str] = Field(default_factory=list)  # names consumed (audit)
     signal_conflict: bool = False
     conflict_legs: list[str] = Field(default_factory=list)  # which legs disagree (tone cue)
+    caps: list[str] = Field(default_factory=list)   # every gate that blocked Favorable —
+    # the backtest aggregates these into the gate-binding histogram (is Favorable reachable?)
     provenance: Provenance = Field(default_factory=Provenance)
 
 

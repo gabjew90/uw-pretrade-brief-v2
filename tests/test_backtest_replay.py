@@ -37,7 +37,25 @@ def test_backtest_rederives_a_session_from_bronze(lake):
     assert r["direction"] == "puts"               # the known golden read (session-filtered)
     assert r["overall"] in ("Favorable", "Mixed", "Stand down")
     assert r["surfaces"]["direction"] == "PUTS"
+    assert isinstance(r["caps"], list)             # gate-binding histogram input
     json.dumps(r)                                  # line-diffable: JSON-serializable
+
+
+def test_summarize_base_rate_and_cap_histogram():
+    """The 'is Favorable reachable' instrument: base rate across ticker-days + which gate
+    binds most. <1% Favorable means tune from this data, not vibes."""
+    from scripts.backtest_replay import summarize
+    rows = [
+        {"overall": "Favorable", "caps": []},
+        {"overall": "Mixed", "caps": ["gamma pinned", "cost flags"]},
+        {"overall": "Mixed", "caps": ["gamma pinned"]},
+        {"overall": "Stand down", "caps": ["cost block"]},
+    ]
+    s = summarize(rows)
+    assert s["sessions"] == 4 and s["favorable"] == 1
+    assert s["favorable_rate"] == 0.25
+    assert s["cap_histogram"] == {"gamma pinned": 2, "cost flags": 1, "cost block": 1}
+    assert summarize([])["favorable_rate"] is None     # empty archive stays honest
 
 
 def test_outcome_join_scores_the_direction_call(lake):
