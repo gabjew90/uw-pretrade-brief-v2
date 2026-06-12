@@ -89,10 +89,24 @@ def grid() -> dict:
     rows.sort(key=lambda r: (r["state"] != "PERFECT", -r["green"], r["ticker"]))
     as_of = clock._et(None).strftime("%H:%M ET")
     evaluated = sum(1 for r in rows if r["direction"] != "—")
-    return {"asOf": as_of,
-            "status": f"{len(rows)} hot names by opening premium · {evaluated} evaluated "
-                      "this session · open a name to run its gates (on-demand tier)",
-            "rows": rows}
+    out = {"asOf": as_of,
+           "status": f"{len(rows)} hot names by opening premium · {evaluated} evaluated "
+                     "this session · open a name to run its gates (on-demand tier)",
+           "rows": rows}
+    if not rows:
+        # the empty screen says what the scanner is doing — never a blank list (spec §5)
+        out.update({"headline": "NO HOT NAMES YET",
+                    "body": "No qualifying flow alerts in the latest market-wide pull — "
+                            "normal before the open. The grid fills as opening premium "
+                            "prints.",
+                    "next": "reload after 9:30 ET, or search a ticker directly"})
+    elif evaluated and not any(r["state"] == "PERFECT" for r in rows):
+        closest = max((r for r in rows if r["direction"] != "—"),
+                      key=lambda r: r["green"])
+        out["closest"] = {"label": f"Closest: {closest['ticker']} · {closest['direction']}"
+                                   f" · {closest['green']}/{closest['total']}",
+                          "ticker": closest["ticker"]}
+    return out
 
 
 @app.get("/api/history/{ticker}")
@@ -132,6 +146,9 @@ def root() -> FileResponse:
     return JSONResponse({"detail": "static/index.html not found"}, status_code=404)
 
 
-# Static assets (after routes so "/" is handled above).
+# Static assets (after routes so "/" is handled above). The approved frontend loads
+# its bundle via relative "js/..." paths, so /js mirrors static/js for the "/" route.
 if _STATIC.is_dir():
     app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+    if (_STATIC / "js").is_dir():
+        app.mount("/js", StaticFiles(directory=_STATIC / "js"), name="js")
