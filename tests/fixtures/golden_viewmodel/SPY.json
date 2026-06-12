@@ -92,7 +92,7 @@
       "key": "flow_timeline",
       "label": "When did the money arrive?",
       "logic": "cumulative opening premium by side through the session",
-      "meaning": "0% of opening premium after 14:00 ET \u00b7 window partial, morning may be missing",
+      "meaning": "0% of opening premium after 14:00 ET",
       "provenance": {
         "as_of": "2026-06-08T15:05:00Z",
         "note": "",
@@ -349,8 +349,8 @@
           }
         ]
       },
-      "surface": "PARTIAL VIEW",
-      "tone": "cautionary"
+      "surface": "MOSTLY EARLY",
+      "tone": "neutral"
     },
     {
       "detail": {

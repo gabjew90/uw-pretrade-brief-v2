@@ -97,7 +97,11 @@ def _timeline_el(flow) -> Element | None:
     if not getattr(flow, "flow_series", None):
         return None
     late = flow.late_pct
-    if flow.truncated:
+    first_t, last_t = flow.flow_series[0]["t"], flow.flow_series[-1]["t"]
+    # the cap flag alone doesn't mean lost coverage — pagination may still have reached
+    # the open. Partial only when the window demonstrably misses the morning.
+    partial = bool(flow.truncated) and first_t > "09:45"
+    if partial:
         surf = "PARTIAL VIEW"
     elif late is not None and late >= 50:
         surf = "BACK-LOADED"
@@ -107,9 +111,8 @@ def _timeline_el(flow) -> Element | None:
         surf = "SPREAD OUT"
     meaning = (f"{late:.0f}% of opening premium after 14:00 ET" if late is not None
                else "arrival timing unavailable")
-    if flow.truncated:
-        meaning += " · window partial, morning may be missing"
-    first_t, last_t = flow.flow_series[0]["t"], flow.flow_series[-1]["t"]
+    if partial:
+        meaning += f" · window starts {first_t} ET, morning missing"
     return Element(key="flow_timeline", label="When did the money arrive?", surface=surf,
                    meaning=meaning,
                    logic="cumulative opening premium by side through the session",
@@ -120,7 +123,7 @@ def _timeline_el(flow) -> Element | None:
                            "evidence. If the window is partial, a 'late' pattern can be a "
                            "fetch artifact, not a real one"},
                    series={"kind": "two_line", "points": flow.flow_series},
-                   tone="cautionary" if flow.truncated else "neutral",
+                   tone="cautionary" if partial else "neutral",
                    provenance=flow.provenance)
 
 

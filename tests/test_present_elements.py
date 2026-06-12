@@ -125,11 +125,17 @@ def test_flow_timeline_is_a_second_tile_with_arrival_read():
     assert el.surface == "BACK-LOADED"
     assert "62% of opening premium after 14:00 ET" in el.meaning
     assert el.series == {"kind": "two_line", "points": sigs["flow"].flow_series}
-    # truncated pull: honesty over pattern
+    # truncated pull: honesty over pattern — but ONLY when the window misses the morning
     sigs["flow"].truncated = True
+    sigs["flow"].flow_series[0]["t"] = "11:02"          # demonstrably missing the open
     vm2 = present("SPY", sigs, decide(sigs))
     el2 = next(e for e in vm2.elements if e.key == "flow_timeline")
-    assert el2.surface == "PARTIAL VIEW" and "morning may be missing" in el2.meaning
+    assert el2.surface == "PARTIAL VIEW" and "window starts 11:02 ET" in el2.meaning
+    # cap hit but pagination still reached the open -> full coverage, no false caveat
+    sigs["flow"].flow_series[0]["t"] = "09:35"
+    vm2b = present("SPY", sigs, decide(sigs))
+    el2b = next(e for e in vm2b.elements if e.key == "flow_timeline")
+    assert el2b.surface == "BACK-LOADED" and "missing" not in el2b.meaning
     # and no series -> no tile
     sigs["flow"].flow_series = []
     vm3 = present("SPY", sigs, decide(sigs))
