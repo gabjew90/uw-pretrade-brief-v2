@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>UW Pretrade Verdict — PRESENT redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: #14181D; color: #D8DEE5; }
+  body { font-family: 'IBM Plex Sans', sans-serif; }
+
+  button:focus-visible, a:focus-visible {
+    outline: 2px solid #3DD68C;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+
+  /* responsive: single column ≤900px, auto-fit grid above, cards top-aligned */
+  .vWrap { max-width: 430px; margin: 0 auto; padding: 18px 14px 60px; }
+  .vGrid { display: flex; flex-direction: column; gap: 14px; }
+  @media (min-width: 900px) {
+    .vWrap { max-width: 1360px; }
+    .vGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; align-items: start; }
+    .vCard { max-width: 460px; }
+    .vNarrow { max-width: 560px; margin: 0 auto; }
+    .dirTabs { display: none !important; }
+    .tabsMode .offCard { display: block; }
+  }
+  @media (max-width: 899.98px) {
+    .tabsMode .offCard { display: none; }
+  }
+
+  /* scanning skeleton — shimmer gated on reduced motion */
+  .skelBar { position: relative; overflow: hidden; }
+  @media (prefers-reduced-motion: no-preference) {
+    .skelBar::after {
+      content: ""; position: absolute; inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(216,222,229,0.07), transparent);
+      animation: uwShimmer 1.6s infinite;
+    }
+    @keyframes uwShimmer { to { transform: translateX(100%); } }
+    .perfectGlow { animation: uwBreathe 3.2s ease-in-out infinite; }
+    @keyframes uwBreathe {
+      0%, 100% { text-shadow: 0 0 18px rgba(61, 214, 140, 0.33); }
+      50% { text-shadow: 0 0 26px rgba(61, 214, 140, 0.5); }
+    }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="js/uw-fixtures.js"></script>
+<script src="js/uw-data.js"></script>
+<script src="js/uw-contract-tests.js"></script>
+<script type="text/babel" src="js/tweaks-panel.jsx"></script>
+<script type="text/babel" src="js/uw-tokens.jsx"></script>
+<script type="text/babel" src="js/uw-microvisuals.jsx"></script>
+<script type="text/babel" src="js/uw-card.jsx"></script>
+<script type="text/babel" src="js/uw-screens.jsx"></script>
+<script type="text/babel" src="js/uw-app.jsx"></script>
+</body>
+</html>
