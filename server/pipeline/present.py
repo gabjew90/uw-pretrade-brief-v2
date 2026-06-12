@@ -59,10 +59,12 @@ def _direction_el(flow) -> Element:
                    detail={"Call premium": _money(flow.call_prem),
                            "Put premium": _money(flow.put_prem), "Read from": basis,
                            "Lean (needs 2:1 + $500K)": f"{flow.lean_note} {flow.lean_quality}",
-                           "Why it matters": "opening bets predict near-term moves, but the "
-                           "edge lives in EXTREME one-sided flow — a near-even lean is a "
-                           "coin flip. Even the best academic flow signals are worth ~0.4-1% "
-                           "over days, which is why every other gate must also hold"},
+                           "Why it matters": "a real bet reads like 5:1 — millions on one "
+                           "side, little on the other. 1.3:1 is a coin flip no matter how "
+                           "big the dollars. And even a clean one-sided read points to a "
+                           "small move (typically under 1% over a few days, often less "
+                           "than your contract needs to break even) — which is why the "
+                           "other tiles must also agree before anything is Favorable"},
                    series={"kind": "strike_bars", "points": flow.top_strikes},
                    tone="cautionary" if weak else "neutral", provenance=flow.provenance)
 
@@ -71,12 +73,19 @@ def _conviction_el(c) -> Element:
     if c is None or getattr(c, "direction", None) is None:
         return _unavail("conviction", "Does the live tape agree?", c, "no greek-flow",
                         "sign of the session net delta")
-    size = f" · {c.vol_ratio:.1%} of share volume" if c.vol_ratio is not None else ""
+    # the % means nothing without a scale word: 12.6% is heavy pressure, 0.1% is noise
+    size = ""
+    if c.vol_ratio is not None:
+        word = ("dominant" if c.vol_ratio >= 0.15 else "heavy" if c.vol_ratio >= 0.05
+                else "noticeable" if c.vol_ratio >= 0.01 else "noise")
+        pct = f"{c.vol_ratio:.1%}" if c.vol_ratio >= 0.001 else "<0.1%"
+        size = f" · {pct} of share volume = {word}"
     detail = {"Net directional delta": f"{c.dir_delta:,.0f}",
               "Path this session": c.accumulation, "One-way %": f"{c.efficiency:.0%}"}
     if c.vol_ratio is not None:
-        detail["Vs shares traded"] = (f"{c.vol_ratio:.1%} of today's "
-                                      f"{_num(c.share_volume)} shares")
+        detail["Vs shares traded"] = (f"{pct} of today's {_num(c.share_volume)} shares "
+                                      f"({word}: under 1% = noise, 5%+ = heavy, "
+                                      "15%+ = dominant)")
     detail["Why it matters"] = ("this is the same money as the flow read a different way, "
                                 "so agreement adds nothing — but the tape pushing AGAINST "
                                 "the flow means the bet is contested")
@@ -100,14 +109,29 @@ def _positioning_el(p) -> Element:
     surf = {"building": "GROWING", "unwinding": "SHRINKING", "flat": "FLAT"}.get(
         p.confirmation, p.confirmation.upper())
     tone = {"building": "positive", "unwinding": "cautionary"}.get(p.confirmation, "neutral")
+    # Absolute contracts carry the meaning. Weekly strikes are often only days old, so a
+    # percent against the near-zero birth base reads "+36692%" — true and useless.
+    n = p.window_sessions or 0
+    if p.oi_start is not None and p.oi_end is not None:
+        span = f"{_num(p.oi_start)} → {_num(p.oi_end)} contracts over {n} sessions"
+        if p.oi_trend_pct > 300:
+            meaning = f"{span} (fresh strikes, built from near zero)"
+            change = f"{span} — % vs the tiny day-one base isn't meaningful"
+        else:
+            meaning = f"{_pct(p.oi_trend_pct, 0, sign=True)} OI ({span})"
+            change = f"{_pct(p.oi_trend_pct, 1, sign=True)} ({span})"
+    else:
+        meaning = f"{_pct(p.oi_trend_pct, 0, sign=True)} OI at the bet's strikes"
+        change = _pct(p.oi_trend_pct, 1, sign=True)
     return Element(key="positioning", label="Is the bet being held?", surface=surf,
-                   meaning=f"{_pct(p.oi_trend_pct, 0, sign=True)} OI at the bet's strikes",
+                   meaning=meaning,
                    logic="OI up = held, down = closing (across recent settled sessions)",
-                   detail={"OI change (settled)": _pct(p.oi_trend_pct, 1, sign=True),
+                   detail={"OI change (settled)": change,
                            "Side": p.side, "Strikes watched": p.cluster_strikes,
-                           "Why it matters": "if open interest doesn't grow, what looked "
-                           "like buying was actually closing — the bet isn't being held "
-                           "overnight, and yesterday's conviction is already gone"},
+                           "Why it matters": "open interest counts positions still alive — "
+                           "if it grows, yesterday's buyers kept the bet overnight; if it "
+                           "shrinks, what looked like buying was closing. On days-old "
+                           "weeklies read the contract counts, not the percent"},
                    series={"kind": "bars", "points": p.oi_series},
                    tone=tone, provenance=p.provenance)
 

@@ -108,8 +108,8 @@ def test_conviction_meaning_sized_against_share_volume():
                                     share_volume=10000.0, vol_ratio=0.035)
     vm = present("SPY", sigs, decide(sigs))
     el = next(e for e in vm.elements if e.key == "conviction")
-    assert "3.5% of share volume" in el.meaning
-    assert el.detail["Vs shares traded"] == "3.5% of today's 10K shares"
+    assert "3.5% of share volume = noticeable" in el.meaning   # number + scale word
+    assert el.detail["Vs shares traded"].startswith("3.5% of today's 10K shares")
     # and without the yardstick the meaning stays size-free (no fake 0%)
     vm2 = present("SPY", _full_signals(), decide(_full_signals()))
     el2 = next(e for e in vm2.elements if e.key == "conviction")

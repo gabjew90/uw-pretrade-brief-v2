@@ -288,6 +288,9 @@ class Positioning(Signal):
     positioning_leg."""
     confirmation: Literal["building", "flat", "unwinding", "unconfirmed"] = "unconfirmed"
     oi_trend_pct: float = 0.0                    # cluster OI change, first→last settled session
+    oi_start: Optional[int] = None               # window endpoints in CONTRACTS — on days-old
+    oi_end: Optional[int] = None                 #   weeklies the absolutes carry the meaning;
+    window_sessions: Optional[int] = None        #   a % against a near-zero base reads +36000%
     side: Literal["call", "put", ""] = ""        # the flow side this confirms
     cluster_strikes: list[float] = Field(default_factory=list)
     oi_series: list[dict] = Field(default_factory=list)     # {date, oi} summed cluster per day

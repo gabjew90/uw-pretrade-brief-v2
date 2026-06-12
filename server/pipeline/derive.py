@@ -633,6 +633,7 @@ def derive_positioning(canon: dict, *, asof: str | None = None) -> Positioning:
     # chart: summed cluster OI per day, last 30 sessions (the bar-chart series)
     oi_series = [{"date": d, "oi": by_date[d]} for d in sorted(by_date)[-30:]]
     return Positioning(confirmation=conf, oi_trend_pct=round(trend, 1), side=side,
+                       oi_start=first, oi_end=last, window_sessions=len(window),
                        cluster_strikes=sorted(strikes), oi_series=oi_series, provenance=src)
 
 

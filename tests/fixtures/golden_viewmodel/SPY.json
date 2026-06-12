@@ -7,7 +7,7 @@
         "Lean (needs 2:1 + $500K)": "1.5:1 weak",
         "Put premium": "$9.2M",
         "Read from": "opening flow",
-        "Why it matters": "opening bets predict near-term moves, but the edge lives in EXTREME one-sided flow \u2014 a near-even lean is a coin flip. Even the best academic flow signals are worth ~0.4-1% over days, which is why every other gate must also hold"
+        "Why it matters": "a real bet reads like 5:1 \u2014 millions on one side, little on the other. 1.3:1 is a coin flip no matter how big the dollars. And even a clean one-sided read points to a small move (typically under 1% over a few days, often less than your contract needs to break even) \u2014 which is why the other tiles must also agree before anything is Favorable"
       },
       "key": "direction",
       "label": "Where's the money betting?",
