@@ -176,6 +176,39 @@ def _alert_rows(alerts, opening_only: bool) -> list[dict]:
     return rows
 
 
+def _flow_timeline(alerts, opening_only: bool) -> tuple[list[dict], float | None]:
+    """(flow_series, late_pct): cumulative call/put premium of the basis set through the
+    session (ET, ≤48 points, keeps the last) + the share of premium arriving after 14:00.
+    WHEN the bets came is information the totals erase: an early lean the day kept
+    confirming reads differently from a last-hour pile-in."""
+    rows = []
+    for a in alerts:
+        if not (_opening(a) or not opening_only):
+            continue
+        try:
+            t = datetime.fromisoformat((a.created_at or "").replace("Z", "+00:00")) \
+                .astimezone(_ET)
+        except (TypeError, ValueError):
+            continue
+        rows.append((t, a.type, float(a.total_premium or 0)))
+    rows.sort(key=lambda r: r[0])
+    pts, cum_c, cum_p, late, total = [], 0.0, 0.0, 0.0, 0.0
+    for t, typ, prem in rows:
+        if typ == "call":
+            cum_c += prem
+        else:
+            cum_p += prem
+        total += prem
+        if t.hour >= 14:
+            late += prem
+        pts.append({"t": t.strftime("%H:%M"), "call": round(cum_c), "put": round(cum_p)})
+    n = len(pts)
+    if n > 48:
+        idxs = sorted({min(n - 1, int(i * n / 48)) for i in range(48)} | {n - 1})
+        pts = [pts[i] for i in idxs]
+    return pts, (round(late / total * 100, 1) if total else None)
+
+
 @register("flow")
 def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     """Pick the call/put side via the shared `flow_side` (OPENING leads, TOTAL fallback),
@@ -207,11 +240,13 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
         return [{"strike": k[0], "side": sd, "premium": round(by_ks[k])} for k in ks]
     win, lose = (call_prem, put_prem) if side == "call" else (put_prem, call_prem)
     lean_ratio, lean_q, lean_note = _lean_quality(win, lose)
+    flow_series, late_pct = _flow_timeline(alerts, opening_only)
     return Flow(direction="calls" if side == "call" else "puts", direction_basis=basis,
                 truncated=truncated, call_prem=call_prem, put_prem=put_prem,
                 lean_ratio=lean_ratio, lean_quality=lean_q, lean_note=lean_note,
                 top_strikes=_top("call") + _top("put"),
                 top_alerts=_alert_rows(alerts, opening_only),
+                flow_series=flow_series, late_pct=late_pct,
                 provenance=prov.derived(alerts[0].provenance))
 
 

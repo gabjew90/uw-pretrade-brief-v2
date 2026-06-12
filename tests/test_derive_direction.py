@@ -70,6 +70,28 @@ def test_top_alerts_are_the_biggest_opening_bets_in_et():
     assert f.top_alerts[0]["premium"] >= f.top_alerts[1]["premium"]
 
 
+# ── intraday arrival: flow_series + late_pct (WHEN the bets came) ─────────────
+def test_flow_series_is_cumulative_by_side_in_et():
+    alerts = [
+        _fa("call", 600_000, 5.0),                                        # 15:00Z = 11:00 ET
+        FlowAlert(ticker="SPY", type="put", total_premium=400_000, volume_oi_ratio=5.0,
+                  created_at="2026-06-08T18:30:00Z"),                      # 14:30 ET — late
+        FlowAlert(ticker="SPY", type="call", total_premium=1_000_000, volume_oi_ratio=5.0,
+                  created_at="2026-06-08T19:00:00Z"),                      # 15:00 ET — late
+    ]
+    f = derive_direction({"flow_alerts": alerts})
+    assert [p["t"] for p in f.flow_series] == ["11:00", "14:30", "15:00"]
+    assert f.flow_series[-1] == {"t": "15:00", "call": 1_600_000, "put": 400_000}
+    assert f.flow_series[0]["call"] == 600_000 and f.flow_series[0]["put"] == 0
+    assert f.late_pct == 70.0                  # 1.4M of 2M arrived after 14:00 ET
+
+
+def test_flow_series_excludes_closing_when_opening_leads():
+    alerts = [_fa("call", 500_000, 5.0), _fa("put", 9_000_000, 0.3)]   # put is closing
+    f = derive_direction({"flow_alerts": alerts})
+    assert f.flow_series[-1]["put"] == 0       # closing premium never enters the timeline
+
+
 # ── the side's own bar (reviewer 2026-06-11): dominance ratio + premium floor ──
 def test_dominant_lean_over_floor_is_qualified():
     alerts = [_fa("call", 1_000_000, 5.0), _fa("put", 100_000, 5.0)]   # 10:1, $1M

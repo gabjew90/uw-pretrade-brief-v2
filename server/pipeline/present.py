@@ -89,6 +89,41 @@ def _direction_el(flow) -> Element:
                    tone="cautionary" if weak else "neutral", provenance=flow.provenance)
 
 
+def _timeline_el(flow) -> Element | None:
+    """'When did the money arrive?' — the intraday arrival of the bet premium (display-
+    only, second tile from the flow signal like cost→contract). The totals erase timing:
+    an early lean the day kept confirming reads differently from a last-hour pile-in.
+    With a truncated pull the early session may simply be missing — honesty over pattern."""
+    if not getattr(flow, "flow_series", None):
+        return None
+    late = flow.late_pct
+    if flow.truncated:
+        surf = "PARTIAL VIEW"
+    elif late is not None and late >= 50:
+        surf = "BACK-LOADED"
+    elif late is not None and late <= 15:
+        surf = "MOSTLY EARLY"
+    else:
+        surf = "SPREAD OUT"
+    meaning = (f"{late:.0f}% of opening premium after 14:00 ET" if late is not None
+               else "arrival timing unavailable")
+    if flow.truncated:
+        meaning += " · window partial, morning may be missing"
+    first_t, last_t = flow.flow_series[0]["t"], flow.flow_series[-1]["t"]
+    return Element(key="flow_timeline", label="When did the money arrive?", surface=surf,
+                   meaning=meaning,
+                   logic="cumulative opening premium by side through the session",
+                   detail={"First alert": f"{first_t} ET", "Last alert": f"{last_t} ET",
+                           "After 14:00 ET": f"{late:.0f}%" if late is not None else "n/a",
+                           "Why it matters": "a last-hour pile-in is a bet on tomorrow "
+                           "morning; an early lean the day kept confirming is steadier "
+                           "evidence. If the window is partial, a 'late' pattern can be a "
+                           "fetch artifact, not a real one"},
+                   series={"kind": "two_line", "points": flow.flow_series},
+                   tone="cautionary" if flow.truncated else "neutral",
+                   provenance=flow.provenance)
+
+
 def _conviction_el(c) -> Element:
     if c is None or getattr(c, "direction", None) is None:
         return _unavail("conviction", "Does the live tape agree?", c, "no greek-flow",
@@ -350,6 +385,10 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
     for name, build in _BUILDERS:
         if name in signals:
             elements.append(build(signals[name]))
+            if name == "flow":                  # one signal, two tiles: the side + its timing
+                tl = _timeline_el(signals[name])
+                if tl is not None:
+                    elements.append(tl)
             if name == "cost":                  # one signal, two tiles: the gate + the pick
                 elements.append(_contract_el(signals[name]))
 

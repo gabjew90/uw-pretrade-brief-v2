@@ -114,6 +114,28 @@ def test_direction_detail_lists_the_top_bets_as_receipts():
     assert el.detail["Top bet 1"] == "10:42 · 580 put 06-13 · $1.2M · ask-side sweep · 4.1x OI"
 
 
+def test_flow_timeline_is_a_second_tile_with_arrival_read():
+    sigs = _full_signals()
+    sigs["flow"] = Flow(direction="calls", direction_basis="opening_flow",
+                        call_prem=2e6, put_prem=1e5, late_pct=62.0,
+                        flow_series=[{"t": "09:35", "call": 100, "put": 0},
+                                     {"t": "15:30", "call": 2_000_000, "put": 100_000}])
+    vm = present("SPY", sigs, decide(sigs))
+    el = next(e for e in vm.elements if e.key == "flow_timeline")
+    assert el.surface == "BACK-LOADED"
+    assert "62% of opening premium after 14:00 ET" in el.meaning
+    assert el.series == {"kind": "two_line", "points": sigs["flow"].flow_series}
+    # truncated pull: honesty over pattern
+    sigs["flow"].truncated = True
+    vm2 = present("SPY", sigs, decide(sigs))
+    el2 = next(e for e in vm2.elements if e.key == "flow_timeline")
+    assert el2.surface == "PARTIAL VIEW" and "morning may be missing" in el2.meaning
+    # and no series -> no tile
+    sigs["flow"].flow_series = []
+    vm3 = present("SPY", sigs, decide(sigs))
+    assert all(e.key != "flow_timeline" for e in vm3.elements)
+
+
 def test_conviction_meaning_sized_against_share_volume():
     sigs = _full_signals()
     sigs["conviction"] = Conviction(direction="calls", dir_delta=350, accumulation="building",

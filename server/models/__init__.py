@@ -137,6 +137,9 @@ class Flow(Signal):
     top_strikes: list[dict] = Field(default_factory=list)  # {strike, side, premium} chart rows
     top_alerts: list[dict] = Field(default_factory=list)   # the receipts: 5 biggest alerts
     # behind the read ({time, type, strike, expiry, premium, aggressor, voi, sweep})
+    flow_series: list[dict] = Field(default_factory=list)  # intraday arrival: cumulative
+    # {t, call, put} opening premium through the session (≤48 pts) — WHEN the bets came
+    late_pct: Optional[float] = None        # share of basis premium after 14:00 ET
 
 
 class TermStructurePoint(BaseModel):
