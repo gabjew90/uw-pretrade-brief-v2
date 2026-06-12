@@ -140,6 +140,65 @@ class Flow(Signal):
     flow_series: list[dict] = Field(default_factory=list)  # intraday arrival: cumulative
     # {t, call, put} opening premium through the session (≤48 pts) — WHEN the bets came
     late_pct: Optional[float] = None        # share of basis premium after 14:00 ET
+    side_stats: dict = Field(default_factory=dict)  # per-direction gate inputs, computed
+    # in derive: {"call"/"put": {opening_prem, ask_share, top2_share, top2_dte_ok,
+    # strike_band_ok}} — gates COMPARE, they never compute
+
+
+class RealizedVolPoint(BaseModel):
+    """One day of /volatility/realized — matched IV + RV pair. RV settles next session
+    (today's is null until then). Feeds the vol signal (cheap_vol + iv-spike legs)."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    implied_volatility: Optional[float] = None
+    realized_volatility: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
+class ShortVolPoint(BaseModel):
+    """One day of /shorts/{t}/volume-and-ratio (probe-verified 2026-06-12: daily series
+    under data.si). Feeds the put-side short-pressure gate."""
+    model_config = ConfigDict(extra="ignore")
+
+    market_date: str
+    short_volume_ratio: Optional[float] = None
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
+class FTDRow(BaseModel):
+    """One /shorts/{t}/ftds row (probe-verified: ~5y of {date, quantity, price}; SEC
+    publishes with ~4-week lag — inherently stale, used only as a trailing percentile)."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    quantity: int = 0
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
+class DailyBar(BaseModel):
+    """One /stock/{t}/ohlc/1d row (probe-verified: ~1y depth, keyed by `date` not
+    start_time, market_time r/pr/po). Feeds the catalyst gate's historical earnings-day
+    moves."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    open: float = 0.0
+    close: float = 0.0
+    market_time: str = ""
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
+class AtmChainRow(BaseModel):
+    """One /stock/{t}/atm-chains row (probe-verified 2026-06-12: needs expirations[]
+    param; returns the ATM call+put with bid/ask). Feeds the catalyst implied move:
+    straddle mid / spot."""
+    model_config = ConfigDict(extra="ignore")
+
+    date: str = ""
+    bid: float = 0.0
+    ask: float = 0.0
+    provenance: Provenance = Field(default_factory=Provenance)
 
 
 class TermStructurePoint(BaseModel):
@@ -347,6 +406,9 @@ class Cost(Signal):
     back_iv: Optional[float] = None             # ~30d IV
     term_inverted: bool = False                 # front >> back ⇒ overpaying for near vol
     term_curve: list[dict] = Field(default_factory=list)   # {dte, iv} IV term structure (chart)
+    macro_days: Optional[float] = None          # days to the next high-impact print (5d window)
+    macro_name: Optional[str] = None
+    calendar_ok: bool = True                    # False = a calendar FETCH failed (DARK, not clear)
     reason: str = ""
 
 
@@ -356,18 +418,80 @@ class Cost(Signal):
 
 
 # ── Verdict (Decide stage output) — built in exactly one place ───────────────
+class Vol(Signal):
+    """Volatility pricing for the long-premium buyer (Hu-Jacobs 2020, Goyal-Saretto:
+    long premium wants LOW IV rank and HV >= IV; Vasquez 2017: upward term slope).
+    All numbers computed here; gates only compare."""
+    ivr: Optional[float] = None             # IV rank 0-100 (vendor percentile, never recomputed)
+    hv: Optional[float] = None              # latest settled realized vol (vendor window)
+    iv_front: Optional[float] = None        # front term-structure IV
+    hv_iv_ratio: Optional[float] = None     # hv / iv_front
+    term_slope: Optional[float] = None      # back(~30d) IV minus front IV
+    iv_spike_pct: Optional[float] = None    # front IV change over the last 2 sessions, %
+
+
+class Shorts(Signal):
+    """Short-side pressure for the put gates. ratio from volume-and-ratio (daily series);
+    FTD percentile vs the ticker's own trailing year (SEC ~4-week lag — trailing read
+    only). SI%float is NOT at tier (probe 2026-06-12: stale 2021 rows) — the squeeze gate
+    runs on FTD + IV-spike legs instead."""
+    ratio_latest: Optional[float] = None
+    ratio_prev: Optional[float] = None
+    rising: Optional[bool] = None           # latest >= prev (2-session read, tier history)
+    ftd_latest: Optional[int] = None
+    ftd_pctile: Optional[float] = None      # latest vs trailing-year quantity distribution
+
+
+class Catalyst(Signal):
+    """Earnings-event branch inputs (Milian 2023: implied move cheap vs the stock's own
+    historical earnings-day move). quarters < 8 = DEGRADED (ohlc/1d gives ~1y at tier)."""
+    days_to_earnings: Optional[int] = None
+    report_date: Optional[str] = None
+    implied_move_pct: Optional[float] = None     # ATM straddle / spot, first expiry after
+    hist_move_pct: Optional[float] = None        # mean |earnings-day move|, trailing quarters
+    quarters: int = 0
+    ratio: Optional[float] = None                # implied / historical
+
+
+class GateResult(BaseModel):
+    """One gate light. GREEN = condition met on REAL/CACHE data; RED = measurably not
+    met; DARK = input unavailable (never fabricated). value/threshold are render-ready
+    strings for the why-panel — the frontend computes nothing."""
+    name: str
+    label: str = ""                         # plain-English light label
+    state: Literal["GREEN", "RED", "DARK"] = "DARK"
+    value: str = ""                         # e.g. "ask-side 74%"
+    threshold: str = ""                     # e.g. ">= 70%"
+    provenance: Provenance = Field(default_factory=Provenance)
+
+
+class DirectionCall(BaseModel):
+    """One direction's strict-conjunction verdict: PERFECT iff every gate is GREEN.
+    DARK counts as not-green (conservatism) but renders gray, not red."""
+    direction: Literal["calls", "puts"]
+    state: Literal["PERFECT", "NOT NOW"] = "NOT NOW"
+    green: int = 0
+    total: int = 0
+    branch: Literal["drift", "catalyst"] = "drift"
+    gates: list[GateResult] = Field(default_factory=list)
+    waiting_on: str = ""                    # plain-English non-green gates, blocking first
+
+
 class Verdict(BaseModel):
-    """The single decision. Consumes signals BY NAME; emits an action + named reasons,
-    so a computed-but-unused signal is a visible gap, not a silent strand."""
-    action: str = ""                       # e.g. "Stand down" / "Favorable: calls"
-    overall: Literal["Favorable", "Mixed", "Stand down"] = "Mixed"
-    direction: Optional[Literal["calls", "puts"]] = None   # the side, owned by positioning/flow
-    reasons: list[str] = Field(default_factory=list)
+    """The strict-conjunction verdict (directive 2026-06-12): both directions evaluated
+    every cycle; PERFECT or NOT NOW — n/N, nothing else. 'Mixed'/'Favorable' are BANNED
+    words. `caps` (non-green gate names of the best direction) keeps the backtest's
+    gate-binding histogram contract."""
+    action: str = ""                        # "PERFECT — CALLS" / "NOT NOW — 7/10"
+    overall: Literal["PERFECT", "NOT NOW"] = "NOT NOW"
+    direction: Optional[Literal["calls", "puts"]] = None   # the better direction
+    branch: Literal["drift", "catalyst"] = "drift"
+    calls: Optional[DirectionCall] = None
+    puts: Optional[DirectionCall] = None
+    reasons: list[str] = Field(default_factory=list)       # plain-English waiting-on list
     signals_used: list[str] = Field(default_factory=list)  # names consumed (audit)
-    signal_conflict: bool = False
-    conflict_legs: list[str] = Field(default_factory=list)  # which legs disagree (tone cue)
-    caps: list[str] = Field(default_factory=list)   # every gate that blocked Favorable —
-    # the backtest aggregates these into the gate-binding histogram (is Favorable reachable?)
+    caps: list[str] = Field(default_factory=list)   # non-green gates (best direction) —
+    # the backtest aggregates these into the gate-binding histogram (is PERFECT reachable?)
     provenance: Provenance = Field(default_factory=Provenance)
 
 
@@ -395,5 +519,7 @@ class ViewModel(BaseModel):
     regime: Optional[Element] = None        # market-wide header (posture + its data variables)
     verdict_logic: str = ""                 # how the overall call is reached from the gates
     next_step: str = ""                     # the "so what do I do" line, server-composed
-    elements: list[Element] = Field(default_factory=list)
+    numbers: list[str] = Field(default_factory=list)  # the ONLY numerals on the default
+    # render (<= 4, directive §3): spread, breakeven-vs-move, time stop, the ticket
+    elements: list[Element] = Field(default_factory=list)   # the why-panel content
     verdict: Optional[Verdict] = None

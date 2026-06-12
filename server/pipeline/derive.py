@@ -19,8 +19,8 @@ from datetime import date, datetime, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
-                            Signal, Skew)
+from server.models import (Catalyst, Conviction, Cost, DealerGamma, Flow, Positioning,
+                            Provenance, Shorts, Signal, Skew, Vol)
 from server.services import provenance as prov
 
 # Skew is measured as CHANGE vs the ticker's own recent baseline (RR rides a structurally
@@ -176,6 +176,49 @@ def _alert_rows(alerts, opening_only: bool) -> list[dict]:
     return rows
 
 
+def _side_stats(alerts, opening_only: bool, spot: float | None,
+                asof_d) -> dict[str, dict]:
+    """Per-direction gate inputs (directive G1/G2), computed once here so gates only
+    compare: ask_share = that side's ask-side premium over TOTAL basis premium (Hu 2014
+    imbalance); top2_share/top2_dte_ok/strike_band_ok = is the premium bunched in <=2
+    near-dated, near-the-money expiries. None = not computable (gates render DARK)."""
+    pool = [a for a in alerts if _opening(a) or not opening_only]
+    total = sum(float(a.total_premium or 0) for a in pool)
+    out: dict[str, dict] = {}
+    for sd in ("call", "put"):
+        rows = [a for a in pool if a.type == sd]
+        prem = sum(float(a.total_premium or 0) for a in rows)
+        ask = sum(float(a.total_ask_side_prem or 0) for a in rows)
+        has_split = any(a.total_ask_side_prem is not None for a in rows)
+        by_exp: dict[str, float] = {}
+        for a in rows:
+            if a.expiry:
+                by_exp[a.expiry] = by_exp.get(a.expiry, 0.0) + float(a.total_premium or 0)
+        top2 = sorted(by_exp.items(), key=lambda kv: -kv[1])[:2]
+        top2_prem = sum(v for _, v in top2)
+        top2_share = round(top2_prem / prem, 3) if prem and by_exp else None
+        top2_dte_ok = None
+        if top2 and asof_d is not None:
+            try:
+                dtes = [(date.fromisoformat(e) - asof_d).days for e, _ in top2]
+                top2_dte_ok = all(5 <= d <= 30 for d in dtes)
+            except ValueError:
+                top2_dte_ok = None
+        band_ok = None
+        if spot and top2:
+            exps = {e for e, _ in top2}
+            lo, hi = (0.99, 1.06) if sd == "call" else (0.94, 1.01)
+            in_band = sum(float(a.total_premium or 0) for a in rows
+                          if a.expiry in exps and a.strike is not None
+                          and lo <= a.strike / spot <= hi)
+            band_ok = (in_band / top2_prem >= 0.6) if top2_prem else None
+        out[sd] = {"opening_prem": round(prem),
+                   "ask_share": round(ask / total, 3) if total and has_split else None,
+                   "top2_share": top2_share, "top2_dte_ok": top2_dte_ok,
+                   "strike_band_ok": band_ok}
+    return out
+
+
 def _flow_timeline(alerts, opening_only: bool) -> tuple[list[dict], float | None]:
     """(flow_series, late_pct): cumulative call/put premium of the basis set through the
     session (ET, ≤48 points, keeps the last) + the share of premium arriving after 14:00.
@@ -241,12 +284,14 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     win, lose = (call_prem, put_prem) if side == "call" else (put_prem, call_prem)
     lean_ratio, lean_q, lean_note = _lean_quality(win, lose)
     flow_series, late_pct = _flow_timeline(alerts, opening_only)
+    asof_d = date.fromisoformat(asof) if asof else None
+    side_stats = _side_stats(alerts, opening_only, canon.get("spot"), asof_d)
     return Flow(direction="calls" if side == "call" else "puts", direction_basis=basis,
                 truncated=truncated, call_prem=call_prem, put_prem=put_prem,
                 lean_ratio=lean_ratio, lean_quality=lean_q, lean_note=lean_note,
                 top_strikes=_top("call") + _top("put"),
                 top_alerts=_alert_rows(alerts, opening_only),
-                flow_series=flow_series, late_pct=late_pct,
+                flow_series=flow_series, late_pct=late_pct, side_stats=side_stats,
                 provenance=prov.derived(alerts[0].provenance))
 
 
@@ -539,6 +584,11 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
                 spread_pct=spread_pct, breakeven_move_pct=be_pct, expected_move_pct=em_pct,
                 contract=contract_d, candidates=candidates, front_iv=front_iv,
                 back_iv=back_iv, term_inverted=inverted, term_curve=term_curve,
+                macro_days=canon.get("macro_days"), macro_name=canon.get("macro_name"),
+                # both calendars must have been FETCHED ok — an absent fetch is unknown,
+                # not clear (the clean_window gate goes DARK, never a free GREEN)
+                calendar_ok=(canon.get("event_calendar_ok") is True
+                             and canon.get("earnings_calendar_ok") is True),
                 reason=reason, provenance=src)
 
 
@@ -741,3 +791,116 @@ def next_macro_event(events, now):
         return None
     _, ev, days = nxt
     return (ev.get("event") or (ev.get("type") or "event").upper()), days
+
+
+# ── strict-conjunction signals (directive 2026-06-12) ─────────────────────────
+@register("vol")
+def derive_vol(canon: dict, *, asof: str | None = None) -> Vol:
+    """Volatility pricing for the long-premium buyer. ivr = vendor percentile (NEVER
+    recomputed — tier history is shallow); hv = latest settled realized vol; iv_front /
+    term_slope from the term structure; iv_spike = front-IV change over the last two
+    sessions of the matched daily IV series. All numbers HERE; gates only compare. PURE."""
+    iv_rows = canon.get("iv_term") or []
+    rv_rows = canon.get("realized_vol") or []
+    ts_rows = [t for t in (canon.get("term_structure") or []) if t.volatility is not None]
+    ivr = None
+    for r in iv_rows:
+        if r.percentile is not None:
+            ivr = round(r.percentile * 100, 1)
+            break
+    hv = next((r.realized_volatility for r in reversed(rv_rows)
+               if r.realized_volatility is not None), None)
+    iv_front = back = None
+    if ts_rows:
+        ts_sorted = sorted(ts_rows, key=lambda t: t.dte)
+        iv_front = ts_sorted[0].volatility
+        back = next((t.volatility for t in ts_sorted if t.dte >= 21), ts_sorted[-1].volatility)
+    spike = None
+    ivs = [r.implied_volatility for r in rv_rows if r.implied_volatility is not None]
+    if len(ivs) >= 3 and ivs[-3]:
+        spike = round((ivs[-1] / ivs[-3] - 1) * 100, 1)
+    srcs = [r.provenance for r in (iv_rows[:1] + rv_rows[:1] + ts_rows[:1])]
+    if ivr is None and hv is None and iv_front is None:
+        return Vol(provenance=prov.unavailable("no volatility inputs"))
+    return Vol(ivr=ivr, hv=hv, iv_front=iv_front,
+               hv_iv_ratio=round(hv / iv_front, 2) if hv and iv_front else None,
+               term_slope=round(back - iv_front, 4) if iv_front is not None and back is not None else None,
+               iv_spike_pct=spike,
+               provenance=prov.derived(*srcs) if srcs else Provenance())
+
+
+@register("shorts")
+def derive_shorts(canon: dict, *, asof: str | None = None) -> Shorts:
+    """Short-side pressure (put gates). ratio series is daily (probe-verified); rising =
+    2-session read (tier history). FTD percentile = latest vs the ticker's own trailing
+    year (SEC ~4-week lag, trailing use only). PURE."""
+    ratio_rows = canon.get("short_ratio") or []
+    ftd_rows = canon.get("ftds") or []
+    if not ratio_rows and not ftd_rows:
+        return Shorts(provenance=prov.unavailable("no shorts data"))
+    latest = prev = rising = None
+    rs = [r for r in ratio_rows if r.short_volume_ratio is not None]
+    if rs:
+        latest = round(rs[-1].short_volume_ratio, 3)
+        if len(rs) >= 2:
+            prev = round(rs[-2].short_volume_ratio, 3)
+            rising = latest >= prev
+    ftd_latest = ftd_pct = None
+    if ftd_rows:
+        qs = [r.quantity for r in ftd_rows[-252:]]
+        ftd_latest = ftd_rows[-1].quantity
+        if len(qs) >= 20:
+            ftd_pct = round(sum(1 for q in qs if q <= ftd_latest) / len(qs) * 100, 1)
+    srcs = [r.provenance for r in (ratio_rows[:1] + ftd_rows[:1])]
+    return Shorts(ratio_latest=latest, ratio_prev=prev, rising=rising,
+                  ftd_latest=ftd_latest, ftd_pctile=ftd_pct,
+                  provenance=prov.derived(*srcs) if srcs else Provenance())
+
+
+@register("catalyst")
+def derive_catalyst(canon: dict, *, asof: str | None = None) -> Catalyst:
+    """Earnings-branch inputs (Milian 2023). implied move = ATM straddle mid / spot for
+    the first expiry after the report; hist move = mean |close-to-close move across the
+    report| over the trailing quarters the daily bars cover (~1y at tier => ~4q, DEGRADED
+    below 8 but usable above CATALYST_MIN_QUARTERS). PURE; earnings rows are raw dicts
+    (no canonical model yet) parsed tolerantly like _days_to_earnings."""
+    dte_e = canon.get("days_to_earnings")
+    if dte_e is None:
+        return Catalyst(provenance=prov.unavailable("no earnings inside the window"))
+    rows = canon.get("earnings_rows") or []
+    asof_s = asof or ""
+    past, nxt = [], None
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        d = str(r.get("report_date") or "")[:10]
+        if not d:
+            continue
+        if asof_s and d > asof_s:
+            nxt = d if nxt is None or d < nxt else nxt
+        elif asof_s and d <= asof_s:
+            past.append(d)
+    past = sorted(past, reverse=True)[:8]
+    bars = [b for b in (canon.get("daily_bars") or []) if b.market_time == "r" and b.close]
+    closes = {b.date: b.close for b in bars}
+    dates = sorted(closes)
+    moves = []
+    for rd in past:
+        before = next((d for d in reversed(dates) if d < rd), None)
+        after = next((d for d in dates if d > rd), None)
+        if before and after and closes[before]:
+            moves.append(abs(closes[after] / closes[before] - 1) * 100)
+    hist = round(sum(moves) / len(moves), 2) if moves else None
+    spot = canon.get("spot")
+    chain = canon.get("atm_chain") or []
+    implied = None
+    if chain and spot:
+        latest_d = max(c.date for c in chain)
+        mids = [(c.bid + c.ask) / 2 for c in chain if c.date == latest_d and c.ask]
+        if len(mids) >= 2:
+            implied = round(sum(sorted(mids, reverse=True)[:2]) / spot * 100, 2)
+    srcs = [b.provenance for b in bars[:1]] + [c.provenance for c in chain[:1]]
+    return Catalyst(days_to_earnings=dte_e, report_date=nxt,
+                    implied_move_pct=implied, hist_move_pct=hist, quarters=len(moves),
+                    ratio=round(implied / hist, 2) if implied and hist else None,
+                    provenance=prov.derived(*srcs) if srcs else Provenance())

@@ -28,10 +28,10 @@ def test_e2e_real_bronze_produces_verdict_and_direction_element():
     vm = assemble("SPY", _golden_raw(), asof="2026-06-08")
     assert isinstance(vm, ViewModel)
     assert vm.ticker == "SPY"
-    # real SPY 6/8 is net put-side on opening flow; with only flow available (other
-    # signals' inputs not in this canon) cost is caution → not Favorable → Mixed
-    assert vm.verdict.direction == "puts"
-    assert vm.verdict.overall == "Mixed"
+    # real SPY 6/8 is net put-side on opening flow; with only flow available the other
+    # gates are DARK → NOT NOW (the conjunction can never be PERFECT on partial data)
+    assert vm.verdict.overall == "NOT NOW"
+    assert vm.verdict.calls is not None and vm.verdict.puts is not None
     assert "flow" in vm.verdict.signals_used
     direction = next(e for e in vm.elements if e.key == "direction")
     assert direction.surface == "PUTS"
@@ -56,9 +56,10 @@ def test_replay_reproducible_identical_viewmodel():
     assert a == b
 
 
-def test_honest_degrade_empty_flow_is_stand_down_not_guess():
+def test_honest_degrade_empty_flow_is_not_now_not_guess():
     vm = assemble("SPY", _raw({"data": []}), asof="2026-06-08")
-    assert vm.verdict.action == "Stand down"
+    assert vm.verdict.overall == "NOT NOW"
+    assert vm.verdict.action.startswith("NOT NOW")
     direction = next(e for e in vm.elements if e.key == "direction")
     assert direction.surface is None
     assert direction.tone == "unavailable"
@@ -83,7 +84,7 @@ def test_build_view_degrades_when_ingest_fails(monkeypatch):
     monkeypatch.setattr(orchestrate, "ingest", _boom)
 
     vm = build_view("SPY", asof="2026-06-08")
-    assert vm.verdict.action == "Stand down"
+    assert vm.verdict.overall == "NOT NOW"       # never a crash, never a guessed PERFECT
     assert next(e for e in vm.elements if e.key == "direction").tone == "unavailable"
 
 
@@ -137,7 +138,7 @@ def test_http_api_view_serializes_cleanly(monkeypatch):
     body = r.json()
     assert body["ticker"] == "SPY"
     assert body["verdict"]["direction"] == "puts"
-    assert body["verdict"]["overall"] in ("Favorable", "Mixed", "Stand down")
+    assert body["verdict"]["overall"] in ("PERFECT", "NOT NOW")
     assert {e["key"] for e in body["elements"]} >= {"direction", "flow_truncation"}
     # the response carries only view-model keys — no raw signal/canonical fields
     direction = next(e for e in body["elements"] if e["key"] == "direction")

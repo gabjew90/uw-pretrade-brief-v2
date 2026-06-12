@@ -16,24 +16,42 @@
     header { padding: 14px 16px; border-bottom: 1px solid var(--grid); }
     header h1 { font-size: 14px; margin: 0; letter-spacing: 0.04em; }
     header .sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
-    main { padding: 16px; }
+    main { padding: 16px; max-width: 560px; }
     .note { color: var(--axis); font-size: 11px; line-height: 1.5; max-width: 60ch; }
-    /* THE CALL — the hero: this ticker's bottom line */
-    .callblock { border: 1px solid var(--grid); border-radius: 6px; padding: 12px 14px;
-                 margin: 0 0 10px; background: var(--panel); }
-    .callblock .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
-    .verdict { font-size: 24px; margin: 4px 0 7px; letter-spacing: 0.02em; }
-    .v-negative { color: var(--neg); }
-    .v-positive { color: var(--ok); }
-    .v-cautionary { color: var(--warn); }
-    /* Mixed-with-conflict: something actively contradicts the bet — reads closer to
-       Stand down than to "fell short" Mixed (the flag comes from the server) */
-    .v-conflicted { color: var(--warn);
-                    text-decoration: underline wavy var(--neg) 1px;
-                    text-underline-offset: 5px; }
-    .reasons { color: var(--text); font-size: 11px; margin: 0 0 6px; padding-left: 16px; }
-    .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch; }
-    .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
+    /* verdict blocks — one per direction, the only big words on the page */
+    .dirblock { border: 1px solid var(--grid); border-radius: 6px; padding: 12px 14px;
+                margin: 0 0 10px; background: var(--panel); }
+    .dirblock .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em;
+                   color: var(--text-dim); }
+    .verdict { font-size: 22px; margin: 4px 0 6px; letter-spacing: 0.02em; }
+    .v-perfect { color: var(--ok); }
+    .v-notnow { color: var(--text); }
+    .waiting { font-size: 11px; color: var(--text-dim); margin: 0 0 8px; line-height: 1.45; }
+    /* gate lights: dot + plain-English label. NOT tappable, NO numbers here. */
+    .gaterow { display: flex; align-items: center; gap: 9px; padding: 3px 0;
+               font-size: 11.5px; color: var(--text); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .d-GREEN { background: var(--ok); }
+    .d-RED { background: var(--neg); }
+    .d-DARK { background: #3b4254; }
+    .g-DARK { color: var(--text-dim); }
+    /* the four numbers (only near-PERFECT) */
+    .numbers { border: 1px solid var(--grid); border-radius: 6px; background: var(--panel);
+               padding: 10px 14px; margin: 0 0 10px; font-size: 12px; line-height: 1.7; }
+    /* the ONE disclosure: everything else lives behind it */
+    .whybtn { display: block; width: 100%; background: var(--panel); color: var(--text-dim);
+              border: 1px solid var(--grid); border-radius: 6px; padding: 9px;
+              font-family: var(--ff-mono); font-size: 11px; cursor: pointer; margin: 4px 0 10px; }
+    .whybtn:hover { border-color: var(--axis); }
+    #why { display: none; }
+    #why.open { display: block; }
+    .gtable { font-size: 10.5px; color: var(--text-dim); border: 1px solid var(--grid);
+              border-radius: 6px; background: var(--panel); padding: 8px 12px; margin: 8px 0; }
+    .gtable .row { display: flex; gap: 8px; padding: 2px 0; }
+    .gtable .gn { width: 132px; flex: none; color: var(--text); }
+    .gtable .gs { width: 44px; flex: none; }
+    .vlogic { color: var(--axis); font-size: 10px; font-style: italic; max-width: 70ch;
+              margin: 8px 0; }
     /* hot-ticker grid (landing view) */
     .grid a { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px;
               margin: 6px 0; border: 1px solid var(--grid); border-radius: 6px;
@@ -47,6 +65,7 @@
     .nav input { background: var(--panel); border: 1px solid var(--grid); color: var(--text);
                  font-family: var(--ff-mono); font-size: 11px; padding: 4px 8px;
                  border-radius: 4px; width: 90px; text-transform: uppercase; }
+    /* why-panel evidence cards (the old tiles, behind the disclosure) */
     .el { border: 1px solid var(--grid); border-radius: 6px; padding: 10px 12px; margin: 8px 0;
           background: var(--panel); cursor: pointer; }
     .el .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
@@ -56,12 +75,12 @@
     .el .surface { font-size: 20px; margin-top: 5px; }
     .el .meaning { font-size: 11px; color: var(--text-dim); margin-top: 4px; line-height: 1.45;
                    max-width: 64ch; }
+    .el .logic { font-size: 10px; color: var(--axis); margin-top: 4px; font-style: italic; }
     .el .detail { margin-top: 8px; border-top: 1px dashed var(--grid); padding-top: 8px;
                   font-size: 11px; color: var(--text-dim); display: none; }
     .el.open .detail { display: block; }
     .el .detail .row { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; }
     .el .detail .row .v { color: var(--text); }
-    /* tone is the ONLY sentiment cue we act on — supplied by the server, never computed */
     .t-positive .surface { color: var(--ok); }
     .t-negative .surface { color: var(--neg); }
     .t-cautionary { border-left: 2px solid var(--warn); }
@@ -79,17 +98,11 @@
   <main>
     <div id="verdict"></div>
     <div id="view"></div>
-    <p class="note">
-      How to read this page: 1) THE CALL is the answer — the line under it says what to
-      do. 2) Market now = today's conditions, same for every ticker. 3) The tiles are the
-      evidence behind the call — tap any for its numbers and how it's decided. 4) Which
-      contract = what you'd actually buy if you act, with its max loss.
-    </p>
   </main>
   <script>
-    // The ENTIRE client contract: fetch the typed view model and render it. It reads
-    // server-supplied fields (surface, detail, tone, provenance) and paints them. It
-    // never inspects a signal value to decide an outcome — no direction/threshold/clock.
+    // The ENTIRE client contract: fetch the typed view model and render it. It paints
+    // server-supplied fields (state, label, numbers) and never inspects a signal value
+    // to decide an outcome — no direction/threshold/clock math.
     function esc(s) {
       return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
     }
@@ -100,8 +113,6 @@
           typeof detail[k] === "number" ? detail[k].toLocaleString() : detail[k]
         )}</span></div>`).join("");
     }
-    // "Where did it come from?" — source + freshness, read straight off provenance.
-    // (No Date math: the timestamp is sliced from the ISO string for display only.)
     function srcLabel(p) {
       const m = { live: "live", cache: "cached", archive: "settled", derived: "computed" };
       const src = (p && p.source) || "derived", q = (p && p.quality) || "real";
@@ -130,14 +141,31 @@
         <div class="detail">${detailRows(e.detail)}</div>
       </div>`;
     }
-    // Market context renders as a NORMAL tile (clear, clickable, variables on tap) —
-    // same card as every other element. Its surface is DATA (the next macro event),
-    // never a posture word; only THE CALL carries a verdict.
-    function verdictTone(v) {
-      if (v.overall === "Favorable") return "v-positive";
-      if (v.overall === "Stand down") return "v-negative";
-      // two flavors of Mixed (server-flagged): contradicted vs merely fell short
-      return v.signal_conflict ? "v-conflicted" : "v-cautionary";
+    // one direction's verdict block + its gate lights (server state, painted verbatim)
+    function dirBlock(ticker, dc, branchTag, waitingLine) {
+      if (!dc) return "";
+      const word = dc.state === "PERFECT"
+        ? `PERFECT — ${esc(dc.direction.toUpperCase())}`
+        : `NOT NOW — ${dc.green}/${dc.total}`;
+      const cls = dc.state === "PERFECT" ? "v-perfect" : "v-notnow";
+      const lights = (dc.gates || []).map(g =>
+        `<div class="gaterow g-${g.state}"><span class="dot d-${g.state}"></span>${esc(g.label)}</div>`
+      ).join("");
+      return `<div class="dirblock">
+        <div class="k">${esc(dc.direction)} · ${esc(ticker)}${branchTag}</div>
+        <div class="verdict ${cls}">${word}</div>
+        ${waitingLine}
+        ${lights}
+      </div>`;
+    }
+    function gateTable(title, gates) {
+      if (!gates || !gates.length) return "";
+      return `<div class="gtable"><b style="color:var(--text)">${esc(title)}</b>` +
+        gates.map(g =>
+          `<div class="row"><span class="gn">${esc(g.name)}</span><span class="gs g-${g.state}">${esc(g.state)}</span>
+           <span>${esc(g.value || "")}${g.threshold ? " | needs " + esc(g.threshold) : ""}
+           ${g.provenance && g.provenance.as_of ? " | " + esc(freshness(g.provenance)) : ""}</span></div>`
+        ).join("") + `</div>`;
     }
     async function render(ticker) {
       const view = document.getElementById("view");
@@ -146,19 +174,28 @@
         document.getElementById("status").textContent =
           `${vm.ticker} · as of ${vm.as_of || "?"}`;
         const v = vm.verdict || {};
+        const branchTag = v.branch === "catalyst" ? " · earnings window" : "";
+        const best = v.direction === "puts" ? v.puts : v.calls;
+        const other = v.direction === "puts" ? v.calls : v.puts;
+        const waiting = vm.next_step
+          ? `<div class="waiting">${esc(vm.next_step)}</div>` : "";
+        const numbers = (vm.numbers && vm.numbers.length)
+          ? `<div class="numbers">${vm.numbers.map(esc).join("<br>")}</div>` : "";
         document.getElementById("verdict").innerHTML =
-          // THE CALL — this ticker's bottom line, clearly labelled and the only big word
-          `<div class="callblock">
-             <div class="k">The call · ${esc(vm.ticker)}</div>
-             <div class="verdict ${verdictTone(v)}">${esc(v.action || "n/a")}</div>` +
-          (vm.next_step ? `<div class="meaning" style="margin:2px 0 8px">${esc(vm.next_step)}</div>` : "") +
-          (v.reasons && v.reasons.length
-            ? `<ul class="reasons">${v.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : "") +
-          (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "") +
-          `</div>`;
+          dirBlock(vm.ticker, best, branchTag, waiting) +
+          dirBlock(vm.ticker, other, branchTag, "") +
+          numbers +
+          `<button class="whybtn" id="whybtn">why? — every value, threshold and source</button>`;
+        // the ONE disclosure: everything deleted from the default render lives here
         const cards = (vm.regime ? [vm.regime] : []).concat(vm.elements || []);
-        view.innerHTML = cards.map(elementCard).join("")
-          || "<p class='note'>No elements.</p>";
+        view.innerHTML = `<div id="why">` +
+          (vm.verdict_logic ? `<div class="vlogic">how the call is made: ${esc(vm.verdict_logic)}</div>` : "") +
+          gateTable("calls gates", v.calls && v.calls.gates) +
+          gateTable("puts gates", v.puts && v.puts.gates) +
+          (cards.map(elementCard).join("") || "") +
+          `</div>`;
+        document.getElementById("whybtn").addEventListener("click", () =>
+          document.getElementById("why").classList.toggle("open"));
         view.querySelectorAll(".el").forEach(c =>
           c.addEventListener("click", () => c.classList.toggle("open")));
       } catch (err) {

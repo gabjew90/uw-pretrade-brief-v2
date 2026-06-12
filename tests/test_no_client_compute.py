@@ -35,5 +35,14 @@ def test_frontend_has_no_threshold_constants():
     numerics allowed are layout/CSS and slice indices. Comments are exempt (they may
     legitimately SAY the word 'threshold')."""
     js = re.sub(r"//.*", "", SRC.split("<script>", 1)[1])
-    for needle in ("0.35", "0.55", "_THR", "threshold", "15.0"):
+    # `g.threshold` is the SERVER-sent render string from the gates engine — reading it
+    # is painting, not computing. Only constants/assignments are banned.
+    js = js.replace("g.threshold", "")
+    for needle in ("0.35", "0.55", "_THR", "threshold =", "15.0"):
         assert needle not in js, f"threshold-like constant {needle!r} in frontend JS"
+
+
+def test_frontend_has_no_banned_verdict_words():
+    """Directive acceptance #5: 'Mixed' and 'Favorable' never regress into the client."""
+    js = SRC.split("<script>", 1)[1]
+    assert "Mixed" not in js and "Favorable" not in js

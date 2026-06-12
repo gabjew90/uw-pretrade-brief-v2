@@ -73,14 +73,16 @@ def test_unavailable_signal_emits_element_not_omitted():
     assert "why" in skew_el.detail
 
 
-def test_conflict_leg_element_tinted_cautionary():
-    """skew opposes calls → it's in conflict_legs → its element tone becomes cautionary."""
-    sigs = _full_signals()                              # skew put_skew opposes calls
-    v = decide(sigs)
-    assert "skew" in v.conflict_legs
-    vm = present("SPY", sigs, v)
-    skew_el = next(e for e in vm.elements if e.key == "skew")
-    assert skew_el.tone == "cautionary"
+def test_default_render_contract_lights_only():
+    """Directive acceptance #4: the default render carries at most 4 numbers and the
+    verdict vocabulary is exactly PERFECT / NOT NOW — n/N. Everything else (provenance,
+    how-lines, tiles) lives in the why-panel (vm.elements)."""
+    sigs = _full_signals()
+    vm = present("SPY", sigs, decide(sigs))
+    assert len(vm.numbers) <= 4
+    assert vm.verdict.overall in ("PERFECT", "NOT NOW")
+    assert vm.verdict.action.startswith(("PERFECT", "NOT NOW"))
+    assert "Mixed" not in vm.next_step and "Favorable" not in vm.next_step
 
 
 def test_series_carry_chart_data_for_the_future_ui():

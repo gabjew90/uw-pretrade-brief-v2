@@ -336,28 +336,48 @@ _BUILDERS = [
     ("dealer_gamma", _structural_el), ("skew", _skew_el), ("cost", _cost_el),
 ]
 
-_VERDICT_LOGIC = ("Stand down if cost says PASS or there's no flow to read. Favorable needs "
-                  "a qualified opening-flow lean (2:1 and $500K+), OI not shrinking, trend "
-                  "gamma, readable skew, no skew/tape conflict, cost fully clean. Anything "
-                  "else is Mixed — and 'disagree' Mixed (something contradicts the bet) is "
-                  "closer to Stand down than 'weak' Mixed (something fell short).")
+_VERDICT_LOGIC = ("PERFECT only when every gate is green at once — the conjunction is "
+                  "the model, there are no weights and no balance-of-evidence. Anything "
+                  "less is NOT NOW with the count. A gray gate is an unknown and counts "
+                  "as not-green. Time stops: drift 3 days, puts 2, catalyst exits on the "
+                  "report day before the IV crush.")
+
+
+def _time_stop(verdict: Verdict) -> str:
+    if verdict.branch == "catalyst":
+        return "exit on the report day"
+    return "time-stop 2 days" if verdict.direction == "puts" else "time-stop 3 days"
 
 
 def _next_step(verdict: Verdict, cost) -> str:
-    """The 'so what do I do' line — the synthesis an amateur actually needs, composed
-    server-side from the verdict + the binding gate. Usage, not analysis."""
-    if verdict.overall == "Stand down":
-        why = (cost.reason if cost is not None and getattr(cost, "guard", "") == "block"
-               else (verdict.reasons[0] if verdict.reasons else "the gates failed"))
-        return f"No trade today: {why}. Check back next session."
-    if verdict.overall == "Favorable":
-        side = verdict.direction or "the flow side"
-        return (f"Setup aligns for {side}. The contract tile shows the exact one and its "
-                "max loss. Size so a full loss is fine, plan the exit in 1-3 days "
-                "(extended moves tend to revert) and always before the next event/expiry.")
-    legs = f" ({', '.join(verdict.conflict_legs)} disagree)" if verdict.conflict_legs else ""
-    return (f"Nothing compelling{legs}. Doing nothing is the default. If you trade anyway "
-            "it's your judgment over the data: the contract tile shows what you'd buy.")
+    """The 'so what do I do' line. PERFECT: act, with the time stop. NOT NOW: what's
+    missing, blocking gate first — doing nothing is the default state of this product."""
+    if verdict.overall == "PERFECT":
+        return (f"All gates green for {verdict.direction}. The ticket below is the "
+                f"trade; size so a full loss is fine, {_time_stop(verdict)}.")
+    waiting = verdict.reasons[0] if verdict.reasons else "data"
+    return f"Waiting on: {waiting}."
+
+
+def _numbers(verdict: Verdict, cost) -> list[str]:
+    """The ONLY numerals on the default render (directive §3): shown when PERFECT or
+    within 2 gates of it. Spread, breakeven-vs-move, the time stop, and the ticket."""
+    best = verdict.calls if verdict.direction == "calls" else verdict.puts
+    if best is None or (best.state != "PERFECT" and best.green < best.total - 2):
+        return []
+    out: list[str] = []
+    if cost is not None and cost.spread_pct is not None:
+        out.append(f"spread {cost.spread_pct:.0f}% of premium")
+    if (cost is not None and cost.breakeven_move_pct is not None
+            and cost.expected_move_pct is not None):
+        out.append(f"needs {cost.breakeven_move_pct:.1f}% — market expects "
+                   f"{cost.expected_move_pct:.1f}%")
+    out.append(_time_stop(verdict))
+    ct = (cost.contract or {}) if cost else {}
+    if ct.get("ask"):
+        out.append(f"{ct['strike']:g} {ct['type']} {ct['dte']}d ${ct['ask']:.2f} · "
+                   f"max loss ${ct['ask'] * 100:,.0f}")
+    return out[:4]
 
 
 def _price_el(candles: list[dict], provenance) -> Element:
@@ -378,9 +398,9 @@ def _price_el(candles: list[dict], provenance) -> Element:
 def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
             *, as_of: str | None = None, market: dict | None = None,
             candles: list[dict] | None = None) -> ViewModel:
-    """Assemble the renderable view model. Verdict forwarded VERBATIM. Conflicting legs are
-    tinted cautionary. The `market` context (if computed) becomes the muted Market-now line;
-    `verdict_logic` states how the overall call is reached from the gates."""
+    """Assemble the renderable view model. Verdict forwarded VERBATIM. The default render
+    is lights-only (verdict blocks + gate dots + <=4 numbers); `elements` are the why-
+    panel content — everything deleted from the default lives behind ONE disclosure."""
     elements: list[Element] = []
     if candles:
         flow = signals.get("flow")
@@ -395,11 +415,6 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
             if name == "cost":                  # one signal, two tiles: the gate + the pick
                 elements.append(_contract_el(signals[name]))
 
-    conflicting = set(verdict.conflict_legs or [])
-    for el in elements:
-        if el.key in conflicting and el.tone != "unavailable":
-            el.tone = "cautionary"
-
     flow = signals.get("flow")
     if getattr(flow, "truncated", False):
         elements.append(Element(
@@ -413,4 +428,5 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
                      regime=_market_el(market) if market else None,
                      verdict_logic=_VERDICT_LOGIC,
                      next_step=_next_step(verdict, signals.get("cost")),
+                     numbers=_numbers(verdict, signals.get("cost")),
                      elements=elements, verdict=verdict)

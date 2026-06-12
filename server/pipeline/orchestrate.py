@@ -248,13 +248,15 @@ def _market_now(ticker: str, spot: float | None, gamma_strikes: list, iv_term: l
     events = _fetch_raw("/market/economic-calendar", None, Priority.LOW)
     events_known = events is not None
     nxt = next_macro_event(events or [], now)
-    event_line = None
+    event_line = event_name = event_days = None
     if nxt is not None:
-        name, days = nxt
-        event_line = f"{name} <1d" if days <= 1 else f"{name} {int(round(days))}d"
+        event_name, event_days = nxt
+        event_line = (f"{event_name} <1d" if event_days <= 1
+                      else f"{event_name} {int(round(event_days))}d")
     return {"gamma_sign": gamma_sign, "iv": _latest_iv(spy_iv),
             "tide": _tide_lean(tide) if tide is not None else None,
             "event_line": event_line, "event_within_hold": nxt is not None,
+            "event_name": event_name, "event_days": event_days,
             "events_known": events_known, "as_of": now.isoformat()}
 
 
@@ -318,6 +320,12 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
                                       ticker, Priority.LOW),
         # 15m candles (price axis for the chart UI; regular hours, newest session)
         "ohlc": _fetch_norm(f"/stock/{ticker}/ohlc/15m", {}, ticker, Priority.LOW),
+        # strict-conjunction inputs (directive 2026-06-12; all probe-verified at tier)
+        "realized_vol": _fetch_norm(f"/stock/{ticker}/volatility/realized", {},
+                                    ticker, Priority.LOW),
+        "short_ratio": _fetch_norm(f"/shorts/{ticker}/volume-and-ratio", {},
+                                   ticker, Priority.LOW),
+        "ftds": _fetch_norm(f"/shorts/{ticker}/ftds", {}, ticker, Priority.LOW),
     }
 
     sess_alerts = session_alerts(flow_alerts)       # newest session only (no prior-day mix)
@@ -336,6 +344,22 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
     earnings = _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW)
     canon["days_to_earnings"] = _days_to_earnings(earnings, now)
     canon["earnings_calendar_ok"] = earnings is not None
+    canon["earnings_rows"] = earnings or []
+
+    # catalyst branch inputs: only when a report is inside the window (budget-friendly)
+    if canon["days_to_earnings"] is not None and canon["days_to_earnings"] <= 3:
+        canon["daily_bars"] = _fetch_norm(f"/stock/{ticker}/ohlc/1d", {"limit": 2500},
+                                          ticker, Priority.NORMAL)
+        nxt_report = min((str(r.get("report_date") or "")[:10] for r in earnings or []
+                          if isinstance(r, dict)
+                          and str(r.get("report_date") or "")[:10] > asof), default=None)
+        if nxt_report:
+            exp = min((c.expiry for c in canon["option_contracts"]
+                       if c.expiry > nxt_report), default=None)
+            if exp:
+                canon["atm_chain"] = _fetch_norm(f"/stock/{ticker}/atm-chains",
+                                                 {"expirations[]": exp}, ticker,
+                                                 Priority.NORMAL)
     return canon
 
 
@@ -421,6 +445,8 @@ def build_view(ticker: str, *, asof: str | None = None,
                              canon.get("iv_term") or [], now)
         canon["event_within_hold"] = market["event_within_hold"]   # macro flag → Cost caution
         canon["macro_event"] = market["event_line"]                 # name + days for the flag
+        canon["macro_name"] = market.get("event_name")              # gates: clean_window
+        canon["macro_days"] = market.get("event_days")
         canon["event_calendar_ok"] = market["events_known"]        # missing calendar ≠ all-clear
     except Exception:                               # last-resort honest-degrade (Fix 4b)
         log.exception("build_view pipeline error for %s", ticker)

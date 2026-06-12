@@ -483,7 +483,8 @@
       "tone": "cautionary"
     }
   ],
-  "next_step": "Nothing compelling. Doing nothing is the default. If you trade anyway it's your judgment over the data: the contract tile shows what you'd buy.",
+  "next_step": "Waiting on: Big money just opened bets this way, You're not overpaying to get in, No squeeze trap, +9 more.",
+  "numbers": [],
   "regime": {
     "detail": {
       "Next macro event (5d)": "n/a",
@@ -507,40 +508,363 @@
   },
   "ticker": "SPY",
   "verdict": {
-    "action": "Mixed, puts weak",
+    "action": "NOT NOW \u2014 1/13",
+    "branch": "drift",
+    "calls": {
+      "branch": "drift",
+      "direction": "calls",
+      "gates": [
+        {
+          "label": "Big money just opened bets this way",
+          "name": "flow_dominance",
+          "provenance": {
+            "as_of": "2026-06-08T15:05:00Z",
+            "note": "",
+            "quality": "real",
+            "source": "archive"
+          },
+          "state": "RED",
+          "threshold": ">= 70% and >= $1M, lean qualified",
+          "value": "ask-side 15% of $15.4M"
+        },
+        {
+          "label": "The bets are bunched near here, expiring soon",
+          "name": "flow_concentration",
+          "provenance": {
+            "as_of": "2026-06-08T15:05:00Z",
+            "note": "",
+            "quality": "real",
+            "source": "archive"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "expiry/strike read incomplete"
+        },
+        {
+          "label": "The position is being held, not closed",
+          "name": "oi_basis",
+          "provenance": {
+            "as_of": null,
+            "note": "",
+            "quality": "real",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no OI cluster for this side"
+        },
+        {
+          "label": "Dealers will add fuel to the move",
+          "name": "dealer_fuel",
+          "provenance": {
+            "as_of": null,
+            "note": "",
+            "quality": "real",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no dealer gamma"
+        },
+        {
+          "label": "Room to run before the next wall",
+          "name": "headroom",
+          "provenance": {
+            "as_of": null,
+            "note": "no spot-exposures data",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "wall or expected move unknown"
+        },
+        {
+          "label": "The options are cheap for how much this moves",
+          "name": "cheap_vol",
+          "provenance": {
+            "as_of": null,
+            "note": "no volatility inputs",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "IV rank or HV unavailable"
+        },
+        {
+          "label": "No event premium waiting to deflate",
+          "name": "term_slope",
+          "provenance": {
+            "as_of": null,
+            "note": "no volatility inputs",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no term structure"
+        },
+        {
+          "label": "Pricing just tilted this way",
+          "name": "skew_shift",
+          "provenance": {
+            "as_of": null,
+            "note": "insufficient RR history",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no baseline yet (needs 3+ sessions)"
+        },
+        {
+          "label": "You're not overpaying to get in",
+          "name": "cost",
+          "provenance": {
+            "as_of": null,
+            "note": "",
+            "quality": "real",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no contract priced for this side"
+        },
+        {
+          "label": "Nothing on the calendar mid-trade",
+          "name": "clean_window",
+          "provenance": {
+            "as_of": null,
+            "note": "no interpolated-iv",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "calendar fetch failed"
+        }
+      ],
+      "green": 0,
+      "state": "NOT NOW",
+      "total": 10,
+      "waiting_on": "Big money just opened bets this way, You're not overpaying to get in, The bets are bunched near here, expiring soon, +7 more"
+    },
     "caps": [
-      "weak lean",
-      "skew dark",
-      "gamma dark",
-      "cost flags"
+      "flow_dominance",
+      "flow_concentration",
+      "dealer_fuel",
+      "headroom",
+      "cheap_vol",
+      "term_slope",
+      "skew_shift",
+      "cost",
+      "clean_window",
+      "tape_agrees",
+      "short_pressure",
+      "no_squeeze"
     ],
-    "conflict_legs": [],
     "direction": "puts",
-    "overall": "Mixed",
+    "overall": "NOT NOW",
     "provenance": {
       "as_of": "2026-06-08T15:05:00Z",
       "note": "",
       "quality": "unavailable",
       "source": "derived"
     },
+    "puts": {
+      "branch": "drift",
+      "direction": "puts",
+      "gates": [
+        {
+          "label": "Big money just opened bets this way",
+          "name": "flow_dominance",
+          "provenance": {
+            "as_of": "2026-06-08T15:05:00Z",
+            "note": "",
+            "quality": "real",
+            "source": "archive"
+          },
+          "state": "RED",
+          "threshold": ">= 70% and >= $1M, lean qualified",
+          "value": "ask-side 35% of $15.4M"
+        },
+        {
+          "label": "The bets are bunched near here, expiring soon",
+          "name": "flow_concentration",
+          "provenance": {
+            "as_of": "2026-06-08T15:05:00Z",
+            "note": "",
+            "quality": "real",
+            "source": "archive"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "expiry/strike read incomplete"
+        },
+        {
+          "label": "The position is being held, not closed",
+          "name": "oi_basis",
+          "provenance": {
+            "as_of": null,
+            "note": "OI history unconfirmed (archive-decoupled)",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "GREEN",
+          "threshold": "not unwinding",
+          "value": "unconfirmed"
+        },
+        {
+          "label": "Dealers will add fuel to the move",
+          "name": "dealer_fuel",
+          "provenance": {
+            "as_of": null,
+            "note": "",
+            "quality": "real",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no dealer gamma"
+        },
+        {
+          "label": "Room to run before the next wall",
+          "name": "headroom",
+          "provenance": {
+            "as_of": null,
+            "note": "no spot-exposures data",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "wall or expected move unknown"
+        },
+        {
+          "label": "The options are cheap for how much this moves",
+          "name": "cheap_vol",
+          "provenance": {
+            "as_of": null,
+            "note": "no volatility inputs",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "IV rank or HV unavailable"
+        },
+        {
+          "label": "No event premium waiting to deflate",
+          "name": "term_slope",
+          "provenance": {
+            "as_of": null,
+            "note": "no volatility inputs",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no term structure"
+        },
+        {
+          "label": "Pricing just tilted this way",
+          "name": "skew_shift",
+          "provenance": {
+            "as_of": null,
+            "note": "insufficient RR history",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no baseline yet (needs 3+ sessions)"
+        },
+        {
+          "label": "You're not overpaying to get in",
+          "name": "cost",
+          "provenance": {
+            "as_of": null,
+            "note": "no interpolated-iv",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no chain to price"
+        },
+        {
+          "label": "Nothing on the calendar mid-trade",
+          "name": "clean_window",
+          "provenance": {
+            "as_of": null,
+            "note": "no interpolated-iv",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "calendar fetch failed"
+        },
+        {
+          "label": "The live tape agrees",
+          "name": "tape_agrees",
+          "provenance": {
+            "as_of": null,
+            "note": "greek-flow empty or flat",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no greek-flow"
+        },
+        {
+          "label": "Short sellers are pressing",
+          "name": "short_pressure",
+          "provenance": {
+            "as_of": null,
+            "note": "no shorts data",
+            "quality": "unavailable",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no short-volume data"
+        },
+        {
+          "label": "No squeeze trap",
+          "name": "no_squeeze",
+          "provenance": {
+            "as_of": null,
+            "note": "",
+            "quality": "real",
+            "source": "derived"
+          },
+          "state": "DARK",
+          "threshold": "",
+          "value": "no FTD or IV history"
+        }
+      ],
+      "green": 1,
+      "state": "NOT NOW",
+      "total": 13,
+      "waiting_on": "Big money just opened bets this way, You're not overpaying to get in, No squeeze trap, +9 more"
+    },
     "reasons": [
-      "opening flow puts",
-      "flow lean weak (1.5:1)",
-      "OI unconfirmed",
-      "tape n/a",
-      "skew n/a",
-      "gamma n/a",
-      "cost: no chain to price the trade"
+      "Big money just opened bets this way, You're not overpaying to get in, No squeeze trap, +9 more"
     ],
-    "signal_conflict": false,
     "signals_used": [
       "flow",
       "positioning",
       "conviction",
       "skew",
       "dealer_gamma",
-      "cost"
+      "cost",
+      "vol",
+      "shorts",
+      "catalyst"
     ]
   },
-  "verdict_logic": "Stand down if cost says PASS or there's no flow to read. Favorable needs a qualified opening-flow lean (2:1 and $500K+), OI not shrinking, trend gamma, readable skew, no skew/tape conflict, cost fully clean. Anything else is Mixed \u2014 and 'disagree' Mixed (something contradicts the bet) is closer to Stand down than 'weak' Mixed (something fell short)."
+  "verdict_logic": "PERFECT only when every gate is green at once \u2014 the conjunction is the model, there are no weights and no balance-of-evidence. Anything less is NOT NOW with the count. A gray gate is an unknown and counts as not-green. Time stops: drift 3 days, puts 2, catalyst exits on the report day before the IV crush."
 }

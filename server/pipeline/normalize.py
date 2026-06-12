@@ -19,8 +19,9 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from server.models import (ContractOIBar, FlowAlert, GammaStrike, GreekFlowPoint,
-                            GreeksRow, IVTermPoint, OhlcBar, OISnapshot, OptionContract,
+from server.models import (AtmChainRow, ContractOIBar, DailyBar, FlowAlert, FTDRow,
+                            GammaStrike, GreekFlowPoint, GreeksRow, IVTermPoint, OhlcBar,
+                            OISnapshot, OptionContract, RealizedVolPoint, ShortVolPoint,
                             SkewPoint, TermStructurePoint)
 from server.pipeline.ingest import RawRecord
 from server.services import provenance as prov
@@ -286,6 +287,60 @@ def normalize_greeks(raw: RawRecord) -> list[GreeksRow]:
         except ValidationError as e:
             raise NormalizeError(f"greeks row {i} failed validation: {e}") from e
     return out
+
+
+def _validated(raw: RawRecord, model, what: str, rows=None) -> list:
+    """Shared row-validation loop for the simple list endpoints (directive 2026-06-12)."""
+    rows = _unwrap(raw.payload) if rows is None else rows
+    p = prov.archive(raw.fetched_at) if raw.from_replay else prov.live(raw.fetched_at)
+    out = []
+    for i, r in enumerate(rows or []):
+        if not isinstance(r, dict):
+            raise NormalizeError(f"{what} row {i} is not an object: {type(r).__name__}")
+        try:
+            out.append(model.model_validate({**r, "provenance": p}))
+        except ValidationError as e:
+            raise NormalizeError(f"{what} row {i} failed validation: {e}") from e
+    return out
+
+
+@register("stock_volatility_realized")
+def normalize_realized_vol(raw: RawRecord) -> list[RealizedVolPoint]:
+    """Raw /volatility/realized → matched daily IV+RV pairs, oldest→newest (today's RV is
+    null until it settles next session). Feeds the vol signal (cheap_vol + iv-spike)."""
+    return sorted(_validated(raw, RealizedVolPoint, "realized-vol"), key=lambda r: r.date)
+
+
+@register("shorts_volume-and-ratio")
+def normalize_short_ratio(raw: RawRecord) -> list[ShortVolPoint]:
+    """Raw /shorts/{t}/volume-and-ratio → daily short-ratio points, oldest→newest. The
+    series nests under data.si (probed 2026-06-12)."""
+    rows = _unwrap(raw.payload)
+    if rows and isinstance(rows[0], dict) and "si" in rows[0]:
+        rows = rows[0]["si"] or []
+    return sorted(_validated(raw, ShortVolPoint, "short-ratio", rows=rows),
+                  key=lambda r: r.market_date)
+
+
+@register("shorts_ftds")
+def normalize_ftds(raw: RawRecord) -> list[FTDRow]:
+    """Raw /shorts/{t}/ftds → fail-to-deliver rows, oldest→newest (~5y deep, SEC ~4-week
+    lag — trailing-percentile use only)."""
+    return sorted(_validated(raw, FTDRow, "ftds"), key=lambda r: r.date)
+
+
+@register("stock_ohlc_1d")
+def normalize_ohlc_1d(raw: RawRecord) -> list[DailyBar]:
+    """Raw /stock/{t}/ohlc/1d → daily bars keyed by `date` (NOT start_time — different
+    shape from the intraday ohlc), oldest→newest. ~1y depth at tier."""
+    return sorted(_validated(raw, DailyBar, "ohlc-1d"), key=lambda b: b.date)
+
+
+@register("stock_atm-chains")
+def normalize_atm_chains(raw: RawRecord) -> list[AtmChainRow]:
+    """Raw /stock/{t}/atm-chains?expirations[]= → ATM call+put quote rows. Feeds the
+    catalyst implied move (straddle mid / spot)."""
+    return _validated(raw, AtmChainRow, "atm-chains")
 
 
 @register("option-contract_historic")

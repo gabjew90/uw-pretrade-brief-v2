@@ -19,7 +19,8 @@ def test_pipeline_runs_end_to_end_empty():
     assert "flow" in signals
     assert signals["flow"].direction is None
     assert signals["flow"].provenance.quality.value == "unavailable"
-    assert vm.verdict.signals_used == ["flow"]   # consumed by name, visibly
+    assert "flow" in vm.verdict.signals_used     # consumed by name, visibly
+    assert vm.verdict.overall == "NOT NOW"       # empty inputs can never read PERFECT
 
 
 def test_provenance_worst_case_merge():

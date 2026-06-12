@@ -34,9 +34,20 @@ Stages never skip a boundary; each consumes the previous stage's typed output on
    signal out`, NO I/O. Golden-fixture + property tests live here. (This is the layer
    that catches sign inversions before they ship.)
 4. **Decide** (`pipeline/decide.py`) → **verdict, in exactly one place (server).**
-   Consumes signals **by name**, applies the funnel, emits a verdict + named reasons.
-   Because inputs are named, you structurally cannot strand a computed signal short of
-   the verdict — an unused signal is a visible unused input.
+   Consumes signals **by name**, evaluates the gates, emits a verdict + named gate
+   results. Because inputs are named, you structurally cannot strand a computed signal
+   short of the verdict — an unused signal is a visible unused input.
+
+   > **Verdict semantics (directive 2026-06-12): strict conjunction, NOT balance-of-
+   > evidence.** The question is "are ALL conditions for a perfect long call/put present
+   > simultaneously?" The answer is binary: `PERFECT` or `NOT NOW — n/N`. Both
+   > directions are evaluated every cycle; a DARK (unavailable) gate counts as not-green
+   > but renders gray. **BANNED WORDS: "Mixed", "Favorable"** — do not reintroduce them
+   > or any weights/scores/composites; the conjunction IS the model. Gate thresholds
+   > live ONLY in `pipeline/gates.py`, one research citation beside each constant.
+   > Exception preserved: a macro print only reds the window when it lands ≤1 trading
+   > day out (operator policy 2026-06-11 — weekly-cadence prints must not halt every
+   > week); earnings inside 3 days switches to the CATALYST branch instead.
 5. **Present** (`pipeline/present.py`) → **view model → dumb frontend.** Per element:
    `{surface, detail, provenance, label}`. The client computes nothing.
 

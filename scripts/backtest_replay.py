@@ -120,18 +120,19 @@ def backtest(ticker: str) -> list[dict]:
 
 
 def summarize(rows: list[dict]) -> dict:
-    """Favorable base rate + the gate-binding histogram (reviewer 2026-06-11): rare-by-
-    construction is the thesis, but NEVER is a broken product — the user can't learn and
-    the thresholds can't be validated. If the rate is ~0, the histogram says which cap
-    binds most, so tuning starts from data, not vibes."""
+    """PERFECT base rate + the gate-binding histogram. Rare-by-construction is the
+    thesis, but NEVER is a broken product — the user can't learn and the thresholds
+    can't be validated. PERFECT firing daily means a threshold is wrong (directive
+    acceptance #3); ~0 means the histogram says which gate binds most, so tuning
+    starts from data, not vibes."""
     n = len(rows)
-    fav = sum(1 for r in rows if r.get("overall") == "Favorable")
+    perfect = sum(1 for r in rows if r.get("overall") == "PERFECT")
     hist: dict[str, int] = {}
     for r in rows:
         for c in r.get("caps") or []:
             hist[c] = hist.get(c, 0) + 1
-    return {"sessions": n, "favorable": fav,
-            "favorable_rate": round(fav / n, 3) if n else None,
+    return {"sessions": n, "perfect": perfect,
+            "perfect_rate": round(perfect / n, 3) if n else None,
             "cap_histogram": dict(sorted(hist.items(), key=lambda kv: -kv[1]))}
 
 
@@ -154,8 +155,8 @@ def main() -> int:
         print(f"  {r['date']}  {r['overall']:<10}  {r['action']}")
     summ = summarize(rows)
     (out_dir / "summary.json").write_text(json.dumps(summ, indent=1), encoding="utf-8")
-    rate = f"{summ['favorable_rate']:.1%}" if summ["favorable_rate"] is not None else "n/a"
-    print(f"Favorable base rate: {summ['favorable']}/{summ['sessions']} ({rate})")
+    rate = f"{summ['perfect_rate']:.1%}" if summ["perfect_rate"] is not None else "n/a"
+    print(f"PERFECT base rate: {summ['perfect']}/{summ['sessions']} ({rate})")
     for cap, k in summ["cap_histogram"].items():
         print(f"  binds: {cap} x{k}")
     return 0
