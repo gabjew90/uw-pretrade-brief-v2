@@ -1,9 +1,11 @@
 /* App — routing, data source (fixtures / live API), tweaks, contract readout. */
 const { UW, FONT_HEAD, FONT_MONO, FONT_BODY } = window.UW_T;
 
+/* deployment config (the ONLY sanctioned edit to the frozen frontend): live API by
+   default — fixtures stay available via the Tweaks panel for demo mode */
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "scenario": "live scan",
-  "dataSource": "fixtures",
+  "dataSource": "live api",
   "anatomy": "dot",
   "whyTreatment": "inline",
   "density": "cozy",
