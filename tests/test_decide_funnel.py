@@ -11,11 +11,11 @@ from server.pipeline.decide import decide
 from server.pipeline.gates import WAITING
 
 
-def _stats(prem_c=5e6, prem_p=5e5, ask_c=0.8, ask_p=0.05):
-    return {"call": {"opening_prem": prem_c, "ask_share": ask_c, "top2_share": 0.7,
-                     "top2_dte_ok": True, "strike_band_ok": True},
-            "put": {"opening_prem": prem_p, "ask_share": ask_p, "top2_share": 0.7,
-                    "top2_dte_ok": True, "strike_band_ok": True}}
+def _stats(prem_c=5e6, prem_p=5e5, ask_c=0.8, ask_p=0.05, nvh=0.98, age=10.0):
+    base = {"top2_share": 0.7, "top2_dte_ok": True, "strike_band_ok": True,
+            "net_vs_high": nvh, "last_age_min": age}
+    return {"call": {**base, "opening_prem": prem_c, "ask_share": ask_c},
+            "put": {**base, "opening_prem": prem_p, "ask_share": ask_p}}
 
 
 def _all_green(direction="calls"):
@@ -172,6 +172,23 @@ def test_catalyst_below_min_quarters_is_dark():
 
 
 # ── sub-criteria worth locking ────────────────────────────────────────────────
+def test_faded_morning_burst_reds_smart_flow():
+    """STILL BUILDING: a burst that reversed (net 60% of its session high) reads RED
+    even when the daily totals clear every other bar — Hu's edge is ~1-day, staleness
+    kills it."""
+    s = _sigs("calls")
+    s["flow"].side_stats = _stats(nvh=0.60, age=10.0)
+    g = _gate(decide(s), "calls", "smart_flow")
+    assert g.state == "RED" and "still building" in g.failed_subcriteria
+
+
+def test_stale_last_print_reds_smart_flow():
+    s = _sigs("calls")
+    s["flow"].side_stats = _stats(nvh=0.98, age=240.0)   # 4h since the last print
+    g = _gate(decide(s), "calls", "smart_flow")
+    assert g.state == "RED" and "still building" in g.failed_subcriteria
+
+
 def test_weak_lean_reds_smart_flow():
     s = _sigs("calls")
     s["flow"].lean_quality = "weak"

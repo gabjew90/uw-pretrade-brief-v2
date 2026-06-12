@@ -425,10 +425,40 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
             detail={"note": "flow-alerts hit the 500 page cap, older alerts not included"},
             provenance=flow.provenance))
 
+    # the ONLY default-render chart: the session's cumulative net opening premium,
+    # sign-adjusted so "up" = building toward the best direction (its shape —
+    # building / fading / reversed — is the still-building signal a dot can't carry)
+    spark: list[float] = []
+    spark_state = "DARK"
+    best = verdict.calls if verdict.direction == "calls" else verdict.puts
+    if flow is not None and getattr(flow, "flow_series", None):
+        sgn = 1 if verdict.direction == "calls" else -1
+        spark = [float((p["call"] - p["put"]) * sgn) for p in flow.flow_series]
+    if best is not None:
+        spark_state = next((g.state for g in best.gates if g.name == "smart_flow"),
+                           "DARK")
+
+    # the ONE why-panel chart: spot / flip / wall / breakeven on a single % axis
+    dg, cost = signals.get("dealer_gamma"), signals.get("cost")
+    ladder: list[dict] = [{"label": "price", "pct": 0.0}]
+    if dg is not None and getattr(dg, "flip_status", "") == "ok" and dg.flip_pct is not None:
+        ladder.append({"label": "gamma flip", "pct": round(dg.flip_pct, 2)})
+    wall = (getattr(dg, "call_wall_pct", None) if verdict.direction == "calls"
+            else getattr(dg, "put_wall_pct", None)) if dg else None
+    if wall is not None:
+        sign = 1 if verdict.direction == "calls" else -1
+        ladder.append({"label": "wall", "pct": round(sign * abs(wall), 2)})
+    be = getattr(cost, "breakeven_move_pct", None) if cost else None
+    if be is not None:
+        sign = 1 if verdict.direction == "calls" else -1
+        ladder.append({"label": "breakeven", "pct": round(sign * be, 2)})
+
     asofs = sorted(s.provenance.as_of for s in signals.values() if s.provenance.as_of)
     return ViewModel(ticker=ticker, as_of=asofs[0] if asofs else as_of,
                      regime=_market_el(market) if market else None,
                      verdict_logic=_VERDICT_LOGIC,
                      next_step=_next_step(verdict, signals.get("cost")),
                      numbers=_numbers(verdict, signals.get("cost")),
+                     spark=spark, spark_state=spark_state,
+                     why_ladder=ladder if len(ladder) > 1 else [],
                      elements=elements, verdict=verdict)

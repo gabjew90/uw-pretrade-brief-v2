@@ -92,6 +92,23 @@ def test_flow_series_excludes_closing_when_opening_leads():
     assert f.flow_series[-1]["put"] == 0       # closing premium never enters the timeline
 
 
+# ── still-building recency stats (four-lights smart_flow sub-criterion) ───────
+def test_side_stats_carry_net_vs_high_and_print_age():
+    alerts = [
+        _fa("call", 1_000_000, 5.0),                                      # 11:00 ET
+        FlowAlert(ticker="SPY", type="put", total_premium=600_000, volume_oi_ratio=5.0,
+                  created_at="2026-06-08T17:00:00Z"),                      # net falls to 400K
+        FlowAlert(ticker="SPY", type="put", total_premium=200_000, volume_oi_ratio=5.0,
+                  created_at="2026-06-08T19:00:00Z"),                      # net 200K, "now"
+    ]
+    f = derive_direction({"flow_alerts": alerts})
+    st = f.side_stats["call"]
+    assert st["net_vs_high"] == 0.2            # net 200K vs session high 1M
+    assert st["last_age_min"] == 240.0         # call's last print 4h before the newest
+    # the put side: net high never positive -> 0.0, and its last print is "now"
+    assert f.side_stats["put"]["last_age_min"] == 0.0
+
+
 # ── the side's own bar (reviewer 2026-06-11): dominance ratio + premium floor ──
 def test_dominant_lean_over_floor_is_qualified():
     alerts = [_fa("call", 1_000_000, 5.0), _fa("put", 100_000, 5.0)]   # 10:1, $1M

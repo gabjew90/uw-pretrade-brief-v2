@@ -22,6 +22,9 @@ from server.models import GateResult, Provenance
 ASK_SHARE_MIN = 0.70      # Hu 2014: opening ask-side imbalance predicts ~1-day returns
 PREM_FLOOR_USD = 1_000_000  # v1 absolute stand-in for "90th pct cross-sectional" size
 CONC_SHARE_MIN = 0.60     # bets bunched in <=2 near-dated expiries, not scattered
+BUILD_NET_VS_HIGH_MIN = 0.90   # still building: session net within 10% of its high —
+BUILD_LAST_PRINT_MAX_MIN = 90  # and the last qualifying print <=90 min old (Hu 2014's
+                               # edge is ~1-day; a faded morning burst is stale)
 FLIP_DIST_MIN_PCT = 0.5   # Barbon-Buraschi 2020: firmly in the negative-gamma zone
 IVR_MAX = 30.0            # Hu-Jacobs 2020: long premium wants LOW IV rank
 HV_IV_MIN = 1.0           # Goyal-Saretto: HV >= IV
@@ -106,6 +109,17 @@ def g_smart_flow(direction, s) -> GateResult:
         conf = getattr(pos, "confirmation", "unconfirmed") if pos else "unconfirmed"
         # building/flat/unconfirmed pass (archive-decoupled); only unwinding fails
         subs.append(("OI held", conf != "unwinding", f"OI {conf}"))
+    # STILL BUILDING (intraday recency): the session's cumulative net premium must sit
+    # within 10% of its high AND the side's last qualifying print must be fresh — a
+    # morning burst that faded or reversed by now reads RED even if totals clear
+    nvh, age = st.get("net_vs_high"), st.get("last_age_min")
+    if nvh is None or age is None:
+        subs.append(("still building", None, "no timed prints to read recency"))
+    else:
+        subs.append(("still building",
+                     nvh >= BUILD_NET_VS_HIGH_MIN and age <= BUILD_LAST_PRINT_MAX_MIN,
+                     f"net {nvh:.0%} of session high, last print {age:.0f}m ago "
+                     f"(needs >={BUILD_NET_VS_HIGH_MIN:.0%} and <={BUILD_LAST_PRINT_MAX_MIN:g}m)"))
     return _gate("smart_flow", subs, flow.provenance)
 
 

@@ -523,5 +523,10 @@ class ViewModel(BaseModel):
     next_step: str = ""                     # the "so what do I do" line, server-composed
     numbers: list[str] = Field(default_factory=list)  # the ONLY numerals on the default
     # render (<= 4, directive §3): spread, breakeven-vs-move, time stop, the ticket
+    spark: list[float] = Field(default_factory=list)  # the ONLY default-render chart:
+    # session cumulative net opening premium, sign-adjusted to the best direction
+    spark_state: str = "DARK"               # smart_flow's state — the sparkline's color
+    why_ladder: list[dict] = Field(default_factory=list)   # the ONE why-panel chart:
+    # {label, pct} marks on a single % axis (price 0, gamma flip, wall, breakeven)
     elements: list[Element] = Field(default_factory=list)   # the why-panel content
     verdict: Optional[Verdict] = None

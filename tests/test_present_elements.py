@@ -1,6 +1,8 @@
 """present elements tests (Phase 4 integration C) — one element per signal, unavailable
-never omitted, conflict tone propagated, verdict forwarded verbatim.
+never omitted, the lights-only default contract, verdict forwarded verbatim.
 """
+from pathlib import Path
+
 from server.models import (Conviction, Cost, DealerGamma, Flow, Positioning, Provenance,
                            Quality, Skew)
 from server.pipeline.decide import decide
@@ -87,6 +89,41 @@ def test_default_render_contract_lights_only():
     assert vm.verdict.action.startswith(("PERFECT", "NOT NOW"))
     assert "Mixed" not in vm.next_step and "Favorable" not in vm.next_step
     assert len(vm.verdict.calls.gates) <= 5 and len(vm.verdict.puts.gates) <= 5
+
+
+def test_spark_is_net_premium_sign_adjusted_to_best_direction():
+    """The one default-render chart: cumulative net opening premium, 'up' = building
+    toward the best direction; colored by smart_flow's state."""
+    sigs = _full_signals()
+    sigs["flow"].flow_series = [{"t": "09:35", "call": 100, "put": 0},
+                                {"t": "10:00", "call": 300, "put": 50}]
+    vm = present("SPY", sigs, decide(sigs))
+    sgn = 1 if vm.verdict.direction == "calls" else -1
+    assert vm.spark == [100.0 * sgn, 250.0 * sgn]
+    assert vm.spark_state in ("GREEN", "RED", "DARK")
+
+
+def test_why_ladder_marks_price_flip_wall_breakeven():
+    sigs = _full_signals()
+    sigs["dealer_gamma"] = DealerGamma(gex_sign="NEG", flip_status="ok", flip_pct=-1.2,
+                                       call_wall_pct=2.5, put_wall_pct=2.0)
+    sigs["cost"] = Cost(guard="ok", ivr=40, breakeven_move_pct=0.9)
+    vm = present("SPY", sigs, decide(sigs))
+    labels = {m["label"]: m["pct"] for m in vm.why_ladder}
+    assert labels["price"] == 0.0 and "gamma flip" in labels
+    assert "wall" in labels and "breakeven" in labels
+
+
+def test_default_render_has_exactly_one_chart():
+    """Acceptance: ONE svg on the default render (the flow sparkline); the ladder svg
+    lives inside the why-panel function only."""
+    src = (Path(__file__).parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+    js = src.split("<script>", 1)[1]
+    spark_fn = js.split("function sparkline", 1)[1].split("function ", 1)[0]
+    ladder_fn = js.split("function ladderChart", 1)[1].split("function ", 1)[0]
+    assert spark_fn.count("<svg") == 1 and ladder_fn.count("<svg") == 1
+    rest = js.replace(spark_fn, "").replace(ladder_fn, "")
+    assert rest.count("<svg") == 0             # no other chart anywhere
 
 
 def test_series_carry_chart_data_for_the_future_ui():

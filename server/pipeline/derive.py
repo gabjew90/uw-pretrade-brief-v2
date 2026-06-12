@@ -184,6 +184,19 @@ def _side_stats(alerts, opening_only: bool, spot: float | None,
     near-dated, near-the-money expiries. None = not computable (gates render DARK)."""
     pool = [a for a in alerts if _opening(a) or not opening_only]
     total = sum(float(a.total_premium or 0) for a in pool)
+    # parsed once for the intraday-recency read (Hu's ~1-day edge decays — a morning
+    # burst that faded or reversed by now must not read as live dominance)
+    timed: list[tuple] = []
+    for a in pool:
+        try:
+            t = datetime.fromisoformat((a.created_at or "").replace("Z", "+00:00"))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            timed.append((t, a.type, float(a.total_premium or 0)))
+        except (TypeError, ValueError):
+            continue
+    timed.sort(key=lambda r: r[0])
+    last_all = timed[-1][0] if timed else None
     out: dict[str, dict] = {}
     for sd in ("call", "put"):
         rows = [a for a in pool if a.type == sd]
@@ -212,10 +225,26 @@ def _side_stats(alerts, opening_only: bool, spot: float | None,
                           if a.expiry in exps and a.strike is not None
                           and lo <= a.strike / spot <= hi)
             band_ok = (in_band / top2_prem >= 0.6) if top2_prem else None
+        # still-building raw inputs (gates compare): the side's cumulative NET premium
+        # (side minus other) vs its session high, and minutes since the side's last
+        # qualifying print relative to the newest print in the data ("now" proxy —
+        # deterministic in replay)
+        net_vs_high = last_age_min = None
+        if timed:
+            run, high, last_side = 0.0, 0.0, None
+            for t, typ, p in timed:
+                run += p if typ == sd else -p
+                high = max(high, run)
+                if typ == sd:
+                    last_side = t
+            net_vs_high = round(run / high, 3) if high > 0 else 0.0
+            if last_side is not None and last_all is not None:
+                last_age_min = round((last_all - last_side).total_seconds() / 60, 1)
         out[sd] = {"opening_prem": round(prem),
                    "ask_share": round(ask / total, 3) if total and has_split else None,
                    "top2_share": top2_share, "top2_dte_ok": top2_dte_ok,
-                   "strike_band_ok": band_ok}
+                   "strike_band_ok": band_ok,
+                   "net_vs_high": net_vs_high, "last_age_min": last_age_min}
     return out
 
 
