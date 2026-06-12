@@ -454,14 +454,16 @@ class Catalyst(Signal):
 
 
 class GateResult(BaseModel):
-    """One gate light. GREEN = condition met on REAL/CACHE data; RED = measurably not
-    met; DARK = input unavailable (never fabricated). value/threshold are render-ready
-    strings for the why-panel — the frontend computes nothing."""
+    """One gate light (four-lights directive 2026-06-12): GREEN = every sub-criterion
+    met on REAL/CACHE data; RED = a sub-criterion measurably failed; DARK = an input
+    unavailable (never fabricated). A measurable fail trumps an unknown (RED > DARK).
+    `values` are render-ready sub-criterion strings for the why-panel ("ask-side 22%
+    (needs >=70%)") — the frontend computes nothing."""
     name: str
     label: str = ""                         # plain-English light label
     state: Literal["GREEN", "RED", "DARK"] = "DARK"
-    value: str = ""                         # e.g. "ask-side 74%"
-    threshold: str = ""                     # e.g. ">= 70%"
+    failed_subcriteria: list[str] = Field(default_factory=list)
+    values: list[str] = Field(default_factory=list)
     provenance: Provenance = Field(default_factory=Provenance)
 
 

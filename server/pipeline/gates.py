@@ -1,14 +1,17 @@
-"""Gate evaluators for the strict-conjunction verdict (directive 2026-06-12).
+"""Gate evaluators — FOUR lights (directive 2026-06-12, four-lights revision).
 
-Each gate compares signal fields to a cited constant and returns a GateResult:
-GREEN (met), RED (measurably not met), DARK (input unavailable — never fabricated).
-PERFECT iff every gate in the active branch is GREEN; DARK counts as not-green
-(conservatism preserved) but renders gray.
+Rigor lives in sub-criteria INSIDE each gate; the surface shows only the lights.
+A gate is GREEN when every sub-criterion is met, RED when one measurably failed,
+DARK when an input is unavailable (a measurable fail trumps an unknown). PERFECT iff
+every gate in the active branch is GREEN. Minimalism principle (operator): a metric
+that never flips the decision is noise and must not exist in the product — which is
+why the skew leg (borrow-fee artifact, MPP 2022, and usually DARK at tier history)
+and the short-volume confirmation (corroboration that never flips) were DELETED, and
+conviction's only informative case (tape divergence on puts) lives inside no_squeeze.
 
-Gates COMPARE, they never compute — every number is derived upstream (pure derive).
-Thresholds live HERE and only here, one citation beside each. v1 NOTE: the directive's
-cross-sectional conditions (90th-pct premium, GEX quartile, 70th-pct short ratio) ship
-as absolute thresholds — panel percentiles need a scan loop the platform deliberately
+Thresholds are constants HERE and only here, one citation per number. v1 NOTE: the
+directive's cross-sectional conditions (90th-pct premium, GEX quartile) ship as
+absolute thresholds — panel percentiles need a scan loop the platform deliberately
 doesn't have ([[basic-platform]]); archive self-percentiles join the tuning pass.
 """
 from __future__ import annotations
@@ -18,315 +21,238 @@ from server.models import GateResult, Provenance
 # ── thresholds (citation beside each number) ──────────────────────────────────
 ASK_SHARE_MIN = 0.70      # Hu 2014: opening ask-side imbalance predicts ~1-day returns
 PREM_FLOOR_USD = 1_000_000  # v1 absolute stand-in for "90th pct cross-sectional" size
-CONC_SHARE_MIN = 0.60     # directive G2: bets bunched, not scattered
-CONC_DTE_LO, CONC_DTE_HI = 5, 30
+CONC_SHARE_MIN = 0.60     # bets bunched in <=2 near-dated expiries, not scattered
 FLIP_DIST_MIN_PCT = 0.5   # Barbon-Buraschi 2020: firmly in the negative-gamma zone
-IVR_MAX = 30.0            # Hu-Jacobs 2020 / Goyal-Saretto: long premium wants LOW IV
-HV_IV_MIN = 1.0           # ...and HV >= IV
+IVR_MAX = 30.0            # Hu-Jacobs 2020: long premium wants LOW IV rank
+HV_IV_MIN = 1.0           # Goyal-Saretto: HV >= IV
 TERM_SLOPE_MIN = 0.0      # Vasquez 2017: flat/upward front slope
-RR_SHIFT_MIN = 0.01       # An-Ang-Bali-Cakici 2014: skew CHANGE, not level
-SKEW_BASELINE_MIN = 3     # below this the baseline is fiction -> DARK
 SPREAD_MAX_PCT = 5.0      # v1 flat (directive's 3/5/8 liquidity tiers later)
 BE_EM_MAX = 0.70          # breakeven move <= 70% of the expected move
 THETA_MAX_PCT = 10.0      # per day
-DELTA_LO, DELTA_LO_FUELED, DELTA_HI = 0.40, 0.35, 0.55   # 0.35 floor only when G4 GREEN
-EARN_WINDOW_D = 3         # branch selector: earnings inside -> catalyst branch
+DELTA_LO, DELTA_LO_FUELED, DELTA_HI = 0.40, 0.35, 0.55   # 0.35 floor only when fueled
+EARN_WINDOW_D = 3         # branch selector AND clean-window sub-criterion
 MACRO_BLOCK_D = 1         # operator policy 2026-06-11: only a print you'd HOLD THROUGH
-                          # reds the window; later prints are displayed, never gating
-SHORT_RATIO_MIN = 0.50    # v1 absolute stand-in for "70th pct cross-sectional"
-FTD_PCTILE_MAX = 90.0     # latest FTDs vs the ticker's own trailing year
+FTD_PCTILE_MAX = 90.0     # latest FTDs vs the ticker's own trailing year (MPP 2022)
 IV_SPIKE_MAX_PCT = 20.0   # front IV +20% in 2 sessions = squeeze-adjacent
-C1_RATIO_MAX = 0.9        # Milian 2023: implied move <= 0.9x historical earnings move
-C3_DTE_LO, C3_DTE_HI = 5, 15
-CATALYST_MIN_QUARTERS = 4  # below this C1 is DARK (ohlc/1d gives ~1y at tier)
+C1_RATIO_MAX = 0.9        # Milian 2023: implied move <= 0.9x the stock's usual move
+C1_DTE_LO, C1_DTE_HI = 5, 15
+CATALYST_MIN_QUARTERS = 4  # below this the history is fiction (ohlc/1d ~1y at tier)
 
-# plain-English light labels (directive §3)
+# plain-English light labels + the short waiting-on names
 LABELS = {
-    "flow_dominance": "Big money just opened bets this way",
-    "flow_concentration": "The bets are bunched near here, expiring soon",
-    "oi_basis": "The position is being held, not closed",
-    "dealer_fuel": "Dealers will add fuel to the move",
-    "headroom": "Room to run before the next wall",
+    "smart_flow": "Smart money just opened this bet",
+    "dealer_fuel": "Dealers will pour fuel on the move",
     "cheap_vol": "The options are cheap for how much this moves",
-    "term_slope": "No event premium waiting to deflate",
-    "skew_shift": "Pricing just tilted this way",
-    "cost": "You're not overpaying to get in",
-    "clean_window": "Nothing on the calendar mid-trade",
-    "tape_agrees": "The live tape agrees",
-    "short_pressure": "Short sellers are pressing",
+    "good_entry": "You're not overpaying to get in",
     "no_squeeze": "No squeeze trap",
-    "cheap_implied_move": "The market is underpricing this report",
-    "expiry_capture": "The expiry captures the report",
-    "not_crowded": "The crowd isn't already in",
+    "cheap_event": "The market is underpricing this report",
+}
+WAITING = {
+    "smart_flow": "smart-money flow",
+    "dealer_fuel": "dealer fuel",
+    "cheap_vol": "cheap options",
+    "good_entry": "a fair entry",
+    "no_squeeze": "squeeze risk cleared",
+    "cheap_event": "a cheap implied move",
 }
 
 
-def _g(name, state, value="", threshold="", prov=None) -> GateResult:
-    return GateResult(name=name, label=LABELS[name], state=state, value=value,
-                      threshold=threshold, provenance=prov or Provenance())
+def _gate(name: str, subs: list[tuple[str, bool | None, str]], prov=None) -> GateResult:
+    """Resolve sub-criteria → one light. False trumps None (a measurable fail decides
+    the gate even when another input is unknown); any None left → DARK."""
+    failed = [s for s, ok, _ in subs if ok is False]
+    unknown = [s for s, ok, _ in subs if ok is None]
+    state = "RED" if failed else ("DARK" if unknown else "GREEN")
+    return GateResult(name=name, label=LABELS[name], state=state,
+                      failed_subcriteria=failed,
+                      values=[v for _, _, v in subs if v],
+                      provenance=prov or Provenance())
 
 
 def _side(direction: str) -> str:
     return "call" if direction == "calls" else "put"
 
 
-# ── drift gates ───────────────────────────────────────────────────────────────
-def g_flow_dominance(direction, s) -> GateResult:
-    flow = s.get("flow")
+# ── gate 1: smart_flow (flow dominance + concentration + OI basis) ────────────
+def g_smart_flow(direction, s) -> GateResult:
+    flow, pos = s.get("flow"), s.get("positioning")
     if flow is None or getattr(flow, "direction", None) is None:
-        return _g("flow_dominance", "DARK", "no flow read")
+        note = getattr(getattr(flow, "provenance", None), "note", "") or "no flow read"
+        return _gate("smart_flow", [("flow", None, note)],
+                     getattr(flow, "provenance", None))
     st = (flow.side_stats or {}).get(_side(direction)) or {}
-    prov = flow.provenance
-    if flow.direction_basis != "opening_flow":
-        return _g("flow_dominance", "RED", f"basis {flow.direction_basis}",
-                  "opening flow required", prov)
-    ask_share, prem = st.get("ask_share"), st.get("opening_prem", 0.0)
-    total = (flow.side_stats.get("call", {}).get("opening_prem", 0.0)
-             + flow.side_stats.get("put", {}).get("opening_prem", 0.0))
-    if ask_share is None:
-        return _g("flow_dominance", "DARK", "no ask/bid split", "", prov)
-    ok = (ask_share >= ASK_SHARE_MIN and total >= PREM_FLOOR_USD
-          and getattr(flow, "lean_quality", "n/a") != "weak"
-          and getattr(flow, "direction", None) == direction)
-    val = f"ask-side {ask_share:.0%} of ${total/1e6:.1f}M"
-    return _g("flow_dominance", "GREEN" if ok else "RED", val,
-              f">= {ASK_SHARE_MIN:.0%} and >= ${PREM_FLOOR_USD/1e6:g}M, lean qualified", prov)
+    total = sum((flow.side_stats.get(sd) or {}).get("opening_prem", 0.0)
+                for sd in ("call", "put"))
+    subs: list[tuple] = []
+    subs.append(("opening basis", flow.direction_basis == "opening_flow",
+                 f"basis {flow.direction_basis} (needs opening flow)"))
+    ask = st.get("ask_share")
+    subs.append(("ask-side share", None if ask is None else ask >= ASK_SHARE_MIN,
+                 "no ask/bid split" if ask is None else
+                 f"ask-side {ask:.0%} of ${total/1e6:.1f}M (needs >={ASK_SHARE_MIN:.0%})"))
+    subs.append(("size", total >= PREM_FLOOR_USD,
+                 f"${total/1e6:.1f}M opening (needs >=${PREM_FLOOR_USD/1e6:g}M)"))
+    if flow.direction == direction:
+        subs.append(("lean", flow.lean_quality != "weak",
+                     f"lean {flow.lean_note} {flow.lean_quality}"))
+    c_share, c_dte, c_band = (st.get("top2_share"), st.get("top2_dte_ok"),
+                              st.get("strike_band_ok"))
+    conc_ok = (None if c_share is None or c_dte is None or c_band is None
+               else (c_share >= CONC_SHARE_MIN and c_dte and c_band))
+    subs.append(("concentration", conc_ok,
+                 "expiry/strike read incomplete" if conc_ok is None else
+                 f"top-2 expiries {c_share:.0%} near-money 5-30 DTE (needs >={CONC_SHARE_MIN:.0%})"))
+    if flow.direction == direction:
+        conf = getattr(pos, "confirmation", "unconfirmed") if pos else "unconfirmed"
+        # building/flat/unconfirmed pass (archive-decoupled); only unwinding fails
+        subs.append(("OI held", conf != "unwinding", f"OI {conf}"))
+    return _gate("smart_flow", subs, flow.provenance)
 
 
-def g_flow_concentration(direction, s) -> GateResult:
-    flow = s.get("flow")
-    st = (getattr(flow, "side_stats", None) or {}).get(_side(direction)) or {}
-    if (not st or st.get("top2_share") is None or st.get("top2_dte_ok") is None
-            or st.get("strike_band_ok") is None):
-        return _g("flow_concentration", "DARK", "expiry/strike read incomplete",
-                  prov=getattr(flow, "provenance", None))
-    ok = (st["top2_share"] >= CONC_SHARE_MIN and st["top2_dte_ok"]
-          and st["strike_band_ok"])
-    return _g("flow_concentration", "GREEN" if ok else "RED",
-              f"top-2 expiries {st['top2_share']:.0%}",
-              f">= {CONC_SHARE_MIN:.0%}, {CONC_DTE_LO}-{CONC_DTE_HI} DTE, near the money",
-              flow.provenance)
-
-
-def g_oi_basis(direction, s) -> GateResult:
-    p, flow = s.get("positioning"), s.get("flow")
-    flow_dir = getattr(flow, "direction", None)
-    if flow_dir != direction:
-        return _g("oi_basis", "DARK", "no OI cluster for this side")
-    conf = getattr(p, "confirmation", "unconfirmed") if p else "unconfirmed"
-    # building/flat/unconfirmed pass (archive-decoupled, unchanged); unwinding is RED
-    state = "RED" if conf == "unwinding" else "GREEN"
-    return _g("oi_basis", state, conf, "not unwinding",
-              getattr(p, "provenance", None))
-
-
+# ── gate 2: dealer_fuel (gamma sign + flip distance + headroom) ───────────────
 def g_dealer_fuel(direction, s) -> GateResult:
-    dg = s.get("dealer_gamma")
-    if dg is None or getattr(dg, "flip_status", "unavailable") == "unavailable":
-        return _g("dealer_fuel", "DARK", "no dealer gamma")
-    if dg.gex_sign != "NEG":
-        return _g("dealer_fuel", "RED", f"gamma {dg.gex_sign}", "negative", dg.provenance)
-    fd = getattr(dg, "flip_pct", None)
-    if fd is None:
-        return _g("dealer_fuel", "DARK", "no flip in range", prov=dg.provenance)
-    ok = abs(fd) >= FLIP_DIST_MIN_PCT
-    return _g("dealer_fuel", "GREEN" if ok else "RED",
-              f"NEG, flip {fd:+.1f}% away", f">= {FLIP_DIST_MIN_PCT}% from flip",
-              dg.provenance)
-
-
-def g_headroom(direction, s) -> GateResult:
     dg, cost = s.get("dealer_gamma"), s.get("cost")
+    if dg is None or getattr(dg, "flip_status", "unavailable") == "unavailable":
+        return _gate("dealer_fuel", [("dealer gamma", None, "no dealer gamma")],
+                     getattr(dg, "provenance", None))
+    subs: list[tuple] = []
+    subs.append(("negative gamma", dg.gex_sign == "NEG",
+                 f"gamma {dg.gex_sign} (needs NEG)"))   # v1: quartile deferred (no panel)
+    fd = getattr(dg, "flip_pct", None)
+    subs.append(("flip distance", None if fd is None else abs(fd) >= FLIP_DIST_MIN_PCT,
+                 "no flip in range" if fd is None else
+                 f"flip {fd:+.1f}% away (needs >={FLIP_DIST_MIN_PCT:g}%)"))
     em = getattr(cost, "expected_move_pct", None) if cost else None
     wall = (getattr(dg, "call_wall_pct", None) if direction == "calls"
-            else getattr(dg, "put_wall_pct", None)) if dg else None
-    if wall is None or em is None or not em:
-        return _g("headroom", "DARK", "wall or expected move unknown",
-                  prov=getattr(dg, "provenance", None))
-    ok = abs(wall) >= em
-    return _g("headroom", "GREEN" if ok else "RED",
-              f"wall {abs(wall):.1f}% vs move {em:.1f}%", ">= 1 expected move",
-              dg.provenance)
+            else getattr(dg, "put_wall_pct", None))
+    head = None if (wall is None or not em) else abs(wall) >= em
+    subs.append(("headroom", head,
+                 "wall or expected move unknown" if head is None else
+                 f"wall {abs(wall):.1f}% vs move {em:.1f}% (needs >=1 move)"))
+    return _gate("dealer_fuel", subs, dg.provenance)
 
 
+# ── gate 3: cheap_vol (IV rank + HV/IV + term slope + clean window) ───────────
 def g_cheap_vol(direction, s) -> GateResult:
-    v = s.get("vol")
-    if v is None or v.ivr is None or v.hv_iv_ratio is None:
-        return _g("cheap_vol", "DARK", "IV rank or HV unavailable",
-                  prov=getattr(v, "provenance", None))
-    ok = v.ivr < IVR_MAX and v.hv_iv_ratio >= HV_IV_MIN
-    return _g("cheap_vol", "GREEN" if ok else "RED",
-              f"IV rank {v.ivr:.0f}, HV/IV {v.hv_iv_ratio:.2f}",
-              f"rank < {IVR_MAX:g} and HV/IV >= {HV_IV_MIN:g}", v.provenance)
+    v, cost = s.get("vol"), s.get("cost")
+    subs: list[tuple] = []
+    ivr = getattr(v, "ivr", None) if v else None
+    subs.append(("IV rank", None if ivr is None else ivr < IVR_MAX,
+                 "IV rank unavailable" if ivr is None else
+                 f"IV rank {ivr:.0f} (needs <{IVR_MAX:g})"))
+    hr = getattr(v, "hv_iv_ratio", None) if v else None
+    subs.append(("HV/IV", None if hr is None else hr >= HV_IV_MIN,
+                 "realized vol unavailable" if hr is None else
+                 f"HV/IV {hr:.2f} (needs >={HV_IV_MIN:g})"))
+    ts = getattr(v, "term_slope", None) if v else None
+    subs.append(("term slope", None if ts is None else ts >= TERM_SLOPE_MIN,
+                 "no term structure" if ts is None else
+                 f"slope {ts:+.3f} (needs flat/upward)"))
+    # clean window: earnings <=3d or a print you'd hold through (<=1d, operator policy
+    # 2026-06-11). A failed calendar fetch is unknown, never a free pass.
+    if cost is None or getattr(cost, "calendar_ok", True) is False:
+        subs.append(("clean window", None, "calendar fetch failed"))
+    else:
+        dte_e, md = cost.days_to_earnings, getattr(cost, "macro_days", None)
+        bad = []
+        if dte_e is not None and dte_e <= EARN_WINDOW_D:
+            bad.append(f"earnings {dte_e}d")
+        if md is not None and md <= MACRO_BLOCK_D:
+            bad.append(f"{getattr(cost, 'macro_name', 'macro')} <1d")
+        subs.append(("clean window", not bad, " · ".join(bad) or "calendar clear"))
+    return _gate("cheap_vol", subs, getattr(v, "provenance", None))
 
 
-def g_term_slope(direction, s) -> GateResult:
-    v = s.get("vol")
-    if v is None or v.term_slope is None:
-        return _g("term_slope", "DARK", "no term structure",
-                  prov=getattr(v, "provenance", None))
-    ok = v.term_slope >= TERM_SLOPE_MIN
-    return _g("term_slope", "GREEN" if ok else "RED",
-              f"slope {v.term_slope:+.3f}", "flat or upward", v.provenance)
-
-
-def g_skew_shift(direction, s) -> GateResult:
-    sk = s.get("skew")
-    if (sk is None or getattr(sk, "lean", "unavailable") == "unavailable"
-            or sk.rr_delta is None):
-        return _g("skew_shift", "DARK", "no baseline yet (needs 3+ sessions)",
-                  prov=getattr(sk, "provenance", None))
-    need = RR_SHIFT_MIN if direction == "calls" else -RR_SHIFT_MIN
-    ok = sk.rr_delta >= need if direction == "calls" else sk.rr_delta <= need
-    return _g("skew_shift", "GREEN" if ok else "RED",
-              f"RR change {sk.rr_delta:+.3f}", f"{'>=' if direction == 'calls' else '<='} {need:+.2f}",
-              sk.provenance)
-
-
-def g_cost(direction, s, *, fueled: bool) -> GateResult:
+# ── gate 4: good_entry (the cost math, unchanged) ─────────────────────────────
+def g_good_entry(direction, s, *, fueled: bool) -> GateResult:
     cost, flow = s.get("cost"), s.get("flow")
     if getattr(flow, "direction", None) != direction:
-        return _g("cost", "DARK", "no contract priced for this side")
+        return _gate("good_entry", [("contract", None, "no contract priced for this side")])
     if cost is None or cost.spread_pct is None:
-        return _g("cost", "DARK", "no chain to price",
-                  prov=getattr(cost, "provenance", None))
+        return _gate("good_entry", [("chain", None, "no chain to price")],
+                     getattr(cost, "provenance", None))
     ct = cost.contract or {}
     d, th = ct.get("delta"), ct.get("theta_day_pct")
     be, em = cost.breakeven_move_pct, cost.expected_move_pct
-    checks, vals = [], []
-    checks.append(cost.spread_pct <= SPREAD_MAX_PCT)
-    vals.append(f"spread {cost.spread_pct:.0f}%")
-    if be is not None and em:
-        checks.append(be <= BE_EM_MAX * em)
-        vals.append(f"be {be:.1f}% vs move {em:.1f}%")
-    else:
-        return _g("cost", "DARK", "breakeven/move unknown", prov=cost.provenance)
-    if th is not None:
-        checks.append(th <= THETA_MAX_PCT)
-        vals.append(f"theta {th:.0f}%/d")
-    if d is not None:
-        lo = DELTA_LO_FUELED if fueled else DELTA_LO
-        checks.append(lo <= d <= DELTA_HI)
-        vals.append(f"delta {d:.2f}")
-    if th is None or d is None:
-        return _g("cost", "DARK", "greeks missing for the pick", prov=cost.provenance)
-    return _g("cost", "GREEN" if all(checks) else "RED", " · ".join(vals),
-              f"spread<= {SPREAD_MAX_PCT:g}%, be<= {BE_EM_MAX:.0%} of move, "
-              f"theta<= {THETA_MAX_PCT:g}%/d, delta in band", cost.provenance)
+    subs: list[tuple] = []
+    subs.append(("spread", cost.spread_pct <= SPREAD_MAX_PCT,
+                 f"spread {cost.spread_pct:.0f}% (needs <={SPREAD_MAX_PCT:g}%)"))
+    be_ok = None if (be is None or not em) else be <= BE_EM_MAX * em
+    subs.append(("breakeven", be_ok,
+                 "breakeven/move unknown" if be_ok is None else
+                 f"be {be:.1f}% vs move {em:.1f}% (needs <={BE_EM_MAX:.0%} of move)"))
+    subs.append(("theta", None if th is None else th <= THETA_MAX_PCT,
+                 "greeks missing" if th is None else
+                 f"theta {th:.0f}%/d (needs <={THETA_MAX_PCT:g}%)"))
+    lo = DELTA_LO_FUELED if fueled else DELTA_LO
+    subs.append(("delta band", None if d is None else lo <= d <= DELTA_HI,
+                 "greeks missing" if d is None else
+                 f"delta {d:.2f} (needs {lo:g}-{DELTA_HI:g})"))
+    return _gate("good_entry", subs, cost.provenance)
 
 
-def g_clean_window(direction, s) -> GateResult:
-    cost = s.get("cost")
-    if cost is None:
-        return _g("clean_window", "DARK", "no calendar read")
-    dte_e = cost.days_to_earnings
-    macro_d = getattr(cost, "macro_days", None)
-    if getattr(cost, "calendar_ok", True) is False:
-        return _g("clean_window", "DARK", "calendar fetch failed", prov=cost.provenance)
-    bad = []
-    if dte_e is not None and dte_e <= EARN_WINDOW_D:
-        bad.append(f"earnings {dte_e}d")
-    if macro_d is not None and macro_d <= MACRO_BLOCK_D:
-        bad.append(f"{getattr(cost, 'macro_name', 'macro')} <1d")
-    return _g("clean_window", "RED" if bad else "GREEN",
-              " · ".join(bad) or "clear",
-              f"no earnings <= {EARN_WINDOW_D}d, no print <= {MACRO_BLOCK_D}d held through",
-              cost.provenance)
-
-
-# ── put-only gates ────────────────────────────────────────────────────────────
-def g_tape_agrees(direction, s) -> GateResult:
-    c = s.get("conviction")
-    cdir = getattr(c, "direction", None) if c else None
-    if cdir is None:
-        return _g("tape_agrees", "DARK", "no greek-flow",
-                  prov=getattr(c, "provenance", None))
-    ok = cdir == direction
-    return _g("tape_agrees", "GREEN" if ok else "RED", f"tape {cdir}",
-              f"tape {direction}", c.provenance)
-
-
-def g_short_pressure(direction, s) -> GateResult:
-    sh = s.get("shorts")
-    if sh is None or sh.ratio_latest is None:
-        return _g("short_pressure", "DARK", "no short-volume data",
-                  prov=getattr(sh, "provenance", None))
-    ok = sh.ratio_latest >= SHORT_RATIO_MIN and bool(sh.rising)
-    return _g("short_pressure", "GREEN" if ok else "RED",
-              f"short ratio {sh.ratio_latest:.0%}{' rising' if sh.rising else ''}",
-              f">= {SHORT_RATIO_MIN:.0%} and rising", sh.provenance)
-
-
+# ── puts veto: no_squeeze (FTD + IV spike + tape sign; SI dead at tier) ───────
 def g_no_squeeze(direction, s) -> GateResult:
-    sh, v = s.get("shorts"), s.get("vol")
+    sh, v, c = s.get("shorts"), s.get("vol"), s.get("conviction")
+    subs: list[tuple] = []
     ftd = getattr(sh, "ftd_pctile", None) if sh else None
+    subs.append(("FTDs", None if ftd is None else ftd <= FTD_PCTILE_MAX,
+                 "no FTD history" if ftd is None else
+                 f"FTDs {ftd:.0f}th pct of own year (needs <={FTD_PCTILE_MAX:.0f}th)"))
     spike = getattr(v, "iv_spike_pct", None) if v else None
-    if ftd is None and spike is None:
-        return _g("no_squeeze", "DARK", "no FTD or IV history")
-    bad = []
-    if ftd is not None and ftd > FTD_PCTILE_MAX:
-        bad.append(f"FTDs {ftd:.0f}th pct")
-    if spike is not None and spike > IV_SPIKE_MAX_PCT:
-        bad.append(f"front IV +{spike:.0f}% in 2d")
-    # SI%float not at tier (probe 2026-06-12: stale 2021 rows) — FTD + IV legs only
-    return _g("no_squeeze", "RED" if bad else "GREEN",
-              " · ".join(bad) or "no squeeze marks",
-              f"FTDs <= {FTD_PCTILE_MAX:.0f}th pct, IV spike <= {IV_SPIKE_MAX_PCT:g}%",
-              getattr(sh, "provenance", None) or Provenance())
+    subs.append(("IV spike", None if spike is None else spike <= IV_SPIKE_MAX_PCT,
+                 "no IV history" if spike is None else
+                 f"front IV {spike:+.0f}% in 2d (needs <=+{IV_SPIKE_MAX_PCT:g}%)"))
+    # the old conviction leg's ONLY informative case, absorbed here: a tape pushing UP
+    # while you buy puts is hedger contamination / squeeze fuel
+    cdir = getattr(c, "direction", None) if c else None
+    subs.append(("tape sign", None if cdir is None else cdir == "puts",
+                 "no greek-flow" if cdir is None else f"tape {cdir} (needs puts)"))
+    # SI%float sub: NOT at tier (probe 2026-06-12: stale 2021 rows) — omitted, honest
+    return _gate("no_squeeze", subs, getattr(sh, "provenance", None))
 
 
-# ── catalyst gates ────────────────────────────────────────────────────────────
-def g_cheap_implied_move(direction, s) -> GateResult:
-    c = s.get("catalyst")
-    if (c is None or c.ratio is None or c.quarters < CATALYST_MIN_QUARTERS):
-        return _g("cheap_implied_move", "DARK",
-                  f"history {getattr(c, 'quarters', 0)}q (needs {CATALYST_MIN_QUARTERS}+)",
-                  prov=getattr(c, "provenance", None))
-    ok = c.ratio <= C1_RATIO_MAX
-    return _g("cheap_implied_move", "GREEN" if ok else "RED",
-              f"implied {c.implied_move_pct:.1f}% vs usual {c.hist_move_pct:.1f}%",
-              f"<= {C1_RATIO_MAX:g}x the usual move", c.provenance)
-
-
-def g_expiry_capture(direction, s) -> GateResult:
-    cost, cat = s.get("cost"), s.get("catalyst")
+# ── catalyst gate: cheap_event (implied vs history + expiry capture) ──────────
+def g_cheap_event(direction, s) -> GateResult:
+    c, cost = s.get("catalyst"), s.get("cost")
+    if c is None or c.days_to_earnings is None:
+        return _gate("cheap_event", [("report", None, "no report in window")])
+    subs: list[tuple] = []
+    if c.quarters < CATALYST_MIN_QUARTERS or c.ratio is None:
+        subs.append(("implied vs usual", None,
+                     f"history {c.quarters}q (needs {CATALYST_MIN_QUARTERS}+)"))
+    else:
+        subs.append(("implied vs usual", c.ratio <= C1_RATIO_MAX,
+                     f"implied {c.implied_move_pct:.1f}% vs usual {c.hist_move_pct:.1f}% "
+                     f"(needs <={C1_RATIO_MAX:g}x)"))
     ct = (cost.contract or {}) if cost else {}
-    if not ct or cat is None or cat.report_date is None:
-        return _g("expiry_capture", "DARK", "no pick or report date")
     dte, expiry = ct.get("dte"), str(ct.get("expiry") or "")
-    ok = (expiry > cat.report_date and dte is not None
-          and C3_DTE_LO <= dte <= C3_DTE_HI)
-    return _g("expiry_capture", "GREEN" if ok else "RED",
-              f"{expiry or '?'} · {dte}d", f"first expiry after {cat.report_date}, "
-              f"{C3_DTE_LO}-{C3_DTE_HI} DTE", cost.provenance)
+    cap = (None if not ct or c.report_date is None
+           else (expiry > c.report_date and dte is not None
+                 and C1_DTE_LO <= dte <= C1_DTE_HI))
+    subs.append(("expiry capture", cap,
+                 "no pick or report date" if cap is None else
+                 f"{expiry or '?'} · {dte}d (needs first weekly after {c.report_date}, "
+                 f"{C1_DTE_LO}-{C1_DTE_HI} DTE)"))
+    return _gate("cheap_event", subs, c.provenance)
 
 
-def g_not_crowded(direction, s) -> GateResult:
-    # panel-wide small-lot share is unobservable without a scan loop — born DARK v1
-    return _g("not_crowded", "DARK", "crowding not observable at tier")
-
-
-DRIFT_GATES = [g_flow_dominance, g_flow_concentration, g_oi_basis, g_dealer_fuel,
-               g_headroom, g_cheap_vol, g_term_slope, g_skew_shift, g_cost,
-               g_clean_window]
-PUT_EXTRA_DRIFT = [g_tape_agrees, g_short_pressure, g_no_squeeze]
-CATALYST_GATES = [g_cheap_implied_move, g_flow_dominance, g_expiry_capture,
-                  g_not_crowded, g_cost]
-PUT_EXTRA_CATALYST = [g_no_squeeze]
+DRIFT_GATES = ["smart_flow", "dealer_fuel", "cheap_vol", "good_entry"]
+CATALYST_GATES = ["cheap_event", "smart_flow", "good_entry"]
 
 
 def evaluate(direction: str, branch: str, signals: dict) -> list[GateResult]:
     fuel = g_dealer_fuel(direction, signals)
-    fueled = fuel.state == "GREEN"
-    out = []
-    fns = list(DRIFT_GATES if branch == "drift" else CATALYST_GATES)
+    by_name = {
+        "smart_flow": lambda: g_smart_flow(direction, signals),
+        "dealer_fuel": lambda: fuel,
+        "cheap_vol": lambda: g_cheap_vol(direction, signals),
+        "good_entry": lambda: g_good_entry(direction, signals,
+                                           fueled=fuel.state == "GREEN"),
+        "cheap_event": lambda: g_cheap_event(direction, signals),
+    }
+    names = list(DRIFT_GATES if branch == "drift" else CATALYST_GATES)
+    out = [by_name[n]() for n in names]
     if direction == "puts":
-        fns += PUT_EXTRA_DRIFT if branch == "drift" else PUT_EXTRA_CATALYST
-    for fn in fns:
-        if fn is g_dealer_fuel:
-            out.append(fuel)
-        elif fn is g_cost:
-            out.append(g_cost(direction, signals, fueled=fueled))
-        else:
-            out.append(fn(direction, signals))
+        out.append(g_no_squeeze(direction, signals))   # the hard veto, both branches
     return out

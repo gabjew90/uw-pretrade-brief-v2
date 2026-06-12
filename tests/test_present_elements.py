@@ -59,18 +59,21 @@ def test_one_element_per_signal_plus_keys():
     sigs = _full_signals()
     vm = present("SPY", sigs, decide(sigs))
     keys = {e.key for e in vm.elements}
-    assert {"direction", "conviction", "positioning", "structural", "skew", "cost"} <= keys
+    assert {"direction", "conviction", "positioning", "structural", "cost"} <= keys
+    assert "skew" not in keys       # skew leg DELETED (four-lights; MPP 2022 artifact)
     assert "regime" not in keys                          # market-wide, not a per-ticker tile
 
 
 def test_unavailable_signal_emits_element_not_omitted():
     sigs = _full_signals()
-    sigs["skew"] = Skew(lean="unavailable", provenance=Provenance(quality=Quality.UNAVAILABLE, note="no RR"))
+    sigs["dealer_gamma"] = DealerGamma(flip_status="unavailable",
+                                       provenance=Provenance(quality=Quality.UNAVAILABLE,
+                                                             note="no gamma"))
     vm = present("SPY", sigs, decide(sigs))
-    skew_el = next(e for e in vm.elements if e.key == "skew")
-    assert skew_el.surface is None
-    assert skew_el.tone == "unavailable"
-    assert "why" in skew_el.detail
+    el = next(e for e in vm.elements if e.key == "structural")
+    assert el.surface is None
+    assert el.tone == "unavailable"
+    assert "why" in el.detail
 
 
 def test_default_render_contract_lights_only():
@@ -83,6 +86,7 @@ def test_default_render_contract_lights_only():
     assert vm.verdict.overall in ("PERFECT", "NOT NOW")
     assert vm.verdict.action.startswith(("PERFECT", "NOT NOW"))
     assert "Mixed" not in vm.next_step and "Favorable" not in vm.next_step
+    assert len(vm.verdict.calls.gates) <= 5 and len(vm.verdict.puts.gates) <= 5
 
 
 def test_series_carry_chart_data_for_the_future_ui():

@@ -38,16 +38,26 @@ Stages never skip a boundary; each consumes the previous stage's typed output on
    results. Because inputs are named, you structurally cannot strand a computed signal
    short of the verdict — an unused signal is a visible unused input.
 
-   > **Verdict semantics (directive 2026-06-12): strict conjunction, NOT balance-of-
-   > evidence.** The question is "are ALL conditions for a perfect long call/put present
-   > simultaneously?" The answer is binary: `PERFECT` or `NOT NOW — n/N`. Both
-   > directions are evaluated every cycle; a DARK (unavailable) gate counts as not-green
-   > but renders gray. **BANNED WORDS: "Mixed", "Favorable"** — do not reintroduce them
-   > or any weights/scores/composites; the conjunction IS the model. Gate thresholds
-   > live ONLY in `pipeline/gates.py`, one research citation beside each constant.
-   > Exception preserved: a macro print only reds the window when it lands ≤1 trading
-   > day out (operator policy 2026-06-11 — weekly-cadence prints must not halt every
-   > week); earnings inside 3 days switches to the CATALYST branch instead.
+   > **Verdict semantics (four-lights directive 2026-06-12): strict conjunction, NOT
+   > balance-of-evidence.** The question is "are ALL conditions for a perfect long
+   > call/put present simultaneously?" Binary answer: `PERFECT` or `NOT NOW — n/N`.
+   > FOUR gates (drift): smart_flow, dealer_fuel, cheap_vol, good_entry; puts add the
+   > `no_squeeze` hard veto; earnings ≤3d switches to the CATALYST branch
+   > (cheap_event, smart_flow, good_entry). Rigor lives in SUB-CRITERIA inside each
+   > gate; a measurable fail (RED) trumps an unknown (DARK); DARK counts as not-green
+   > but renders gray. **BANNED WORDS: "Mixed", "Favorable"** — no weights, scores or
+   > composites; the conjunction IS the model. Thresholds live ONLY in
+   > `pipeline/gates.py`, one research citation per constant.
+   >
+   > **Deleted legs — do not reintroduce** (minimalism: a metric that never flips the
+   > decision is noise and must not exist in the product): the **skew leg** (change-vs-
+   > baseline is usually DARK at tier history, and the predictability is a borrow-fee
+   > artifact — Muravyev-Pearson-Pollet 2022); the **short-volume confirmation**
+   > (corroboration that never flips); **conviction as a standalone leg** (same flow
+   > family — its only informative case, tape divergence on puts, lives inside
+   > no_squeeze); **regime as a cap** (macro routing lives in cheap_vol's clean-window
+   > sub-criterion: only a print ≤1 trading day out reds it, operator policy
+   > 2026-06-11).
 5. **Present** (`pipeline/present.py`) → **view model → dumb frontend.** Per element:
    `{surface, detail, provenance, label}`. The client computes nothing.
 

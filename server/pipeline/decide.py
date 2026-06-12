@@ -24,20 +24,17 @@ exit on report day.
 from __future__ import annotations
 
 from server.models import DirectionCall, GateResult, Provenance, Signal, Verdict
-from server.pipeline.gates import EARN_WINDOW_D, evaluate
+from server.pipeline.gates import EARN_WINDOW_D, WAITING, evaluate
 
-# the gates whose failure means "this isn't tradeable at all" — named first
-_BLOCKING_FIRST = ("no_squeeze", "flow_dominance", "cost")
+# the gates whose RED means "this isn't tradeable at all" — named first
+_BLOCKING_FIRST = ("no_squeeze", "smart_flow", "good_entry")
 
 
 def _waiting_on(gates: list[GateResult]) -> str:
     bad = [g for g in gates if g.state != "GREEN"]
-    bad.sort(key=lambda g: (g.state != "RED" or g.name not in _BLOCKING_FIRST,
+    bad.sort(key=lambda g: (not (g.state == "RED" and g.name in _BLOCKING_FIRST),
                             g.name not in _BLOCKING_FIRST))
-    names = [g.label for g in bad]
-    if len(names) > 3:
-        names = names[:3] + [f"+{len(names) - 3} more"]
-    return ", ".join(names)
+    return ", ".join(WAITING.get(g.name, g.label) for g in bad)
 
 
 def _direction_call(direction: str, branch: str, signals: dict) -> DirectionCall:
@@ -77,7 +74,7 @@ def decide(signals: dict[str, Signal]) -> Verdict:
     else:
         action = f"NOT NOW — {best.green}/{best.total}"
 
-    used = [n for n in ("flow", "positioning", "conviction", "skew", "dealer_gamma",
+    used = [n for n in ("flow", "positioning", "conviction", "dealer_gamma",
                         "cost", "vol", "shorts", "catalyst") if signals.get(n) is not None]
     reasons = [best.waiting_on] if best.waiting_on else []
     caps = [g.name for g in best.gates if g.state != "GREEN"]

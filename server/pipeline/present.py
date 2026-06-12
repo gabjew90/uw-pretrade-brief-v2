@@ -331,9 +331,11 @@ def _contract_el(c) -> Element:
                    detail=d, tone="neutral", provenance=c.provenance)
 
 
+# skew tile DELETED with the skew leg (four-lights directive: a metric that never
+# flips the decision must not exist in the product; MPP 2022 borrow-fee artifact)
 _BUILDERS = [
     ("flow", _direction_el), ("conviction", _conviction_el), ("positioning", _positioning_el),
-    ("dealer_gamma", _structural_el), ("skew", _skew_el), ("cost", _cost_el),
+    ("dealer_gamma", _structural_el), ("cost", _cost_el),
 ]
 
 _VERDICT_LOGIC = ("PERFECT only when every gate is green at once — the conjunction is "
@@ -361,9 +363,9 @@ def _next_step(verdict: Verdict, cost) -> str:
 
 def _numbers(verdict: Verdict, cost) -> list[str]:
     """The ONLY numerals on the default render (directive §3): shown when PERFECT or
-    within 2 gates of it. Spread, breakeven-vs-move, the time stop, and the ticket."""
+    one gate short. Spread, breakeven-vs-move, the time stop, and the ticket."""
     best = verdict.calls if verdict.direction == "calls" else verdict.puts
-    if best is None or (best.state != "PERFECT" and best.green < best.total - 2):
+    if best is None or (best.state != "PERFECT" and best.green < best.total - 1):
         return []
     out: list[str] = []
     if cost is not None and cost.spread_pct is not None:

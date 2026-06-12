@@ -307,9 +307,8 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         "flow_alerts": flow_alerts,
         "greek_flow": _fetch_norm(f"/stock/{ticker}/greek-flow", {}, ticker, Priority.NORMAL),
         "gamma_strikes": gamma_strikes,
-        "skew_rr": _fetch_norm(f"/stock/{ticker}/historical-risk-reversal-skew",
-                               {"expiry": _skew_expiry(asof_d), "delta": 25},
-                               ticker, Priority.NORMAL),
+        # skew_rr fetch DELETED with the skew leg (four-lights directive; MPP 2022) —
+        # _skew_expiry stays for any future probe work
         "iv_term": iv_term,
         # the chain for the spread-cost / expected-move gate (load-bearing risk check)
         "option_contracts": _fetch_norm(f"/stock/{ticker}/option-contracts", {"limit": 500},
@@ -320,11 +319,10 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
                                       ticker, Priority.LOW),
         # 15m candles (price axis for the chart UI; regular hours, newest session)
         "ohlc": _fetch_norm(f"/stock/{ticker}/ohlc/15m", {}, ticker, Priority.LOW),
-        # strict-conjunction inputs (directive 2026-06-12; all probe-verified at tier)
+        # strict-conjunction inputs (probe-verified at tier). short-ratio fetch DELETED
+        # with the short-pressure gate (corroboration that never flips the verdict).
         "realized_vol": _fetch_norm(f"/stock/{ticker}/volatility/realized", {},
                                     ticker, Priority.LOW),
-        "short_ratio": _fetch_norm(f"/shorts/{ticker}/volume-and-ratio", {},
-                                   ticker, Priority.LOW),
         "ftds": _fetch_norm(f"/shorts/{ticker}/ftds", {}, ticker, Priority.LOW),
     }
 

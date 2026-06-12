@@ -163,7 +163,7 @@
       return `<div class="gtable"><b style="color:var(--text)">${esc(title)}</b>` +
         gates.map(g =>
           `<div class="row"><span class="gn">${esc(g.name)}</span><span class="gs g-${g.state}">${esc(g.state)}</span>
-           <span>${esc(g.value || "")}${g.threshold ? " | needs " + esc(g.threshold) : ""}
+           <span>${(g.values || []).map(esc).join(" · ")}
            ${g.provenance && g.provenance.as_of ? " | " + esc(freshness(g.provenance)) : ""}</span></div>`
         ).join("") + `</div>`;
     }
