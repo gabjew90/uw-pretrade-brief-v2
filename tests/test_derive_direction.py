@@ -52,6 +52,24 @@ def test_no_opening_flow_falls_back_to_total():
     assert f.direction_basis == "total_flow"
 
 
+# ── the receipts: top_alerts lists the biggest bets behind the read ───────────
+def test_top_alerts_are_the_biggest_opening_bets_in_et():
+    alerts = [
+        _fa("call", 2_000_000, 5.0, strike=580.0, expiry="2026-06-13",
+            total_ask_side_prem=1_500_000.0, total_bid_side_prem=400_000.0),
+        _fa("call", 300_000, 4.0, strike=585.0),
+        _fa("put", 9_000_000, 0.4, strike=570.0),   # huge but CLOSING — not a receipt
+    ]
+    f = derive_direction({"flow_alerts": alerts})
+    assert f.direction_basis == "opening_flow"
+    assert len(f.top_alerts) == 2                   # closing alert excluded
+    top = f.top_alerts[0]
+    assert top["premium"] == 2_000_000 and top["strike"] == 580.0
+    assert top["aggressor"] == "ask-side"           # buyer was the aggressor
+    assert top["time"] == "11:00"                   # 15:00Z -> ET
+    assert f.top_alerts[0]["premium"] >= f.top_alerts[1]["premium"]
+
+
 # ── the side's own bar (reviewer 2026-06-11): dominance ratio + premium floor ──
 def test_dominant_lean_over_floor_is_qualified():
     alerts = [_fa("call", 1_000_000, 5.0), _fa("put", 100_000, 5.0)]   # 10:1, $1M

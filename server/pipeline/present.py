@@ -42,6 +42,23 @@ def _unavail(key: str, label: str, sig, meaning: str = "", logic: str = "") -> E
                    provenance=sig.provenance if sig is not None else None)
 
 
+def _fmt_alert(r: dict) -> str:
+    """One alert as a terse receipt: '10:42 · 580 put 06-13 · $1.2M · ask-side sweep · 4.1x OI'."""
+    bits = []
+    if r.get("time"):
+        bits.append(r["time"])
+    contract = f"{r['strike']:g} {r['type']}" if r.get("strike") is not None else r["type"]
+    if r.get("expiry"):
+        contract += f" {str(r['expiry'])[5:]}"
+    bits.append(contract)
+    bits.append(_money(r.get("premium", 0)))
+    if r.get("aggressor"):
+        bits.append(r["aggressor"] + (" sweep" if r.get("sweep") else ""))
+    if r.get("voi") is not None:
+        bits.append(f"{r['voi']:.1f}x OI")
+    return " · ".join(bits)
+
+
 def _direction_el(flow) -> Element:
     if getattr(flow, "direction", None) is None:
         return _unavail("direction", "Where's the money betting?", flow, "no opening flow",
@@ -51,6 +68,8 @@ def _direction_el(flow) -> Element:
     meaning = f"{_money(flow.call_prem)} call · {_money(flow.put_prem)} put"
     if weak:
         meaning += f" · weak lean ({flow.lean_note})"
+    # the receipts: the actual biggest bets behind the read, not just the totals
+    bets = {f"Top bet {i}": _fmt_alert(r) for i, r in enumerate(flow.top_alerts, 1)}
     return Element(key="direction", label="Where's the money betting?",
                    surface=flow.direction.upper(),
                    meaning=meaning,
@@ -58,6 +77,7 @@ def _direction_el(flow) -> Element:
                          "$500K+ to count as qualified, else it caps the call at Mixed",
                    detail={"Call premium": _money(flow.call_prem),
                            "Put premium": _money(flow.put_prem), "Read from": basis,
+                           **bets,
                            "Lean (needs 2:1 + $500K)": f"{flow.lean_note} {flow.lean_quality}",
                            "Why it matters": "a real bet reads like 5:1 — millions on one "
                            "side, little on the other. 1.3:1 is a coin flip no matter how "

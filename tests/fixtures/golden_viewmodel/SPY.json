@@ -7,6 +7,11 @@
         "Lean (needs 2:1 + $500K)": "1.5:1 weak",
         "Put premium": "$9.2M",
         "Read from": "opening flow",
+        "Top bet 1": "10:22 \u00b7 706 put 07-17 \u00b7 $1.7M \u00b7 ask-side \u00b7 10.7x OI",
+        "Top bet 2": "09:38 \u00b7 739 put 06-17 \u00b7 $1.3M \u00b7 bid-side \u00b7 5.0x OI",
+        "Top bet 3": "10:21 \u00b7 708 put 07-17 \u00b7 $1.1M \u00b7 bid-side sweep \u00b7 1.1x OI",
+        "Top bet 4": "10:21 \u00b7 708 put 07-17 \u00b7 $930K \u00b7 bid-side \u00b7 1.3x OI",
+        "Top bet 5": "09:38 \u00b7 742 call 06-16 \u00b7 $664K \u00b7 bid-side \u00b7 16.2x OI",
         "Why it matters": "a real bet reads like 5:1 \u2014 millions on one side, little on the other. 1.3:1 is a coin flip no matter how big the dollars. And even a clean one-sided read points to a small move (typically under 1% over a few days, often less than your contract needs to break even) \u2014 which is why the other tiles must also agree before anything is Favorable"
       },
       "key": "direction",

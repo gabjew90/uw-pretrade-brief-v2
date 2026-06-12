@@ -102,6 +102,18 @@ def test_series_carry_chart_data_for_the_future_ui():
                if e.key in ("direction", "conviction", "positioning", "structural", "skew", "cost"))
 
 
+def test_direction_detail_lists_the_top_bets_as_receipts():
+    sigs = _full_signals()
+    sigs["flow"] = Flow(direction="calls", direction_basis="opening_flow",
+                        call_prem=2e6, put_prem=1e5, lean_quality="qualified",
+                        top_alerts=[{"time": "10:42", "type": "put", "strike": 580.0,
+                                     "expiry": "2026-06-13", "premium": 1_200_000,
+                                     "aggressor": "ask-side", "voi": 4.1, "sweep": True}])
+    vm = present("SPY", sigs, decide(sigs))
+    el = next(e for e in vm.elements if e.key == "direction")
+    assert el.detail["Top bet 1"] == "10:42 · 580 put 06-13 · $1.2M · ask-side sweep · 4.1x OI"
+
+
 def test_conviction_meaning_sized_against_share_volume():
     sigs = _full_signals()
     sigs["conviction"] = Conviction(direction="calls", dir_delta=350, accumulation="building",

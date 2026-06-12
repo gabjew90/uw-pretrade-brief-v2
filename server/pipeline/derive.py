@@ -155,6 +155,27 @@ def _lean_quality(win: float, lose: float) -> tuple[float | None, str, str]:
     return ratio, "qualified", f"{ratio:g}:1" if ratio is not None else "one-sided"
 
 
+def _alert_rows(alerts, opening_only: bool) -> list[dict]:
+    """The receipts behind the direction read: the 5 biggest alerts of the basis set
+    (opening-only when the opening basis leads), as render-ready rows. Time in ET."""
+    pool = [a for a in alerts if _opening(a) or not opening_only]
+    rows = []
+    for a in sorted(pool, key=lambda x: float(x.total_premium or 0), reverse=True)[:5]:
+        ask, bid = a.total_ask_side_prem, a.total_bid_side_prem
+        aggressor = None
+        if ask is not None and bid is not None and ask != bid:
+            aggressor = "ask-side" if ask > bid else "bid-side"
+        try:
+            t = datetime.fromisoformat(a.created_at.replace("Z", "+00:00")) \
+                .astimezone(_ET).strftime("%H:%M")
+        except (TypeError, ValueError):
+            t = ""
+        rows.append({"time": t, "type": a.type, "strike": a.strike, "expiry": a.expiry,
+                     "premium": float(a.total_premium or 0), "aggressor": aggressor,
+                     "voi": a.volume_oi_ratio, "sweep": bool(a.has_sweep)})
+    return rows
+
+
 @register("flow")
 def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
     """Pick the call/put side via the shared `flow_side` (OPENING leads, TOTAL fallback),
@@ -190,6 +211,7 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
                 truncated=truncated, call_prem=call_prem, put_prem=put_prem,
                 lean_ratio=lean_ratio, lean_quality=lean_q, lean_note=lean_note,
                 top_strikes=_top("call") + _top("put"),
+                top_alerts=_alert_rows(alerts, opening_only),
                 provenance=prov.derived(alerts[0].provenance))
 
 

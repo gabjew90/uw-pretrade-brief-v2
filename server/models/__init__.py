@@ -135,6 +135,8 @@ class Flow(Signal):
     lean_note: str = ""                     # terse, number-led: "1.4:1" / "thin $400K"
     truncated: bool = False   # the flow-alerts pull hit the page cap (window may be partial)
     top_strikes: list[dict] = Field(default_factory=list)  # {strike, side, premium} chart rows
+    top_alerts: list[dict] = Field(default_factory=list)   # the receipts: 5 biggest alerts
+    # behind the read ({time, type, strike, expiry, premium, aggressor, voi, sweep})
 
 
 class TermStructurePoint(BaseModel):
