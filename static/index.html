@@ -241,9 +241,9 @@
         view.innerHTML = `<div class="grid">` + (g.rows || []).map(r =>
           `<a href="?t=${encodeURIComponent(r.ticker)}">
              <span class="t">${esc(r.ticker)}</span>
-             <span class="s">${esc(r.premium_fmt)} · ${esc(r.call_fmt)} c · ${esc(r.put_fmt)} p · ${r.alerts} alerts</span>
+             <span class="s">${esc(r.direction)} · ${r.state === "PERFECT" ? "PERFECT" : r.green + "/" + r.total}${r.tag ? " · " + esc(r.tag) : ""}</span>
            </a>`).join("") + `</div>` +
-          (g.note ? `<p class="gridnote">${esc(g.note)}</p>` : "");
+          (g.status ? `<p class="gridnote">${esc(g.status)}</p>` : "");
       } catch (err) {
         view.innerHTML = `<p class='note'>grid unavailable: ${esc(err)}</p>`;
       }

@@ -145,10 +145,64 @@ def test_catalyst_branch_shape(all_viewmodels):
 
 # ---------------------------------------------------------------- fixture
 
-@pytest.fixture
-def all_viewmodels():
-    """Replace with: present() over REPLAY bronze + synthetic gate fixtures.
-    Until then, parity-check against the prototype fixtures exported from
-    js/uw-fixtures.js (e.g. via a node -e JSON dump) so design and contract
-    can't drift apart silently."""
-    raise NotImplementedError("wire to present() / golden fixtures")
+def _contract_dump(vm) -> dict:
+    """The slice of the ViewModel the v3 frontend consumes (Present Contract
+    Extensions §5): {ticker, best, calls, puts}."""
+    return {"ticker": vm.ticker, "best": vm.best, "calls": vm.calls, "puts": vm.puts}
+
+
+def _synthetic_cases():
+    """One signal map per verdict state the prototype fixtures cover: PERFECT,
+    NOT NOW with one RED, catalyst branch with tag, a DARK gate, and a no_squeeze
+    RED veto on puts."""
+    from server.models import Catalyst, Provenance, Quality, Shorts, Vol
+    from server.pipeline.decide import decide
+    from server.pipeline.present import present
+    from tests.test_decide_funnel import _sigs
+
+    cases = []
+
+    perfect = _sigs("calls")
+    cases.append(("NVDA", perfect))
+
+    one_red = _sigs("calls")
+    one_red["vol"] = Vol(ivr=85, hv=0.22, iv_front=0.20, hv_iv_ratio=1.1,
+                         term_slope=0.01, iv_spike_pct=2.0)
+    cases.append(("AMD", one_red))
+
+    catalyst = _sigs("puts")
+    catalyst["catalyst"] = Catalyst(days_to_earnings=2, report_date="2026-06-18",
+                                    implied_move_pct=6.1, hist_move_pct=8.9,
+                                    moves=[7.2, 11.4, 5.9, 13.1], quarters=4, ratio=0.69)
+    cases.append(("ORCL", catalyst))
+
+    dark = _sigs("calls")
+    dark["vol"] = Vol(provenance=Provenance(quality=Quality.UNAVAILABLE,
+                                            note="no volatility inputs"))
+    cases.append(("MSFT", dark))
+
+    veto = _sigs("puts")
+    veto["shorts"] = Shorts(ftd_latest=99999, ftd_pctile=99.0)
+    cases.append(("GME", veto))
+
+    return [_contract_dump(present(t, s, decide(s))) for t, s in cases]
+
+
+@pytest.fixture(scope="module")
+def all_viewmodels(tmp_path_factory):
+    """present() over the REPLAY bronze archive (the golden SPY session) plus the
+    synthetic gate fixtures — every verdict state the prototype renders."""
+    from server.services import storage
+    from tests.replay_harness import build_replay_vm, seed_lake
+
+    tmp = tmp_path_factory.mktemp("lake")
+    roots = {"bronze": tmp / "bronze", "silver": tmp / "silver", "gold": tmp / "gold"}
+    orig = storage._tier_root
+    storage._tier_root = lambda tier: roots[tier]
+    try:
+        seed_lake(roots)
+        vms = [_contract_dump(build_replay_vm())]
+    finally:
+        storage._tier_root = orig
+    vms += _synthetic_cases()
+    return vms

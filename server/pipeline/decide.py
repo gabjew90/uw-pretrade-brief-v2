@@ -32,7 +32,9 @@ _BLOCKING_FIRST = ("no_squeeze", "smart_flow", "good_entry")
 
 def _waiting_on(gates: list[GateResult]) -> str:
     bad = [g for g in gates if g.state != "GREEN"]
-    bad.sort(key=lambda g: (not (g.state == "RED" and g.name in _BLOCKING_FIRST),
+    # no_squeeze RED is the hard veto — absolutely first; then other blocking REDs
+    bad.sort(key=lambda g: (not (g.name == "no_squeeze" and g.state == "RED"),
+                            not (g.state == "RED" and g.name in _BLOCKING_FIRST),
                             g.name not in _BLOCKING_FIRST))
     return ", ".join(WAITING.get(g.name, g.label) for g in bad)
 
@@ -47,6 +49,9 @@ def _direction_call(direction: str, branch: str, signals: dict) -> DirectionCall
 
 
 def decide(signals: dict[str, Signal]) -> Verdict:
+    # NB: no flow-unavailable early return — BOTH directions are evaluated every cycle
+    # (the contract emits both DirectionVMs); a missing flow simply darks smart_flow,
+    # which leads the waiting line (blocking-first).
     cat = signals.get("catalyst")
     dte_e = getattr(cat, "days_to_earnings", None) if cat else None
     if dte_e is None:

@@ -50,24 +50,28 @@ LABELS = {
     "no_squeeze": "No squeeze trap",
     "cheap_event": "The market is underpricing this report",
 }
-WAITING = {
-    "smart_flow": "smart-money flow",
+# the short names — waiting lines AND GateVM.short (locked vocabulary, uw-fixtures.js)
+SHORT = {
+    "smart_flow": "smart money",
     "dealer_fuel": "dealer fuel",
     "cheap_vol": "cheap options",
-    "good_entry": "a fair entry",
-    "no_squeeze": "squeeze risk cleared",
-    "cheap_event": "a cheap implied move",
+    "good_entry": "entry cost",
+    "no_squeeze": "squeeze check",
+    "cheap_event": "report price",
 }
+WAITING = SHORT   # legacy alias
 
 
 def _gate(name: str, subs: list[tuple[str, bool | None, str]], prov=None) -> GateResult:
     """Resolve sub-criteria → one light. False trumps None (a measurable fail decides
-    the gate even when another input is unknown); any None left → DARK."""
+    the gate even when another input is unknown); any None left → DARK. `missing`
+    carries the unknown subs' render strings verbatim (the DARK why-payload)."""
     failed = [s for s, ok, _ in subs if ok is False]
     unknown = [s for s, ok, _ in subs if ok is None]
     state = "RED" if failed else ("DARK" if unknown else "GREEN")
     return GateResult(name=name, label=LABELS[name], state=state,
                       failed_subcriteria=failed,
+                      missing=[v for s, ok, v in subs if ok is None and v],
                       values=[v for _, _, v in subs if v],
                       provenance=prov or Provenance())
 

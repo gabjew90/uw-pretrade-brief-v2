@@ -139,6 +139,8 @@ class Flow(Signal):
     # behind the read ({time, type, strike, expiry, premium, aggressor, voi, sweep})
     flow_series: list[dict] = Field(default_factory=list)  # intraday arrival: cumulative
     # {t, call, put} opening premium through the session (≤48 pts) — WHEN the bets came
+    flow_marks: dict = Field(default_factory=dict)  # per-side dot marks for the flow
+    # strip: {"call"/"put": [{i: index into flow_series, size: 0-1 premium}]}
     late_pct: Optional[float] = None        # share of basis premium after 14:00 ET
     side_stats: dict = Field(default_factory=dict)  # per-direction gate inputs, computed
     # in derive: {"call"/"put": {opening_prem, ask_share, top2_share, top2_dte_ok,
@@ -449,6 +451,7 @@ class Catalyst(Signal):
     report_date: Optional[str] = None
     implied_move_pct: Optional[float] = None     # ATM straddle / spot, first expiry after
     hist_move_pct: Optional[float] = None        # mean |earnings-day move|, trailing quarters
+    moves: list[float] = Field(default_factory=list)   # the per-report |moves| (dot strip)
     quarters: int = 0
     ratio: Optional[float] = None                # implied / historical
 
@@ -463,6 +466,8 @@ class GateResult(BaseModel):
     label: str = ""                         # plain-English light label
     state: Literal["GREEN", "RED", "DARK"] = "DARK"
     failed_subcriteria: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)   # unknown sub-inputs, verbatim —
+    # the why-panel's DARK payload (no visual is drawn, nothing fabricated)
     values: list[str] = Field(default_factory=list)
     provenance: Provenance = Field(default_factory=Provenance)
 
@@ -530,3 +535,7 @@ class ViewModel(BaseModel):
     # {label, pct} marks on a single % axis (price 0, gamma flip, wall, breakeven)
     elements: list[Element] = Field(default_factory=list)   # the why-panel content
     verdict: Optional[Verdict] = None
+    # ── the v3 frontend contract (Present Contract Extensions, 2026-06-12) ──────
+    best: Optional[str] = None              # "calls" | "puts"
+    calls: Optional[dict] = None            # DirectionVM — every string server-authored
+    puts: Optional[dict] = None

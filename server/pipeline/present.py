@@ -9,6 +9,8 @@ no semicolons.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from server.models import Element, Signal, Verdict, ViewModel
 from server.services import provenance as prov
 
@@ -397,6 +399,254 @@ def _price_el(candles: list[dict], provenance) -> Element:
                    tone="neutral", provenance=provenance)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# The v3 frontend contract (Present Contract Extensions, 2026-06-12): DirectionVM /
+# GateVM / FlowStripVM / WhyVM. Every string authored HERE — the client's only math
+# is pixel geometry. Threshold constants that feed visuals are emitted from gates.py
+# so the frontend can never hardcode-drift them.
+from server.pipeline.gates import (ASK_SHARE_MIN, BE_EM_MAX, BUILD_NET_VS_HIGH_MIN,
+                                   IVR_MAX, SHORT)
+
+_BLOCK_FIRST = ("no_squeeze", "smart_flow", "good_entry")
+
+
+def _prov_note(p) -> str:
+    """'live · as of 12:42 UTC' — subtext-only (never on the default render)."""
+    m = {"live": "live", "cache": "cached", "archive": "archive", "derived": "derived"}
+    src = m.get(getattr(getattr(p, "source", None), "value", ""), "derived")
+    as_of = getattr(p, "as_of", None)
+    return f"{src} · as of {as_of[11:16]} UTC" if as_of else f"{src} · no as_of"
+
+
+def _ampm(hhmm: str) -> str:
+    """'09:33' -> '9:33a' (display only)."""
+    try:
+        h, m = int(hhmm[:2]), hhmm[3:5]
+    except (TypeError, ValueError):
+        return hhmm
+    return f"{h % 12 or 12}:{m}{'a' if h < 12 else 'p'}"
+
+
+def _daily_vol(v) -> float | None:
+    """Annualized vol -> %/day (display convention of the cheap_vol visual)."""
+    return round(v / (252 ** 0.5) * 100, 1) if v is not None else None
+
+
+def _flow_strip(direction: str, flow) -> dict | None:
+    """FlowStripVM: net cumulative premium sign-adjusted to the card's direction, the
+    side's top prints as dots, anchors authored here. buildFrac emits the gates.py
+    still-building constant so the shaded zone can't drift."""
+    if flow is None or not getattr(flow, "flow_series", None):
+        return None
+    side = "call" if direction == "calls" else "put"
+    sgn = 1 if direction == "calls" else -1
+    st = (flow.side_stats or {}).get(side) or {}
+    age = st.get("last_age_min")
+    return {"pts": [float((p["call"] - p["put"]) * sgn) for p in flow.flow_series],
+            "alerts": (flow.flow_marks or {}).get(side, []),
+            "total": _money(st.get("opening_prem", 0)),
+            "startNote": _ampm(flow.flow_series[0]["t"]),
+            "endNote": (f"now · last buy {age:.0f}m ago" if age is not None else "now"),
+            "buildFrac": BUILD_NET_VS_HIGH_MIN}
+
+
+def _subtext(g) -> str:
+    return " · ".join(list(g.values) + [_prov_note(g.provenance)])
+
+
+def _why(g, direction: str, signals: dict) -> dict:
+    """WhyVM: one micro-visual per gate, marker-vs-pass-zone, value-anchored. DARK
+    chart-gates carry missing[] and draw nothing. no_squeeze is a checklist only."""
+    other = "puts" if direction == "calls" else "calls"
+    flow, dg, cost, v = (signals.get("flow"), signals.get("dealer_gamma"),
+                         signals.get("cost"), signals.get("vol"))
+    sgn = "+" if direction == "calls" else "−"
+
+    if g.name == "no_squeeze":
+        sh, c = signals.get("shorts"), signals.get("conviction")
+        ftd = getattr(sh, "ftd_pctile", None) if sh else None
+        spike = getattr(v, "iv_spike_pct", None) if v else None
+        cdir = getattr(c, "direction", None) if c else None
+        items = [
+            ([None, "Delivery failures — no FTD history"] if ftd is None else
+             [ftd <= 90, "No delivery failures piling up" if ftd <= 90 else
+              f"Delivery failures piling up — {ftd:.0f}th pct of its own year"]),
+            ([None, "Panic premium — no IV history"] if spike is None else
+             [spike <= 20, "No panic premium in the last 2 days" if spike <= 20 else
+              f"Panic premium — option prices {spike:+.0f}% in 2 days"]),
+            ([None, "Tape direction — no greek-flow"] if cdir is None else
+             [cdir == "puts", "The tape is pushing down too" if cdir == "puts" else
+              "The tape is pushing up against this bet"]),
+        ]
+        caption = {"GREEN": "no trap conditions on the short side",
+                   "RED": "betting on a drop into squeeze conditions is how puts get "
+                          "eaten — this is a hard veto",
+                   "DARK": "unreadable this cycle — counted against the verdict, "
+                           "never guessed"}[g.state]
+        return {"caption": caption, "subtext": _subtext(g), "items": items}
+
+    if g.state == "DARK":
+        return {"kind": None, "caption": None, "subtext": _prov_note(g.provenance),
+                "missing": list(g.missing) or ["input unavailable"]}
+
+    if g.name == "smart_flow":
+        st = (getattr(flow, "side_stats", None) or {}).get(
+            "call" if direction == "calls" else "put") or {}
+        ost = (getattr(flow, "side_stats", None) or {}).get(
+            "call" if direction == "puts" else "put") or {}
+        total = (st.get("opening_prem", 0) or 0) + (ost.get("opening_prem", 0) or 0)
+        left = round(st.get("opening_prem", 0) / total * 100) if total else 0
+        if g.state == "GREEN":
+            caption = f"{st.get('n_prints', 0)} qualifying {direction} prints since the open"
+        elif getattr(flow, "direction", None) not in (direction, None):
+            caption = "the money is on the other side today"
+        else:
+            caption = "a lean, but it fails its own bar — see the checks"
+        return {"kind": "tug", "caption": caption, "subtext": _subtext(g),
+                "data": {"leftPct": left,
+                         "leftLabel": f"{_money(st.get('opening_prem', 0))} {direction} ({left}%)",
+                         "rightLabel": f"{_money(ost.get('opening_prem', 0))} {other}",
+                         "threshPct": round(ASK_SHARE_MIN * 100),
+                         "threshLabel": f"{ASK_SHARE_MIN:.0%} needed"}}
+
+    if g.name == "dealer_fuel":
+        flip = getattr(dg, "flip_pct", None) if dg else None
+        wall = (getattr(dg, "call_wall_pct", None) if direction == "calls"
+                else getattr(dg, "put_wall_pct", None)) if dg else None
+        wsgn = 1 if direction == "calls" else -1
+        em = getattr(cost, "expected_move_pct", None) if cost else None
+        room = (f"{abs(wall) / em:.1f} expected moves of room"
+                if g.state == "GREEN" and wall is not None and em
+                else "fuel is on the other side today" if g.state == "RED"
+                else "")
+        caption = ("market makers amplify the move from here" if g.state == "GREEN"
+                   else "dealers would resist this move, not fuel it")
+        return {"kind": "ladder", "caption": caption, "subtext": _subtext(g),
+                "data": {"spot": 0.0, "flip": flip if flip is not None else 0.0,
+                         "wall": wsgn * abs(wall) if wall is not None else 0.0,
+                         "spotLabel": "price", "spotNote": "you are here",
+                         "flipLabel": f"{flip:+.1f}%" if flip is not None else "n/a",
+                         "flipNote": "fuel off below" if direction == "calls" else "fuel off above",
+                         "wallLabel": f"{wsgn * abs(wall):+.1f}%" if wall is not None else "n/a",
+                         "wallNote": "ceiling" if direction == "calls" else "floor",
+                         "roomLabel": room}}
+
+    if g.name == "cheap_vol":
+        hv_d, iv_d = _daily_vol(getattr(v, "hv", None)), _daily_vol(getattr(v, "iv_front", None))
+        ivr = getattr(v, "ivr", None)
+        caption = ("movement costs less than it's been delivering · calendar clear "
+                   "through your hold" if g.state == "GREEN" else
+                   f"charging {iv_d}%/day of movement, delivering {hv_d}% — you'd pay "
+                   "for motion that isn't happening" if hv_d and iv_d else
+                   "the options are rich for the movement on offer")
+        return {"kind": "cheap_vol", "caption": caption, "subtext": _subtext(g),
+                "data": {"actual": hv_d or 0.0, "charged": iv_d or 0.0,
+                         "ivRank": ivr if ivr is not None else 0.0,
+                         "actualTitle": "how much it actually moves (recent)",
+                         "actualLabel": f"{hv_d}%/day" if hv_d else "n/a",
+                         "chargedTitle": "what the options charge (this week)",
+                         "chargedLabel": f"{iv_d}%/day" if iv_d else "n/a",
+                         "rankTitle": "option price vs its past year",
+                         "rankLabel": f"{ivr:.0f}/100" if ivr is not None else "n/a",
+                         "leftAnchor": "cheapest ←", "rightAnchor": "→ priciest",
+                         "rankPassMax": IVR_MAX}}
+
+    if g.name == "good_entry":
+        be = getattr(cost, "breakeven_move_pct", None) if cost else None
+        em = getattr(cost, "expected_move_pct", None) if cost else None
+        spread = getattr(cost, "spread_pct", None) if cost else None
+        caption = ("the entry toll is already counted in your breakeven"
+                   if g.state == "GREEN" else "the entry costs more than the edge")
+        return {"kind": "runway", "caption": caption, "subtext": _subtext(g),
+                "data": {"needPct": be or 0.0, "expectPct": em or 0.0,
+                         "tollPct": spread or 0.0, "passFrac": BE_EM_MAX,
+                         "needLabel": f"{sgn}{be:.1f}%" if be is not None else "n/a",
+                         "needNote": "break even", "zeroLabel": "0%",
+                         "expectLabel": f"{sgn}{em:.1f}% expected" if em is not None else "n/a"}}
+
+    if g.name == "cheap_event":
+        cat = signals.get("catalyst")
+        moves = list(getattr(cat, "moves", None) or [])
+        implied = getattr(cat, "implied_move_pct", None)
+        avg = getattr(cat, "hist_move_pct", None)
+        caption = (f"market charges ±{implied:.1f}% · the stock's own history says "
+                   f"reports move it {avg:.1f}% on average"
+                   if implied is not None and avg is not None else None)
+        return {"kind": "dot_strip", "caption": caption, "subtext": _subtext(g),
+                "data": {"moves": moves, "implied": implied or 0.0, "avg": avg or 0.0,
+                         "impliedLabel": f"±{implied:.1f}%" if implied is not None else "n/a",
+                         "impliedNote": "price of this report",
+                         "avgLabel": f"avg {avg:.1f}%" if avg is not None else "n/a",
+                         "dotsNote": f"● last {len(moves)} report moves"}}
+
+    return {"kind": None, "caption": None, "subtext": _subtext(g), "missing": []}
+
+
+def _gate_vm(g, direction: str, signals: dict) -> dict:
+    vm = {"name": g.name, "state": g.state.lower(), "label": g.label,
+          "short": SHORT.get(g.name, g.name), "why": _why(g, direction, signals)}
+    if g.name == "smart_flow":
+        vm["flow"] = _flow_strip(direction, signals.get("flow"))
+    return vm
+
+
+def _waiting_line(gates) -> str:
+    bad = [g for g in gates if g.state != "GREEN"]
+    # no_squeeze RED is the hard veto — absolutely first; then other blocking REDs
+    bad.sort(key=lambda g: (not (g.name == "no_squeeze" and g.state == "RED"),
+                            not (g.state == "RED" and g.name in _BLOCK_FIRST),
+                            g.name not in _BLOCK_FIRST))
+    return "Waiting on: " + ", ".join(SHORT.get(g.name, g.name) for g in bad)
+
+
+def _tag(verdict: Verdict, signals: dict) -> str | None:
+    if verdict.branch != "catalyst":
+        return None
+    cat = signals.get("catalyst")
+    rd = getattr(cat, "report_date", None) if cat else None
+    if rd:
+        try:
+            return f"EARNINGS {date.fromisoformat(rd).strftime('%a').upper()}"
+        except ValueError:
+            pass
+    return "EARNINGS SOON"
+
+
+def _number_pairs(dc, verdict: Verdict, cost) -> list | None:
+    """Labeled pairs, ≤4, only at PERFECT or one gate short — decided HERE, never
+    client-side."""
+    if dc.state != "PERFECT" and dc.green < dc.total - 1:
+        return None
+    sgn = "+" if dc.direction == "calls" else "−"
+    out = []
+    if cost is not None and cost.spread_pct is not None:
+        out.append(["Entry toll", f"{cost.spread_pct:.1f}% of ticket"])
+    if (cost is not None and cost.breakeven_move_pct is not None
+            and cost.expected_move_pct is not None):
+        out.append(["Needs vs expects",
+                    f"{sgn}{cost.breakeven_move_pct:.1f}% vs {sgn}{cost.expected_move_pct:.1f}%"])
+    out.append(["Time stop", "exit on report day" if verdict.branch == "catalyst"
+                else ("2 days" if dc.direction == "puts" else "3 days")])
+    ct = (cost.contract or {}) if cost else {}
+    if ct.get("ask"):
+        cp = "C" if ct.get("type") == "call" else "P"
+        exp = str(ct.get("expiry") or "")[5:].replace("-", "/")
+        out.append(["Contract / max loss",
+                    f"${ct['strike']:g}{cp} {exp} · ${ct['ask'] * 100:,.0f}"])
+    return out[:4] if out else None
+
+
+def _direction_vm(ticker: str, dc, verdict: Verdict, signals: dict) -> dict:
+    return {"ticker": ticker, "direction": dc.direction.upper(),
+            "tag": _tag(verdict, signals), "branch": dc.branch, "state": dc.state,
+            "green": dc.green, "total": dc.total,
+            "waiting": _waiting_line(dc.gates) if dc.state == "NOT NOW" else None,
+            "gates": [_gate_vm(g, dc.direction, signals) for g in dc.gates],
+            "numbers": (_number_pairs(dc, verdict, signals.get("cost"))
+                        if getattr(signals.get("flow"), "direction", None) == dc.direction
+                        else None)}
+
+
 def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
             *, as_of: str | None = None, market: dict | None = None,
             candles: list[dict] | None = None) -> ViewModel:
@@ -461,4 +711,9 @@ def present(ticker: str, signals: dict[str, Signal], verdict: Verdict,
                      numbers=_numbers(verdict, signals.get("cost")),
                      spark=spark, spark_state=spark_state,
                      why_ladder=ladder if len(ladder) > 1 else [],
-                     elements=elements, verdict=verdict)
+                     elements=elements, verdict=verdict,
+                     best=verdict.direction or "calls",
+                     calls=(_direction_vm(ticker, verdict.calls, verdict, signals)
+                            if verdict.calls else None),
+                     puts=(_direction_vm(ticker, verdict.puts, verdict, signals)
+                           if verdict.puts else None))

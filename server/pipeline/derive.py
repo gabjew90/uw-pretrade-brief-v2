@@ -241,6 +241,7 @@ def _side_stats(alerts, opening_only: bool, spot: float | None,
             if last_side is not None and last_all is not None:
                 last_age_min = round((last_all - last_side).total_seconds() / 60, 1)
         out[sd] = {"opening_prem": round(prem),
+                   "n_prints": len(rows),
                    "ask_share": round(ask / total, 3) if total and has_split else None,
                    "top2_share": top2_share, "top2_dte_ok": top2_dte_ok,
                    "strike_band_ok": band_ok,
@@ -248,11 +249,12 @@ def _side_stats(alerts, opening_only: bool, spot: float | None,
     return out
 
 
-def _flow_timeline(alerts, opening_only: bool) -> tuple[list[dict], float | None]:
-    """(flow_series, late_pct): cumulative call/put premium of the basis set through the
-    session (ET, ≤48 points, keeps the last) + the share of premium arriving after 14:00.
-    WHEN the bets came is information the totals erase: an early lean the day kept
-    confirming reads differently from a last-hour pile-in."""
+def _flow_timeline(alerts, opening_only: bool) -> tuple[list[dict], float | None, dict]:
+    """(flow_series, late_pct, flow_marks): cumulative call/put premium of the basis set
+    through the session (ET, ≤48 points, keeps the last) + the share arriving after
+    14:00 + per-side dot marks for the flow strip ({i: index into the downsampled
+    series, size: premium normalized 0-1}, the side's top prints). WHEN the bets came
+    is information the totals erase."""
     rows = []
     for a in alerts:
         if not (_opening(a) or not opening_only):
@@ -275,10 +277,23 @@ def _flow_timeline(alerts, opening_only: bool) -> tuple[list[dict], float | None
             late += prem
         pts.append({"t": t.strftime("%H:%M"), "call": round(cum_c), "put": round(cum_p)})
     n = len(pts)
+    idxs = list(range(n))
     if n > 48:
         idxs = sorted({min(n - 1, int(i * n / 48)) for i in range(48)} | {n - 1})
         pts = [pts[i] for i in idxs]
-    return pts, (round(late / total * 100, 1) if total else None)
+    # dot marks: the side's biggest prints, mapped onto the kept indices
+    marks: dict = {}
+    for sd in ("call", "put"):
+        side_rows = [(orig_i, prem) for orig_i, (t, typ, prem) in enumerate(rows)
+                     if typ == sd]
+        top = sorted(side_rows, key=lambda r: -r[1])[:6]
+        mx = max((p for _, p in top), default=0.0)
+        out = []
+        for orig_i, prem in sorted(top):
+            kept = min(range(len(idxs)), key=lambda k: abs(idxs[k] - orig_i)) if idxs else 0
+            out.append({"i": kept, "size": round(prem / mx, 2) if mx else 0.0})
+        marks[sd] = out
+    return pts, (round(late / total * 100, 1) if total else None), marks
 
 
 @register("flow")
@@ -312,7 +327,7 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
         return [{"strike": k[0], "side": sd, "premium": round(by_ks[k])} for k in ks]
     win, lose = (call_prem, put_prem) if side == "call" else (put_prem, call_prem)
     lean_ratio, lean_q, lean_note = _lean_quality(win, lose)
-    flow_series, late_pct = _flow_timeline(alerts, opening_only)
+    flow_series, late_pct, flow_marks = _flow_timeline(alerts, opening_only)
     asof_d = date.fromisoformat(asof) if asof else None
     side_stats = _side_stats(alerts, opening_only, canon.get("spot"), asof_d)
     return Flow(direction="calls" if side == "call" else "puts", direction_basis=basis,
@@ -320,7 +335,8 @@ def derive_direction(canon: dict, *, asof: str | None = None) -> Flow:
                 lean_ratio=lean_ratio, lean_quality=lean_q, lean_note=lean_note,
                 top_strikes=_top("call") + _top("put"),
                 top_alerts=_alert_rows(alerts, opening_only),
-                flow_series=flow_series, late_pct=late_pct, side_stats=side_stats,
+                flow_series=flow_series, late_pct=late_pct, flow_marks=flow_marks,
+                side_stats=side_stats,
                 provenance=prov.derived(alerts[0].provenance))
 
 
@@ -919,6 +935,7 @@ def derive_catalyst(canon: dict, *, asof: str | None = None) -> Catalyst:
         after = next((d for d in dates if d > rd), None)
         if before and after and closes[before]:
             moves.append(abs(closes[after] / closes[before] - 1) * 100)
+    moves = [round(m, 1) for m in moves]
     hist = round(sum(moves) / len(moves), 2) if moves else None
     spot = canon.get("spot")
     chain = canon.get("atm_chain") or []
@@ -930,6 +947,7 @@ def derive_catalyst(canon: dict, *, asof: str | None = None) -> Catalyst:
             implied = round(sum(sorted(mids, reverse=True)[:2]) / spot * 100, 2)
     srcs = [b.provenance for b in bars[:1]] + [c.provenance for c in chain[:1]]
     return Catalyst(days_to_earnings=dte_e, report_date=nxt,
-                    implied_move_pct=implied, hist_move_pct=hist, quarters=len(moves),
+                    implied_move_pct=implied, hist_move_pct=hist, moves=moves,
+                    quarters=len(moves),
                     ratio=round(implied / hist, 2) if implied and hist else None,
                     provenance=prov.derived(*srcs) if srcs else Provenance())

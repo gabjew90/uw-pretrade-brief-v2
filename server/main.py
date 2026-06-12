@@ -62,11 +62,37 @@ def run_maintenance(token: str) -> dict:
     return maintenance.run_all()
 
 
+# Session view cache: /api/view fills it; the grid reads it. Verdicts on the landing
+# require full per-ticker builds, which the request-driven platform deliberately doesn't
+# sweep in the background ([[basic-platform]]) — so rows carry real n/N for names
+# evaluated this session, and unswept hot names sink to the bottom as 0/N unknown.
+_VIEWS: dict[str, ViewModel] = {}
+
+
 @app.get("/api/grid")
 def grid() -> dict:
-    """The hot-ticker landing grid (ONE cross-ticker flow-alerts call). Where a session
-    starts: which tickers does today's opening premium point at."""
-    return build_grid()
+    """GridVM (Present Contract Extensions §5): best direction per ticker, sorted n
+    desc, PERFECT pinned top — server-sorted. Hot names from ONE cross-ticker flow
+    call; n/N from the session view cache (on-demand tier: open a name to run its
+    gates)."""
+    hot = [r["ticker"] for r in (build_grid().get("rows") or [])]
+    rows = []
+    for t in dict.fromkeys(list(_VIEWS) + hot):
+        vm = _VIEWS.get(t)
+        if vm is not None and vm.best and (vm.calls or vm.puts):
+            d = vm.puts if vm.best == "puts" else vm.calls
+            rows.append({"ticker": t, "direction": d["direction"], "state": d["state"],
+                         "green": d["green"], "total": d["total"], "tag": d.get("tag")})
+        else:
+            rows.append({"ticker": t, "direction": "—", "state": "NOT NOW",
+                         "green": 0, "total": 4, "tag": None})
+    rows.sort(key=lambda r: (r["state"] != "PERFECT", -r["green"], r["ticker"]))
+    as_of = clock._et(None).strftime("%H:%M ET")
+    evaluated = sum(1 for r in rows if r["direction"] != "—")
+    return {"asOf": as_of,
+            "status": f"{len(rows)} hot names by opening premium · {evaluated} evaluated "
+                      "this session · open a name to run its gates (on-demand tier)",
+            "rows": rows}
 
 
 @app.get("/api/history/{ticker}")
@@ -92,8 +118,10 @@ def view(ticker: str) -> ViewModel:
     """Run the full pipeline for one ticker and return the view model. Ingest is
     governor-gated (live, or bronze in REPLAY); on failure the view degrades honestly
     (direction `unavailable`, never guessed). The browser renders this and computes
-    nothing (the one rule)."""
-    return build_view(ticker)
+    nothing (the one rule). Built views feed the landing grid's n/N (session cache)."""
+    vm = build_view(ticker)
+    _VIEWS[ticker.upper()] = vm
+    return vm
 
 
 @app.get("/")
