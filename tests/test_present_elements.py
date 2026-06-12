@@ -114,16 +114,9 @@ def test_why_ladder_marks_price_flip_wall_breakeven():
     assert "wall" in labels and "breakeven" in labels
 
 
-def test_default_render_has_exactly_one_chart():
-    """Acceptance: ONE svg on the default render (the flow sparkline); the ladder svg
-    lives inside the why-panel function only."""
-    src = (Path(__file__).parent.parent / "static" / "index.html").read_text(encoding="utf-8")
-    js = src.split("<script>", 1)[1]
-    spark_fn = js.split("function sparkline", 1)[1].split("function ", 1)[0]
-    ladder_fn = js.split("function ladderChart", 1)[1].split("function ", 1)[0]
-    assert spark_fn.count("<svg") == 1 and ladder_fn.count("<svg") == 1
-    rest = js.replace(spark_fn, "").replace(ladder_fn, "")
-    assert rest.count("<svg") == 0             # no other chart anywhere
+# (the old index.html one-svg parser test is superseded: the default-render chart
+# budget is enforced at the ViewModel layer by tests/test_present_snapshot.py and
+# in-page by static/js/uw-contract-tests.js)
 
 
 def test_series_carry_chart_data_for_the_future_ui():
