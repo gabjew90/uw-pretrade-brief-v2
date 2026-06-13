@@ -138,9 +138,12 @@ def g_dealer_fuel(direction, s) -> GateResult:
     subs.append(("negative gamma", dg.gex_sign == "NEG",
                  f"gamma {dg.gex_sign} (needs NEG)"))   # v1: quartile deferred (no panel)
     fd = getattr(dg, "flip_pct", None)
+    spot_p = getattr(dg, "spot", None)
+    flip_at = (f" at ${spot_p * (1 + fd / 100):,.0f}"
+               if fd is not None and spot_p else "")
     subs.append(("flip distance", None if fd is None else abs(fd) >= FLIP_DIST_MIN_PCT,
                  "no flip in range" if fd is None else
-                 f"flip {fd:+.1f}% away (needs >={FLIP_DIST_MIN_PCT:g}%)"))
+                 f"flip {fd:+.1f}% away{flip_at} (needs >={FLIP_DIST_MIN_PCT:g}%)"))
     em = getattr(cost, "expected_move_pct", None) if cost else None
     wall = (getattr(dg, "call_wall_pct", None) if direction == "calls"
             else getattr(dg, "put_wall_pct", None))

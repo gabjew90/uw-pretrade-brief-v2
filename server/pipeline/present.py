@@ -525,21 +525,39 @@ def _why(g, direction: str, signals: dict) -> dict:
                 else getattr(dg, "put_wall_pct", None)) if dg else None
         wsgn = 1 if direction == "calls" else -1
         em = getattr(cost, "expected_move_pct", None) if cost else None
+        spot_p = getattr(dg, "spot", None) if dg else None
         room = (f"{abs(wall) / em:.1f} expected moves of room"
                 if g.state == "GREEN" and wall is not None and em
                 else "fuel is on the other side today" if g.state == "RED"
                 else "")
         caption = ("market makers amplify the move from here" if g.state == "GREEN"
                    else "dealers would resist this move, not fuel it")
+        if spot_p:
+            # REAL price space: dollar labels, dollar geometry, gamma rungs as bars
+            flip_p = spot_p * (1 + (flip or 0.0) / 100)
+            wall_p = spot_p * (1 + wsgn * abs(wall) / 100) if wall is not None else spot_p
+            data = {"spot": spot_p, "flip": round(flip_p, 2), "wall": round(wall_p, 2),
+                    "spotLabel": f"${spot_p:,.2f}", "spotNote": "you are here",
+                    "flipLabel": f"${flip_p:,.0f}",
+                    "flipNote": (f"fuel off {'below' if direction == 'calls' else 'above'}"
+                                 f" · {abs(flip or 0):.1f}% away"),
+                    "wallLabel": f"${wall_p:,.0f}" if wall is not None else "n/a",
+                    "wallNote": "ceiling" if direction == "calls" else "floor",
+                    "roomLabel": room,
+                    # the per-strike net-gamma rungs (signed $bn) — drawn as bars
+                    "bars": [{"x": r["strike"], "v": r["net_b"]}
+                             for r in (getattr(dg, "ladder", None) or [])]}
+        else:
+            data = {"spot": 0.0, "flip": flip if flip is not None else 0.0,
+                    "wall": wsgn * abs(wall) if wall is not None else 0.0,
+                    "spotLabel": "price", "spotNote": "you are here",
+                    "flipLabel": f"{flip:+.1f}%" if flip is not None else "n/a",
+                    "flipNote": "fuel off below" if direction == "calls" else "fuel off above",
+                    "wallLabel": f"{wsgn * abs(wall):+.1f}%" if wall is not None else "n/a",
+                    "wallNote": "ceiling" if direction == "calls" else "floor",
+                    "roomLabel": room}
         return {"kind": "ladder", "caption": caption, "subtext": _subtext(g),
-                "data": {"spot": 0.0, "flip": flip if flip is not None else 0.0,
-                         "wall": wsgn * abs(wall) if wall is not None else 0.0,
-                         "spotLabel": "price", "spotNote": "you are here",
-                         "flipLabel": f"{flip:+.1f}%" if flip is not None else "n/a",
-                         "flipNote": "fuel off below" if direction == "calls" else "fuel off above",
-                         "wallLabel": f"{wsgn * abs(wall):+.1f}%" if wall is not None else "n/a",
-                         "wallNote": "ceiling" if direction == "calls" else "floor",
-                         "roomLabel": room}}
+                "data": data}
 
     if g.name == "cheap_vol":
         hv_d, iv_d = _daily_vol(getattr(v, "hv", None)), _daily_vol(getattr(v, "iv_front", None))

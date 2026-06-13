@@ -367,6 +367,7 @@ class DealerGamma(Signal):
     gamma = dealers pin/mean-revert (caps a directional verdict); NEG = amplify/trend.
     `flip_pct` = distance of the gamma flip from spot (%); walls bound the expected range."""
     gex_sign: Literal["POS", "NEG"] = "POS"
+    spot: Optional[float] = None                # the spot the read is anchored to ($)
     flip_pct: float = 0.0                       # (flip - spot) / spot * 100
     flip_status: Literal["ok", "no_flip", "unavailable"] = "unavailable"
     call_wall_pct: Optional[float] = None       # call wall distance above spot (%); None = n/a

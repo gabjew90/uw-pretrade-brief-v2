@@ -482,7 +482,7 @@ def derive_dealer_gamma(canon: dict, *, asof: str | None = None) -> DealerGamma:
               for r in near[::step]]
 
     return DealerGamma(
-        gex_sign="POS" if agg >= 0 else "NEG",
+        gex_sign="POS" if agg >= 0 else "NEG", spot=round(spot, 2),
         flip_pct=(flip - spot) / spot * 100, flip_status=flip_status,
         call_wall_pct=(cwall.strike - spot) / spot * 100 if cwall else None,
         put_wall_pct=(spot - pwall.strike) / spot * 100 if pwall else None,
