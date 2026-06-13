@@ -42,24 +42,27 @@ function FlowSession({ pts, alerts, total, startNote, endNote, state, width = 28
   );
 }
 
-/* strike ladder: dot "you are here", flip below, ceiling above, shaded room.
-   Optional `bars` (server-sent per-strike net gamma {x, v}) render as faint rungs
-   behind the markers — operator amendment 2026-06-13; padding scales with price so
-   real dollar geometry doesn't squash (1.2 was tuned for ~$140 fixtures). */
+/* strike ladder: dot "you are here", flip below, ceiling above, shaded room — over
+   the per-strike net-gamma profile (server-sent {x, v} rungs): green up = dealers
+   pin there, red down = dealers amplify. Operator amendment 2026-06-13: the bars
+   are the terrain, drawn bold across spot ±3% (wider if flip/wall sit outside);
+   padding scales with price so real dollar geometry doesn't squash. */
 function Ladder({ spot, flip, wall, spotLabel, spotNote, flipLabel, flipNote, wallLabel, wallNote, roomLabel, bars, state }) {
   const w = 280, h = 88, pad = 38;
-  const padV = Math.max(1.2, spot * 0.006);
-  const lo = Math.min(flip, spot, wall) - padV, hi = Math.max(flip, spot, wall) + padV;
+  const padV = Math.max(1.2, spot * 0.004);
+  let lo = Math.min(flip, spot, wall) - padV, hi = Math.max(flip, spot, wall) + padV;
+  if (bars && bars.length) { lo = Math.min(lo, spot * 0.97); hi = Math.max(hi, spot * 1.03); }
   const X = (p) => pad + ((p - lo) / (hi - lo)) * (w - pad * 2);
   const zoneA = Math.min(X(spot), X(wall)), zoneW = Math.abs(X(wall) - X(spot));
   const rungs = (bars || []).filter((b) => b.x >= lo && b.x <= hi);
   const vMax = Math.max(...rungs.map((b) => Math.abs(b.v)), 0) || 1;
+  const bw = rungs.length ? Math.max(2.2, ((w - pad * 2) / rungs.length) * 0.62) : 0;
   return (
     <svg data-microvisual="ladder" width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
       <rect x={zoneA} y="32" width={zoneW} height="14" fill={state === "green" ? UW.green : UW.gray} opacity="0.14"></rect>
       {rungs.map((b, i) => {
-        const bh = Math.max((Math.abs(b.v) / vMax) * 15, 1);
-        return <rect key={i} x={X(b.x) - 1.4} y={b.v >= 0 ? 39 - bh : 39} width="2.8" height={bh} fill={b.v >= 0 ? UW.green : UW.red} opacity="0.3"></rect>;
+        const bh = Math.max((Math.abs(b.v) / vMax) * 21, 1.5);
+        return <rect key={i} x={X(b.x) - bw / 2} y={b.v >= 0 ? 39 - bh : 39} width={bw} height={bh} rx="1" fill={b.v >= 0 ? UW.green : UW.red} opacity="0.55"></rect>;
       })}
       <line x1={pad} y1="39" x2={w - pad} y2="39" stroke={UW.faint} strokeWidth="1.5"></line>
       <line x1={X(flip)} y1="26" x2={X(flip)} y2="52" stroke={UW.amber} strokeWidth="1.5"></line>
