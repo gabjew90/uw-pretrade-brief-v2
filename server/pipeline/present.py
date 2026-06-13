@@ -539,8 +539,7 @@ def _why(g, direction: str, signals: dict) -> dict:
             data = {"spot": spot_p, "flip": round(flip_p, 2), "wall": round(wall_p, 2),
                     "spotLabel": f"${spot_p:,.2f}", "spotNote": "you are here",
                     "flipLabel": f"${flip_p:,.0f}",
-                    "flipNote": (f"fuel off {'below' if direction == 'calls' else 'above'}"
-                                 f" · {abs(flip or 0):.1f}% away"),
+                    "flipNote": f"fuel off {'below' if direction == 'calls' else 'above'}",
                     "wallLabel": f"${wall_p:,.0f}" if wall is not None else "n/a",
                     "wallNote": "ceiling" if direction == "calls" else "floor",
                     "roomLabel": room,
