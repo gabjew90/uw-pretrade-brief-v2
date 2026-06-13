@@ -122,8 +122,9 @@ def g_smart_flow(direction, s) -> GateResult:
     else:
         subs.append(("still building",
                      nvh >= BUILD_NET_VS_HIGH_MIN and age <= BUILD_LAST_PRINT_MAX_MIN,
-                     f"net {nvh:.0%} of session high, last print {age:.0f}m ago "
-                     f"(needs >={BUILD_NET_VS_HIGH_MIN:.0%} and <={BUILD_LAST_PRINT_MAX_MIN:g}m)"))
+                     f"net {nvh:.0%} of session high, last buy {age:.0f}m before the "
+                     f"session's final print (needs >={BUILD_NET_VS_HIGH_MIN:.0%} and "
+                     f"<={BUILD_LAST_PRINT_MAX_MIN:g}m)"))
     return _gate("smart_flow", subs, flow.provenance)
 
 

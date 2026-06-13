@@ -442,11 +442,21 @@ def _flow_strip(direction: str, flow) -> dict | None:
     sgn = 1 if direction == "calls" else -1
     st = (flow.side_stats or {}).get(side) or {}
     age = st.get("last_age_min")
+    # minutes are DATA-anchored (vs the session's newest print, replay-deterministic and
+    # meaningful for the evening/pre-market read) — the label says so honestly instead
+    # of implying wall-clock "now" ("last buy 0m ago" at midnight was a lie)
+    end_t = _ampm(flow.flow_series[-1]["t"])
+    if age is None:
+        end_note = f"thru {end_t}"
+    elif age < 1:
+        end_note = f"thru {end_t} · bought into the last print"
+    else:
+        end_note = f"thru {end_t} · last buy {age:.0f}m before that"
     return {"pts": [float((p["call"] - p["put"]) * sgn) for p in flow.flow_series],
             "alerts": (flow.flow_marks or {}).get(side, []),
             "total": _money(st.get("opening_prem", 0)),
             "startNote": _ampm(flow.flow_series[0]["t"]),
-            "endNote": (f"now · last buy {age:.0f}m ago" if age is not None else "now"),
+            "endNote": end_note,
             "buildFrac": BUILD_NET_VS_HIGH_MIN}
 
 

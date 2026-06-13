@@ -34,7 +34,7 @@
             }
           ],
           "buildFrac": 0.9,
-          "endNote": "now \u00b7 last buy 0m ago",
+          "endNote": "thru 11:02a \u00b7 bought into the last print",
           "pts": [
             194175.0,
             -209027.0,
@@ -103,7 +103,7 @@
             "threshPct": 70
           },
           "kind": "tug",
-          "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 15% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 expiry/strike read incomplete \u00b7 net -1560% of session high, last print 0m ago (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
+          "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 15% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 expiry/strike read incomplete \u00b7 net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
         }
       },
       {
@@ -660,7 +660,7 @@
             }
           ],
           "buildFrac": 0.9,
-          "endNote": "now \u00b7 last buy 5m ago",
+          "endNote": "thru 11:02a \u00b7 last buy 5m before that",
           "pts": [
             -194175.0,
             209027.0,
@@ -729,7 +729,7 @@
             "threshPct": 70
           },
           "kind": "tug",
-          "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 35% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 lean 1.5:1 weak \u00b7 expiry/strike read incomplete \u00b7 OI unconfirmed \u00b7 net 58% of session high, last print 5m ago (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
+          "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 35% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 lean 1.5:1 weak \u00b7 expiry/strike read incomplete \u00b7 OI unconfirmed \u00b7 net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
         }
       },
       {
@@ -913,7 +913,7 @@
             "ask-side 15% of $15.4M (needs >=70%)",
             "$15.4M opening (needs >=$1M)",
             "expiry/strike read incomplete",
-            "net -1560% of session high, last print 0m ago (needs >=90% and <=90m)"
+            "net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m)"
           ]
         },
         {
@@ -1026,7 +1026,7 @@
             "lean 1.5:1 weak",
             "expiry/strike read incomplete",
             "OI unconfirmed",
-            "net 58% of session high, last print 5m ago (needs >=90% and <=90m)"
+            "net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m)"
           ]
         },
         {
