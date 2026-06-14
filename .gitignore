@@ -17,6 +17,7 @@ uw_budget.json
 # Playwright / QC artifacts
 .playwright-mcp/
 *.png
+!docs/img/*.png      # README assets are committed
 
 # OS / editor
 .DS_Store
