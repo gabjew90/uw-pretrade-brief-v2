@@ -582,8 +582,19 @@ def _why(g, direction: str, signals: dict) -> dict:
         be = getattr(cost, "breakeven_move_pct", None) if cost else None
         em = getattr(cost, "expected_move_pct", None) if cost else None
         spread = getattr(cost, "spread_pct", None) if cost else None
-        caption = ("the entry toll is already counted in your breakeven"
-                   if g.state == "GREEN" else "the entry costs more than the edge")
+        rationale = ("the entry toll is already counted in your breakeven"
+                     if g.state == "GREEN" else "the entry costs more than the edge")
+        # lead with the ACTUAL contract + max loss so the picker is always reachable in
+        # one tap (the surface numbers block stays gated to near-PERFECT; the contract
+        # identity is a value of this gate and belongs in its why-panel)
+        ct = (cost.contract or {}) if cost else {}
+        if ct.get("ask"):
+            cp = "CALL" if ct.get("type") == "call" else "PUT"
+            exp = str(ct.get("expiry") or "")[5:].replace("-", "/")
+            caption = (f"the pick: ${ct['strike']:g} {cp} {exp} · ask ${ct['ask']:.2f} · "
+                       f"max loss ${ct['ask'] * 100:,.0f}/contract — {rationale}")
+        else:
+            caption = rationale
         return {"kind": "runway", "caption": caption, "subtext": _subtext(g),
                 "data": {"needPct": be or 0.0, "expectPct": em or 0.0,
                          "tollPct": spread or 0.0, "passFrac": BE_EM_MAX,
