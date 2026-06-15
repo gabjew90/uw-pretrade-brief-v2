@@ -75,17 +75,24 @@ def grid() -> dict:
     desc, PERFECT pinned top — server-sorted. Hot names from ONE cross-ticker flow
     call; n/N from the session view cache (on-demand tier: open a name to run its
     gates)."""
-    hot = [r["ticker"] for r in (build_grid().get("rows") or [])]
+    hot_rows = build_grid().get("rows") or []
+    meta = {r["ticker"]: r for r in hot_rows}      # premium/split/alerts per ticker
     rows = []
-    for t in dict.fromkeys(list(_VIEWS) + hot):
+    for t in dict.fromkeys(list(_VIEWS) + [r["ticker"] for r in hot_rows]):
+        m = meta.get(t, {})
+        # the flow context the grid already computes (opening premium, side split, alerts)
+        row = {"ticker": t, "premium_fmt": m.get("premium_fmt"),
+               "call_fmt": m.get("call_fmt"), "put_fmt": m.get("put_fmt"),
+               "alerts": m.get("alerts")}
         vm = _VIEWS.get(t)
         if vm is not None and vm.best and (vm.calls or vm.puts):
             d = vm.puts if vm.best == "puts" else vm.calls
-            rows.append({"ticker": t, "direction": d["direction"], "state": d["state"],
-                         "green": d["green"], "total": d["total"], "tag": d.get("tag")})
+            row.update({"direction": d["direction"], "state": d["state"],
+                        "green": d["green"], "total": d["total"], "tag": d.get("tag")})
         else:
-            rows.append({"ticker": t, "direction": "—", "state": "NOT NOW",
-                         "green": 0, "total": 4, "tag": None})
+            row.update({"direction": "—", "state": "NOT NOW",
+                        "green": 0, "total": 4, "tag": None})
+        rows.append(row)
     rows.sort(key=lambda r: (r["state"] != "PERFECT", -r["green"], r["ticker"]))
     as_of = clock._et(None).strftime("%H:%M ET")
     evaluated = sum(1 for r in rows if r["direction"] != "—")

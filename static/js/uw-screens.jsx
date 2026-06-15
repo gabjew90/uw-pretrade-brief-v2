@@ -33,9 +33,18 @@ function ScannerLanding({ grid, onOpen }) {
               borderRadius: 10, padding: "13px 16px", cursor: "pointer", color: UW.text,
             }}>
               <span style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 16, letterSpacing: 1.5, width: 64, flexShrink: 0 }}>{r.ticker}</span>
-              <span style={{ fontFamily: FONT_HEAD, fontSize: 12, letterSpacing: 2, color: UW.dim }}>{r.direction}</span>
-              {r.tag && <span style={{ fontFamily: FONT_HEAD, fontSize: 10, letterSpacing: 1.5, color: UW.amber }}>{r.tag}</span>}
-              <span style={{ marginLeft: "auto", fontFamily: perfect ? FONT_HEAD : FONT_MONO, fontSize: perfect ? 14 : 16, letterSpacing: perfect ? 2 : 0, color: perfect ? UW.green : UW.dim, textShadow: perfect ? `0 0 12px ${UW.green}55` : "none", fontWeight: perfect ? 700 : 400 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: FONT_HEAD, fontSize: 12, letterSpacing: 2, color: UW.dim }}>{r.direction}</span>
+                  {r.tag && <span style={{ fontFamily: FONT_HEAD, fontSize: 10, letterSpacing: 1.5, color: UW.amber }}>{r.tag}</span>}
+                </div>
+                {r.premium_fmt && (
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: UW.dim }}>
+                    {r.premium_fmt} opening · {r.call_fmt} c / {r.put_fmt} p · {r.alerts} alerts
+                  </span>
+                )}
+              </div>
+              <span style={{ marginLeft: "auto", flexShrink: 0, fontFamily: perfect ? FONT_HEAD : FONT_MONO, fontSize: perfect ? 14 : 16, letterSpacing: perfect ? 2 : 0, color: perfect ? UW.green : UW.dim, textShadow: perfect ? `0 0 12px ${UW.green}55` : "none", fontWeight: perfect ? 700 : 400 }}>
                 {perfect ? "PERFECT" : <React.Fragment>{r.green}<span style={{ color: UW.faint }}>/{r.total}</span></React.Fragment>}
               </span>
             </button>

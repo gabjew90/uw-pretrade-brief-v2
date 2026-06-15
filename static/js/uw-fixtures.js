@@ -330,11 +330,11 @@ const UW_GRID = {
   asOf: "12:42 PT",
   status: "Swept 18 names · refreshed 12:42 PT · next sweep 13:00",
   rows: [
-    { ticker: "NVDA", direction: "CALLS", state: "PERFECT", green: 4, total: 4, tag: null },
-    { ticker: "ORCL", direction: "PUTS", state: "NOT NOW", green: 3, total: 4, tag: "EARNINGS THU" },
-    { ticker: "AMD", direction: "CALLS", state: "NOT NOW", green: 3, total: 4, tag: null },
-    { ticker: "GME", direction: "PUTS", state: "NOT NOW", green: 3, total: 5, tag: null },
-    { ticker: "SPY", direction: "PUTS", state: "NOT NOW", green: 0, total: 5, tag: null },
+    { ticker: "NVDA", direction: "CALLS", state: "PERFECT", green: 4, total: 4, tag: null, premium_fmt: "$5.1M", call_fmt: "$4.2M", put_fmt: "$0.9M", alerts: 6 },
+    { ticker: "ORCL", direction: "PUTS", state: "NOT NOW", green: 3, total: 4, tag: "EARNINGS THU", premium_fmt: "$3.3M", call_fmt: "$0.6M", put_fmt: "$2.7M", alerts: 5 },
+    { ticker: "AMD", direction: "CALLS", state: "NOT NOW", green: 3, total: 4, tag: null, premium_fmt: "$2.2M", call_fmt: "$1.8M", put_fmt: "$0.4M", alerts: 4 },
+    { ticker: "GME", direction: "PUTS", state: "NOT NOW", green: 3, total: 5, tag: null, premium_fmt: "$6.5M", call_fmt: "$1.4M", put_fmt: "$5.1M", alerts: 5 },
+    { ticker: "SPY", direction: "PUTS", state: "NOT NOW", green: 0, total: 5, tag: null, premium_fmt: "$15.4M", call_fmt: "$6.2M", put_fmt: "$9.2M", alerts: 4 },
   ],
 };
 
