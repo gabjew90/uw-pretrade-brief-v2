@@ -94,9 +94,16 @@ def g_smart_flow(direction, s) -> GateResult:
     subs.append(("opening basis", flow.direction_basis == "opening_flow",
                  f"basis {flow.direction_basis} (needs opening flow)"))
     ask = st.get("ask_share")
-    subs.append(("ask-side share", None if ask is None else ask >= ASK_SHARE_MIN,
-                 "no ask/bid split" if ask is None else
-                 f"ask-side {ask:.0%} of ${total/1e6:.1f}M (needs >={ASK_SHARE_MIN:.0%})"))
+    side_prem = st.get("opening_prem", 0) or 0
+    if total > 0 and side_prem <= 0:
+        # the money is entirely on the OTHER side — a measurable fail (RED), not unknown
+        # (DARK). Without this a one-sided name reads "NO DATA" on its empty side.
+        subs.append(("ask-side share", False,
+                     f"$0 {direction} of ${total/1e6:.1f}M opening — all the other side"))
+    else:
+        subs.append(("ask-side share", None if ask is None else ask >= ASK_SHARE_MIN,
+                     "no ask/bid split" if ask is None else
+                     f"ask-side {ask:.0%} of ${total/1e6:.1f}M (needs >={ASK_SHARE_MIN:.0%})"))
     subs.append(("size", total >= PREM_FLOOR_USD,
                  f"${total/1e6:.1f}M opening (needs >=${PREM_FLOOR_USD/1e6:g}M)"))
     if flow.direction == direction:
