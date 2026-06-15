@@ -549,12 +549,22 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
     contract_d = None
     candidates: list[dict] = []
     greeks = canon.get("greeks") or []
-    pick = _pick_contract(contracts, side, spot, asof_d)
-    if pick:
-        contract_d = _contract_metrics(pick, side, spot, asof_d, iv, greeks)
+    greeks_by_exp = canon.get("greeks_by_expiry") or {}
+    # price BOTH directions (the good_entry gate runs per side), each with the greeks sheet
+    # for its own pick's expiry; flow side stays the primary `contract` for the numbers row
+    metrics: dict = {}
+    for s in ("call", "put"):
+        p = _pick_contract(contracts, s, spot, asof_d)
+        if p:
+            gk = greeks_by_exp.get(p.expiry) or (greeks if s == side else [])
+            metrics[s] = _contract_metrics(p, s, spot, asof_d, iv, gk)
+    contract_d = metrics.get(side) if side in ("call", "put") else None
+    pick = _pick_contract(contracts, side, spot, asof_d) if side in ("call", "put") else None
+    if contract_d:
         spread_pct, be_pct, em_pct = (contract_d.get("spread_pct"),
                                       contract_d.get("breakeven_move_pct"),
                                       contract_d.get("expected_move_pct"))
+    if pick:
         candidates = _candidate_metrics(contracts, pick, side, spot, asof_d, iv, greeks)
     tradeable = spread_pct is not None and be_pct is not None and em_pct is not None
     front_iv, back_iv, inverted = _term_overpay(canon.get("term_structure"))
@@ -627,7 +637,7 @@ def derive_cost(canon: dict, *, asof: str | None = None) -> Cost:
                   if t.volatility is not None and t.dte <= 90]
     return Cost(guard=guard, ivr=ivr, days_to_earnings=dte_e, event_within_hold=event,
                 spread_pct=spread_pct, breakeven_move_pct=be_pct, expected_move_pct=em_pct,
-                contract=contract_d, candidates=candidates, front_iv=front_iv,
+                contract=contract_d, contracts=metrics, candidates=candidates, front_iv=front_iv,
                 back_iv=back_iv, term_inverted=inverted, term_curve=term_curve,
                 macro_days=canon.get("macro_days"), macro_name=canon.get("macro_name"),
                 # both calendars must have been FETCHED ok — an absent fetch is unknown,

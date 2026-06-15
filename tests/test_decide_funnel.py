@@ -23,6 +23,12 @@ def _all_green(direction="calls"):
     side = "calls" if direction == "calls" else "puts"
     stats = _stats() if side == "calls" else _stats(prem_c=5e5, prem_p=5e6,
                                                     ask_c=0.05, ask_p=0.8)
+    # one dict shared by contract + contracts[side] so tests that mutate cost.contract[...]
+    # still drive the per-direction good_entry gate
+    ctype = "call" if side == "calls" else "put"
+    c_metrics = {"type": ctype, "strike": 600, "expiry": "2026-06-19", "dte": 7, "ask": 2.5,
+                 "delta": 0.45, "theta_day_pct": 6.0, "spread_pct": 3.0,
+                 "breakeven_move_pct": 0.8, "expected_move_pct": 1.5}
     return {
         "flow": Flow(direction=side, direction_basis="opening_flow",
                      call_prem=5e6 if side == "calls" else 5e5,
@@ -34,9 +40,7 @@ def _all_green(direction="calls"):
                                     call_wall_pct=2.5, put_wall_pct=2.5),
         "cost": Cost(guard="ok", ivr=25, spread_pct=3.0, breakeven_move_pct=0.8,
                      expected_move_pct=1.5, calendar_ok=True,
-                     contract={"type": "call" if side == "calls" else "put", "strike": 600,
-                               "expiry": "2026-06-19", "dte": 7, "ask": 2.5,
-                               "delta": 0.45, "theta_day_pct": 6.0}),
+                     contract=c_metrics, contracts={ctype: c_metrics}),
         "vol": Vol(ivr=25, hv=0.22, iv_front=0.20, hv_iv_ratio=1.1, term_slope=0.01,
                    iv_spike_pct=2.0),
         "shorts": Shorts(ftd_latest=100, ftd_pctile=40.0),
@@ -214,7 +218,7 @@ def test_failed_calendar_darkens_cheap_vol_never_green():
 
 def test_delta_floor_relaxes_only_when_fueled():
     s = _sigs("calls")
-    s["cost"].contract["delta"] = 0.37
+    s["cost"].contracts["call"]["delta"] = 0.37    # the per-direction pick the gate reads
     assert _gate(decide(s), "calls", "good_entry").state == "GREEN"   # fueled: floor 0.35
     s["dealer_gamma"] = DealerGamma(gex_sign="POS", flip_status="ok", flip_pct=1.0,
                                     call_wall_pct=2.5, put_wall_pct=2.5)

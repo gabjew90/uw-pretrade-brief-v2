@@ -185,20 +185,23 @@ def g_cheap_vol(direction, s) -> GateResult:
     return _gate("cheap_vol", subs, getattr(v, "provenance", None))
 
 
-# ── gate 4: good_entry (the cost math, unchanged) ─────────────────────────────
+# ── gate 4: good_entry (the cost math, PER DIRECTION) ─────────────────────────
 def g_good_entry(direction, s, *, fueled: bool) -> GateResult:
-    cost, flow = s.get("cost"), s.get("flow")
-    if getattr(flow, "direction", None) != direction:
-        return _gate("good_entry", [("contract", None, "no contract priced for this side")])
-    if cost is None or cost.spread_pct is None:
+    cost = s.get("cost")
+    side = _side(direction)
+    ct = (getattr(cost, "contracts", None) or {}).get(side) if cost else None
+    if not ct:
+        return _gate("good_entry", [("contract", None, "no contract priced for this side")],
+                     getattr(cost, "provenance", None))
+    spread = ct.get("spread_pct")
+    if spread is None:
         return _gate("good_entry", [("chain", None, "no chain to price")],
                      getattr(cost, "provenance", None))
-    ct = cost.contract or {}
     d, th = ct.get("delta"), ct.get("theta_day_pct")
-    be, em = cost.breakeven_move_pct, cost.expected_move_pct
+    be, em = ct.get("breakeven_move_pct"), ct.get("expected_move_pct")
     subs: list[tuple] = []
-    subs.append(("spread", cost.spread_pct <= SPREAD_MAX_PCT,
-                 f"spread {cost.spread_pct:.0f}% (needs <={SPREAD_MAX_PCT:g}%)"))
+    subs.append(("spread", spread <= SPREAD_MAX_PCT,
+                 f"spread {spread:.0f}% (needs <={SPREAD_MAX_PCT:g}%)"))
     be_ok = None if (be is None or not em) else be <= BE_EM_MAX * em
     subs.append(("breakeven", be_ok,
                  "breakeven/move unknown" if be_ok is None else

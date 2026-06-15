@@ -403,7 +403,10 @@ class Cost(Signal):
     spread_pct: Optional[float] = None          # round-trip spread, % of premium
     breakeven_move_pct: Optional[float] = None  # underlying move % needed to break even
     expected_move_pct: Optional[float] = None   # move % the options are pricing (implied)
-    contract: Optional[dict] = None             # the realistic contract evaluated (+greeks)
+    contract: Optional[dict] = None             # the flow-side contract evaluated (+greeks)
+    contracts: dict = Field(default_factory=dict)   # {"call": {...}|None, "put": {...}|None}
+    # — the realistic pick PER DIRECTION, so the good_entry gate prices both sides (you can
+    # see the contract for whichever way you're considering, not just the flow side)
     candidates: list[dict] = Field(default_factory=list)   # nearby alternatives w/ metrics
     front_iv: Optional[float] = None            # near-dated IV (term-structure overpay check)
     back_iv: Optional[float] = None             # ~30d IV

@@ -37,6 +37,20 @@ def _tradeable(*, ivr_pct=0.40, side="call", strike=100.0, bid=1.00, ask=1.05,
             _contract(side, strike, bid, ask), "flow_side": side, "spot": spot}
 
 
+# ── both directions priced (so good_entry can show the call AND the put) ──────
+def test_prices_both_directions_not_just_flow_side():
+    """The chain has calls and puts; cost.contracts carries a pick for each side, so the
+    non-flow direction's good_entry isn't a dead 'no contract priced'."""
+    canon = {"iv_term": _term((30, 0.40)), "flow_side": "put", "spot": 100.0,
+             "option_contracts": [
+                 OptionContract(type="call", strike=100.0, expiry="2026-06-12", bid=1.0, ask=1.05),
+                 OptionContract(type="put", strike=100.0, expiry="2026-06-12", bid=1.0, ask=1.05)]}
+    c = derive_cost(canon, asof=ASOF)
+    assert set(c.contracts) == {"call", "put"}
+    assert c.contracts["call"]["type"] == "call" and c.contracts["put"]["type"] == "put"
+    assert c.contract == c.contracts["put"]        # flow side stays the primary contract
+
+
 # ── IV-rank bands (chain present so gate is evaluable) ────────────────────────
 def test_low_ivr_with_tradeable_chain_is_ok():
     c = derive_cost(_tradeable(ivr_pct=0.40), asof=ASOF)

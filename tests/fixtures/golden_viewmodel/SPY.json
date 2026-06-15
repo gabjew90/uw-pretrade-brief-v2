@@ -772,7 +772,7 @@
           "caption": null,
           "kind": null,
           "missing": [
-            "no chain to price"
+            "no contract priced for this side"
           ],
           "subtext": "derived \u00b7 no as_of"
         }
@@ -967,8 +967,8 @@
           "name": "good_entry",
           "provenance": {
             "as_of": null,
-            "note": "",
-            "quality": "real",
+            "note": "no interpolated-iv",
+            "quality": "unavailable",
             "source": "derived"
           },
           "state": "DARK",
@@ -1075,7 +1075,7 @@
           "failed_subcriteria": [],
           "label": "You're not overpaying to get in",
           "missing": [
-            "no chain to price"
+            "no contract priced for this side"
           ],
           "name": "good_entry",
           "provenance": {
@@ -1086,7 +1086,7 @@
           },
           "state": "DARK",
           "values": [
-            "no chain to price"
+            "no contract priced for this side"
           ]
         },
         {

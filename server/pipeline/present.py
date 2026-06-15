@@ -579,15 +579,17 @@ def _why(g, direction: str, signals: dict) -> dict:
                          "rankPassMax": IVR_MAX}}
 
     if g.name == "good_entry":
-        be = getattr(cost, "breakeven_move_pct", None) if cost else None
-        em = getattr(cost, "expected_move_pct", None) if cost else None
-        spread = getattr(cost, "spread_pct", None) if cost else None
+        # PER DIRECTION: this card's own side's pick (so the call card shows the call,
+        # the put card shows the put — not just the flow side)
+        side = "call" if direction == "calls" else "put"
+        ct = (getattr(cost, "contracts", None) or {}).get(side) or {}
+        be, em, spread = (ct.get("breakeven_move_pct"), ct.get("expected_move_pct"),
+                          ct.get("spread_pct"))
         rationale = ("the entry toll is already counted in your breakeven"
                      if g.state == "GREEN" else "the entry costs more than the edge")
         # lead with the ACTUAL contract + max loss so the picker is always reachable in
         # one tap (the surface numbers block stays gated to near-PERFECT; the contract
         # identity is a value of this gate and belongs in its why-panel)
-        ct = (cost.contract or {}) if cost else {}
         if ct.get("ask"):
             cp = "CALL" if ct.get("type") == "call" else "PUT"
             exp = str(ct.get("expiry") or "")[5:].replace("-", "/")

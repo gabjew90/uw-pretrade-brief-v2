@@ -333,11 +333,20 @@ def build_canon(ticker: str, *, asof: str, now: datetime) -> dict:
         canon["flow_strikes"] = _flow_cluster(sess_alerts, side, asof_d)
         canon["contract_oi"] = _cluster_contract_oi(canon["option_contracts"], side,
                                                     canon["flow_strikes"], asof_d)
-        # greeks for the pick's expiry → delta band + theta drag on the contract guidance
-        pick = _pick_contract(canon["option_contracts"], side, canon["spot"] or 0.0, asof_d)
-        if pick:
-            canon["greeks"] = _fetch_norm(f"/stock/{ticker}/greeks",
-                                          {"expiry": pick.expiry}, ticker, Priority.NORMAL)
+        # greeks for BOTH directions' picks (delta band + theta drag), so good_entry can
+        # price the call AND the put — you see the contract for whichever way you're
+        # weighing, not just the flow side. One fetch per distinct expiry (often 1).
+        spot_v = canon["spot"] or 0.0
+        gbe: dict = {}
+        for s in ("call", "put"):
+            p = _pick_contract(canon["option_contracts"], s, spot_v, asof_d)
+            if p and p.expiry not in gbe:
+                gbe[p.expiry] = _fetch_norm(f"/stock/{ticker}/greeks",
+                                            {"expiry": p.expiry}, ticker, Priority.NORMAL)
+        canon["greeks_by_expiry"] = gbe
+        flow_pick = _pick_contract(canon["option_contracts"], side, spot_v, asof_d)
+        if flow_pick:                            # keep flow-side greeks for legacy readers
+            canon["greeks"] = gbe.get(flow_pick.expiry, [])
 
     earnings = _fetch_raw(f"/stock/{ticker}/earnings", ticker, Priority.LOW)
     canon["days_to_earnings"] = _days_to_earnings(earnings, now)
