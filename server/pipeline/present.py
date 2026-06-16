@@ -504,18 +504,33 @@ def _why(g, direction: str, signals: dict) -> dict:
             "call" if direction == "calls" else "put") or {}
         ost = (getattr(flow, "side_stats", None) or {}).get(
             "call" if direction == "puts" else "put") or {}
-        total = (st.get("opening_prem", 0) or 0) + (ost.get("opening_prem", 0) or 0)
-        left = round(st.get("opening_prem", 0) / total * 100) if total else 0
+        side_prem = st.get("opening_prem", 0) or 0
+        other_prem = ost.get("opening_prem", 0) or 0
+        total = side_prem + other_prem
+        dom = round(side_prem / total * 100) if total else 0          # premium dominance
+        ask = st.get("ask_share")                                    # the GATED metric
+        # The 70% line gates AGGRESSIVE buying (ask-side share, Hu 2014) — NOT the premium
+        # split. Plot the gated metric so the bar matches the line; carry the dominance in
+        # the caption (a name can dominate on premium yet fail on aggression — TSLA: calls
+        # lead 4.5:1 but only 36% hit the ask).
+        askpct = round(ask * 100) if ask is not None else 0
+        ratio = f"{side_prem / other_prem:.1f}:1" if other_prem else "one-sided"
+        dom_line = f"{_money(side_prem)} {direction} vs {_money(other_prem)} {other} ({ratio})"
         if g.state == "GREEN":
-            caption = f"{st.get('n_prints', 0)} qualifying {direction} prints since the open"
+            caption = f"{dom_line} — and {askpct}% bought at the ask"
         elif getattr(flow, "direction", None) not in (direction, None):
-            caption = "the money is on the other side today"
+            caption = f"the money is on the other side today ({dom_line})"
+        elif ask is not None and ask < ASK_SHARE_MIN:
+            caption = (f"{dom_line}, but only {askpct}% was aggressive buying — "
+                       f"needs {ASK_SHARE_MIN:.0%} at the ask")
         else:
-            caption = "a lean, but it fails its own bar — see the checks"
+            caption = f"{dom_line}, but it fails its own bar — see the checks"
         return {"kind": "tug", "caption": caption, "subtext": _subtext(g),
-                "data": {"leftPct": left,
-                         "leftLabel": f"{_money(st.get('opening_prem', 0))} {direction} ({left}%)",
-                         "rightLabel": f"{_money(ost.get('opening_prem', 0))} {other}",
+                "data": {"leftPct": askpct,
+                         "leftLabel": (f"{askpct}% bought at ask" if ask is not None
+                                       else "ask/bid split n/a"),
+                         "rightLabel": (f"{100 - askpct}% bid/neutral" if ask is not None
+                                        else f"{dom}% {direction} of premium"),
                          "threshPct": round(ASK_SHARE_MIN * 100),
                          "threshLabel": f"{ASK_SHARE_MIN:.0%} needed"}}
 

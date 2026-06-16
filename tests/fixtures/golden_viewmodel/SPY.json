@@ -94,11 +94,11 @@
         "short": "smart money",
         "state": "red",
         "why": {
-          "caption": "the money is on the other side today",
+          "caption": "the money is on the other side today ($6.2M calls vs $9.2M puts (0.7:1))",
           "data": {
-            "leftLabel": "$6.2M calls (40%)",
-            "leftPct": 40,
-            "rightLabel": "$9.2M puts",
+            "leftLabel": "15% bought at ask",
+            "leftPct": 15,
+            "rightLabel": "85% bid/neutral",
             "threshLabel": "70% needed",
             "threshPct": 70
           },
@@ -720,11 +720,11 @@
         "short": "smart money",
         "state": "red",
         "why": {
-          "caption": "a lean, but it fails its own bar \u2014 see the checks",
+          "caption": "$9.2M puts vs $6.2M calls (1.5:1), but only 35% was aggressive buying \u2014 needs 70% at the ask",
           "data": {
-            "leftLabel": "$9.2M puts (60%)",
-            "leftPct": 60,
-            "rightLabel": "$6.2M calls",
+            "leftLabel": "35% bought at ask",
+            "leftPct": 35,
+            "rightLabel": "65% bid/neutral",
             "threshLabel": "70% needed",
             "threshPct": 70
           },
