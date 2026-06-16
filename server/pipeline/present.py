@@ -405,7 +405,9 @@ def _price_el(candles: list[dict], provenance) -> Element:
 # is pixel geometry. Threshold constants that feed visuals are emitted from gates.py
 # so the frontend can never hardcode-drift them.
 from server.pipeline.gates import (ASK_SHARE_MIN, BE_EM_MAX, BUILD_NET_VS_HIGH_MIN,
-                                   IVR_MAX, SHORT)
+                                   DELTA_HI, DELTA_LO_FUELED, EARN_WINDOW_D, HV_IV_MIN,
+                                   IVR_MAX, MACRO_BLOCK_D, SHORT, SPREAD_MAX_PCT,
+                                   TERM_SLOPE_MIN, THETA_MAX_PCT)
 
 _BLOCK_FIRST = ("no_squeeze", "smart_flow", "good_entry")
 
@@ -576,11 +578,27 @@ def _why(g, direction: str, signals: dict) -> dict:
     if g.name == "cheap_vol":
         hv_d, iv_d = _daily_vol(getattr(v, "hv", None)), _daily_vol(getattr(v, "iv_front", None))
         ivr = getattr(v, "ivr", None)
-        caption = ("movement costs less than it's been delivering · calendar clear "
-                   "through your hold" if g.state == "GREEN" else
-                   f"charging {iv_d}%/day of movement, delivering {hv_d}% — you'd pay "
-                   "for motion that isn't happening" if hv_d and iv_d else
-                   "the options are rich for the movement on offer")
+        hr, ts = getattr(v, "hv_iv_ratio", None), getattr(v, "term_slope", None)
+        if g.state == "GREEN":
+            caption = ("movement costs less than it's been delivering · calendar clear "
+                       "through your hold")
+        else:
+            # name the actual failing leg(s) — the visual can't show all four (operator QC:
+            # don't claim "motion that isn't happening" when HV/IV actually passed)
+            fails = []
+            if ivr is not None and ivr >= IVR_MAX:
+                fails.append(f"IV rank {ivr:.0f} — rich vs its own year")
+            if hr is not None and hr < HV_IV_MIN and iv_d and hv_d:
+                fails.append(f"charging {iv_d}%/day for {hv_d}%/day of real movement")
+            if ts is not None and ts < TERM_SLOPE_MIN:
+                fails.append("front vol is bid (inverted term — event premium)")
+            dte_e = getattr(cost, "days_to_earnings", None) if cost else None
+            md = getattr(cost, "macro_days", None) if cost else None
+            if (dte_e is not None and dte_e <= EARN_WINDOW_D) or (md is not None and md <= MACRO_BLOCK_D):
+                fails.append("an event lands inside the hold window")
+            if cost is not None and getattr(cost, "calendar_ok", True) is False:
+                fails.append("calendar unreadable this cycle")
+            caption = " · ".join(fails) or "the options are rich for the movement on offer"
         return {"kind": "cheap_vol", "caption": caption, "subtext": _subtext(g),
                 "data": {"actual": hv_d or 0.0, "charged": iv_d or 0.0,
                          "ivRank": ivr if ivr is not None else 0.0,
@@ -600,8 +618,22 @@ def _why(g, direction: str, signals: dict) -> dict:
         ct = (getattr(cost, "contracts", None) or {}).get(side) or {}
         be, em, spread = (ct.get("breakeven_move_pct"), ct.get("expected_move_pct"),
                           ct.get("spread_pct"))
-        rationale = ("the entry toll is already counted in your breakeven"
-                     if g.state == "GREEN" else "the entry costs more than the edge")
+        theta, delt = ct.get("theta_day_pct"), ct.get("delta")
+        if g.state == "GREEN":
+            rationale = "the entry toll is already counted in your breakeven"
+        else:
+            # name the failing leg — the runway only shows breakeven-vs-move, so a red on
+            # theta/spread/delta would otherwise look unexplained (operator QC)
+            fails = []
+            if spread is not None and spread > SPREAD_MAX_PCT:
+                fails.append(f"spread {spread:.0f}% too wide")
+            if be is not None and em and be > BE_EM_MAX * em:
+                fails.append(f"needs {be:.1f}% but only {em:.1f}% is priced")
+            if theta is not None and theta > THETA_MAX_PCT:
+                fails.append(f"theta bleeds {theta:.0f}%/day")
+            if delt is not None and not (DELTA_LO_FUELED <= delt <= DELTA_HI):
+                fails.append(f"delta {delt:.2f} off-band")
+            rationale = " · ".join(fails) or "the entry costs more than the edge"
         # lead with the ACTUAL contract + max loss so the picker is always reachable in
         # one tap (the surface numbers block stays gated to near-PERFECT; the contract
         # identity is a value of this gate and belongs in its why-panel)

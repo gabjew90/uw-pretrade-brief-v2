@@ -75,16 +75,16 @@ def grid() -> dict:
     desc, PERFECT pinned top — server-sorted. Hot names from ONE cross-ticker flow
     call; n/N from the session view cache (on-demand tier: open a name to run its
     gates)."""
+    # The hot list IS the screener's hot names (each carries its flow context). The
+    # session cache only fills in n/N for those names — we do NOT inject arbitrary
+    # already-viewed tickers (that left non-hot names as bare context-less rows, QC-caught).
     hot_rows = build_grid().get("rows") or []
-    meta = {r["ticker"]: r for r in hot_rows}      # premium/split/alerts per ticker
     rows = []
-    for t in dict.fromkeys(list(_VIEWS) + [r["ticker"] for r in hot_rows]):
-        m = meta.get(t, {})
-        # the flow context the grid computes — a server-built sub-line (source-agnostic:
-        # screener total premium + P/C, or the flow-alerts fallback) + the raw parts
-        row = {"ticker": t, "sub": m.get("sub"), "premium_fmt": m.get("premium_fmt"),
-               "call_fmt": m.get("call_fmt"), "put_fmt": m.get("put_fmt"),
-               "pcr": m.get("pcr"), "alerts": m.get("alerts")}
+    for m in hot_rows:
+        t = m["ticker"]
+        row = {"ticker": t, "sub": m.get("sub"), "premium": m.get("premium", 0),
+               "premium_fmt": m.get("premium_fmt"), "call_fmt": m.get("call_fmt"),
+               "put_fmt": m.get("put_fmt"), "pcr": m.get("pcr"), "alerts": m.get("alerts")}
         vm = _VIEWS.get(t)
         if vm is not None and vm.best and (vm.calls or vm.puts):
             d = vm.puts if vm.best == "puts" else vm.calls
@@ -94,7 +94,9 @@ def grid() -> dict:
             row.update({"direction": "—", "state": "NOT NOW",
                         "green": 0, "total": 4, "tag": None})
         rows.append(row)
-    rows.sort(key=lambda r: (r["state"] != "PERFECT", -r["green"], r["ticker"]))
+    # PERFECT pinned, then most-green, then hottest by premium (so the ranking is
+    # meaningful when n/N is mostly unevaluated on the on-demand tier)
+    rows.sort(key=lambda r: (r["state"] != "PERFECT", -r["green"], -r.get("premium", 0)))
     as_of = clock._et(None).strftime("%H:%M ET")
     evaluated = sum(1 for r in rows if r["direction"] != "—")
     out = {"asOf": as_of,
