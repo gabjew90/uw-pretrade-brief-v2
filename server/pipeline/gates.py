@@ -25,6 +25,9 @@ CONC_SHARE_MIN = 0.60     # bets bunched in <=2 near-dated expiries, not scatter
 BUILD_NET_VS_HIGH_MIN = 0.90   # still building: session net within 10% of its high —
 BUILD_LAST_PRINT_MAX_MIN = 90  # and the last qualifying print <=90 min old (Hu 2014's
                                # edge is ~1-day; a faded morning burst is stale)
+OPENING_SHARE_MIN = 0.50       # opening (vol>OI) must be the MAJORITY of the side's flow,
+                               # else it's rolling/position-mgmt, not a fresh bet
+                               # (Ge-Lin-Pearson: opening predicts, closing doesn't)
 FLIP_DIST_MIN_PCT = 0.5   # Barbon-Buraschi 2020: firmly in the negative-gamma zone
 IVR_MAX = 30.0            # Hu-Jacobs 2020: long premium wants LOW IV rank
 HV_IV_MIN = 1.0           # Goyal-Saretto: HV >= IV
@@ -117,8 +120,17 @@ def g_smart_flow(direction, s) -> GateResult:
                  "expiry/strike read incomplete" if conc_ok is None else
                  f"top-2 expiries {c_share:.0%} near-money 5-30 DTE (needs >={CONC_SHARE_MIN:.0%})"))
     if flow.direction == direction:
+        # FRESH MONEY (explicit same-day vol/OI check): opening must be the majority of
+        # this side's own flow, else the "bet" is mostly rolling/closing. This is the
+        # no-lag opening proxy enforced directly in the gate (not just implied by the
+        # opening pool) — closes the rolling-contamination hole.
+        osh = st.get("opening_share")
+        subs.append(("fresh money", None if osh is None else osh >= OPENING_SHARE_MIN,
+                     "opening vs total flow n/a" if osh is None else
+                     f"opening is {osh:.0%} of this side's flow "
+                     f"(needs majority >={OPENING_SHARE_MIN:.0%}, else rolling/closing)"))
         conf = getattr(pos, "confirmation", "unconfirmed") if pos else "unconfirmed"
-        # building/flat/unconfirmed pass (archive-decoupled); only unwinding fails
+        # building/flat/unconfirmed pass (archive-decoupled, lagged); only unwinding fails
         subs.append(("OI held", conf != "unwinding", f"OI {conf}"))
     # STILL BUILDING (intraday recency): the session's cumulative net premium must sit
     # within 10% of its high AND the side's last qualifying print must be fresh — a

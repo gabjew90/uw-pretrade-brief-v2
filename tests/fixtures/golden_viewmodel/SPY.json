@@ -729,7 +729,7 @@
             "threshPct": 70
           },
           "kind": "tug",
-          "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 35% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 lean 1.5:1 weak \u00b7 expiry/strike read incomplete \u00b7 OI unconfirmed \u00b7 net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
+          "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 35% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 lean 1.5:1 weak \u00b7 expiry/strike read incomplete \u00b7 opening is 43% of this side's flow (needs majority >=50%, else rolling/closing) \u00b7 OI unconfirmed \u00b7 net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
         }
       },
       {
@@ -1005,6 +1005,7 @@
           "failed_subcriteria": [
             "ask-side share",
             "lean",
+            "fresh money",
             "still building"
           ],
           "label": "Smart money just opened this bet",
@@ -1025,6 +1026,7 @@
             "$15.4M opening (needs >=$1M)",
             "lean 1.5:1 weak",
             "expiry/strike read incomplete",
+            "opening is 43% of this side's flow (needs majority >=50%, else rolling/closing)",
             "OI unconfirmed",
             "net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m)"
           ]

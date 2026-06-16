@@ -240,11 +240,18 @@ def _side_stats(alerts, opening_only: bool, spot: float | None,
             net_vs_high = round(run / high, 3) if high > 0 else 0.0
             if last_side is not None and last_all is not None:
                 last_age_min = round((last_all - last_side).total_seconds() / 60, 1)
+        # opening DOMINANCE within the side: opening (vol>OI) premium as a share of the
+        # side's TOTAL (opening + closing/rolling) premium. The pool isolates opening, but
+        # a side that's a small opening sliver beside large rolling flow is position
+        # management, not a fresh bet — this surfaces vol/OI as an explicit, auditable
+        # gate input (Ge-Lin-Pearson: opening predicts, closing doesn't).
+        side_all = sum(float(a.total_premium or 0) for a in alerts if a.type == sd)
+        opening_share = round(prem / side_all, 3) if side_all > 0 else None
         out[sd] = {"opening_prem": round(prem),
                    "n_prints": len(rows),
                    "ask_share": round(ask / total, 3) if total and has_split else None,
                    "top2_share": top2_share, "top2_dte_ok": top2_dte_ok,
-                   "strike_band_ok": band_ok,
+                   "strike_band_ok": band_ok, "opening_share": opening_share,
                    "net_vs_high": net_vs_high, "last_age_min": last_age_min}
     return out
 

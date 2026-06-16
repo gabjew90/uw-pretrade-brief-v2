@@ -13,7 +13,7 @@ from server.pipeline.gates import WAITING
 
 def _stats(prem_c=5e6, prem_p=5e5, ask_c=0.8, ask_p=0.05, nvh=0.98, age=10.0):
     base = {"top2_share": 0.7, "top2_dte_ok": True, "strike_band_ok": True,
-            "net_vs_high": nvh, "last_age_min": age}
+            "opening_share": 0.9, "net_vs_high": nvh, "last_age_min": age}
     return {"call": {**base, "opening_prem": prem_c, "ask_share": ask_c},
             "put": {**base, "opening_prem": prem_p, "ask_share": ask_p}}
 
@@ -191,6 +191,16 @@ def test_stale_last_print_reds_smart_flow():
     s["flow"].side_stats = _stats(nvh=0.98, age=240.0)   # 4h since the last print
     g = _gate(decide(s), "calls", "smart_flow")
     assert g.state == "RED" and "still building" in g.failed_subcriteria
+
+
+def test_rolling_dominated_side_reds_smart_flow_fresh_money():
+    """Explicit same-day vol/OI enforcement: a side whose opening flow is a MINORITY of its
+    own activity (mostly rolling/closing) fails 'fresh money' even with a qualifying opening
+    sliver — closes the contamination hole the opening pool alone left open."""
+    s = _sigs("calls")
+    s["flow"].side_stats["call"]["opening_share"] = 0.18    # 18% opening, 82% rolling
+    g = _gate(decide(s), "calls", "smart_flow")
+    assert g.state == "RED" and "fresh money" in g.failed_subcriteria
 
 
 def test_weak_lean_reds_smart_flow():
