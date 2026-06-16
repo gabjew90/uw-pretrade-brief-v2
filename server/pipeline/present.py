@@ -669,9 +669,57 @@ def _why(g, direction: str, signals: dict) -> dict:
     return {"kind": None, "caption": None, "subtext": _subtext(g), "missing": []}
 
 
+def _gate_metric(g, direction: str, signals: dict) -> str:
+    """The ONE decisive number for the collapsed gate row (data-centric board) — the
+    binding sub-criterion's value, terse. The full breakdown is the why-panel table."""
+    flow, dg, v, cost = (signals.get("flow"), signals.get("dealer_gamma"),
+                         signals.get("vol"), signals.get("cost"))
+    side = "call" if direction == "calls" else "put"
+    if g.name == "smart_flow":
+        st = (getattr(flow, "side_stats", None) or {}).get(side) or {}
+        ask = st.get("ask_share")
+        return f"ask {ask:.0%} / 70%" if ask is not None else "no flow"
+    if g.name == "dealer_fuel":
+        if dg is None or getattr(dg, "flip_status", "") == "unavailable":
+            return "no gamma"
+        fd = getattr(dg, "flip_pct", None)
+        return f"{dg.gex_sign}·flip {fd:+.0f}%" if fd is not None else dg.gex_sign
+    if g.name == "cheap_vol":
+        ivr = getattr(v, "ivr", None) if v else None
+        return f"IVR {ivr:.0f} / <30" if ivr is not None else "no IV"
+    if g.name == "good_entry":
+        ct = (getattr(cost, "contracts", None) or {}).get(side) or {}
+        th, sp, be, em = (ct.get("theta_day_pct"), ct.get("spread_pct"),
+                          ct.get("breakeven_move_pct"), ct.get("expected_move_pct"))
+        if not ct:
+            return "no contract"
+        if th is not None and th > THETA_MAX_PCT:
+            return f"θ {th:.0f}% / 10%"
+        if sp is not None and sp > SPREAD_MAX_PCT:
+            return f"spread {sp:.0f}% / 5%"
+        if be is not None and em and be > BE_EM_MAX * em:
+            return f"be {be:.1f}% / move {em:.1f}%"
+        return f"θ {th:.0f}%" if th is not None else "priced"
+    if g.name == "no_squeeze":
+        ftd = getattr(signals.get("shorts"), "ftd_pctile", None)
+        return f"FTD {ftd:.0f}pct" if ftd is not None else "checks"
+    if g.name == "cheap_event":
+        cat = signals.get("catalyst")
+        im, av = (getattr(cat, "implied_move_pct", None), getattr(cat, "hist_move_pct", None))
+        return f"{im:.1f}% vs {av:.1f}%" if im is not None and av is not None else "event"
+    return ""
+
+
 def _gate_vm(g, direction: str, signals: dict) -> dict:
+    why = _why(g, direction, signals)
+    # the why-panel metric TABLE (structured sub-criteria, not the prose run-on) + a
+    # standalone provenance footer (the table replaces the joined values line)
+    why["rows"] = [{"label": s["label"], "text": s["text"], "state": s["state"]}
+                   for s in (getattr(g, "subs", None) or [])]
+    why["prov"] = _prov_note(g.provenance)
     vm = {"name": g.name, "state": g.state.lower(), "label": g.label,
-          "short": SHORT.get(g.name, g.name), "why": _why(g, direction, signals)}
+          "short": SHORT.get(g.name, g.name), "metric": _gate_metric(g, direction, signals),
+          "why": why}
     if g.name == "smart_flow":
         vm["flow"] = _flow_strip(direction, signals.get("flow"))
     return vm

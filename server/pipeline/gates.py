@@ -72,10 +72,15 @@ def _gate(name: str, subs: list[tuple[str, bool | None, str]], prov=None) -> Gat
     failed = [s for s, ok, _ in subs if ok is False]
     unknown = [s for s, ok, _ in subs if ok is None]
     state = "RED" if failed else ("DARK" if unknown else "GREEN")
+    # structured sub-criteria for the why-panel metric TABLE (vs the old prose run-on):
+    # each carries its own pass/fail/unknown state so the frontend renders a data grid
+    structured = [{"label": s, "text": v,
+                   "state": "green" if ok else ("red" if ok is False else "dark")}
+                  for s, ok, v in subs]
     return GateResult(name=name, label=LABELS[name], state=state,
                       failed_subcriteria=failed,
                       missing=[v for s, ok, v in subs if ok is None and v],
-                      values=[v for _, _, v in subs if v],
+                      values=[v for _, _, v in subs if v], subs=structured,
                       provenance=prov or Provenance())
 
 

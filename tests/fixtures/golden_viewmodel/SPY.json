@@ -90,6 +90,7 @@
           "total": "$6.2M"
         },
         "label": "Smart money just opened this bet",
+        "metric": "ask 15% / 70%",
         "name": "smart_flow",
         "short": "smart money",
         "state": "red",
@@ -103,11 +104,40 @@
             "threshPct": 70
           },
           "kind": "tug",
+          "prov": "archive \u00b7 as of 15:05 UTC",
+          "rows": [
+            {
+              "label": "opening basis",
+              "state": "green",
+              "text": "basis opening_flow (needs opening flow)"
+            },
+            {
+              "label": "ask-side share",
+              "state": "red",
+              "text": "ask-side 15% of $15.4M (needs >=70%)"
+            },
+            {
+              "label": "size",
+              "state": "green",
+              "text": "$15.4M opening (needs >=$1M)"
+            },
+            {
+              "label": "concentration",
+              "state": "dark",
+              "text": "expiry/strike read incomplete"
+            },
+            {
+              "label": "still building",
+              "state": "red",
+              "text": "net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m)"
+            }
+          ],
           "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 15% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 expiry/strike read incomplete \u00b7 net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
         }
       },
       {
         "label": "Dealers will pour fuel on the move",
+        "metric": "no gamma",
         "name": "dealer_fuel",
         "short": "dealer fuel",
         "state": "dark",
@@ -117,11 +147,20 @@
           "missing": [
             "no dealer gamma"
           ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "dealer gamma",
+              "state": "dark",
+              "text": "no dealer gamma"
+            }
+          ],
           "subtext": "derived \u00b7 no as_of"
         }
       },
       {
         "label": "The options are cheap for how much this moves",
+        "metric": "no IV",
         "name": "cheap_vol",
         "short": "cheap options",
         "state": "dark",
@@ -134,11 +173,35 @@
             "no term structure",
             "calendar fetch failed"
           ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "IV rank",
+              "state": "dark",
+              "text": "IV rank unavailable"
+            },
+            {
+              "label": "HV/IV",
+              "state": "dark",
+              "text": "realized vol unavailable"
+            },
+            {
+              "label": "term slope",
+              "state": "dark",
+              "text": "no term structure"
+            },
+            {
+              "label": "clean window",
+              "state": "dark",
+              "text": "calendar fetch failed"
+            }
+          ],
           "subtext": "derived \u00b7 no as_of"
         }
       },
       {
         "label": "You're not overpaying to get in",
+        "metric": "no contract",
         "name": "good_entry",
         "short": "entry cost",
         "state": "dark",
@@ -147,6 +210,14 @@
           "kind": null,
           "missing": [
             "no contract priced for this side"
+          ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "contract",
+              "state": "dark",
+              "text": "no contract priced for this side"
+            }
           ],
           "subtext": "derived \u00b7 no as_of"
         }
@@ -716,6 +787,7 @@
           "total": "$9.2M"
         },
         "label": "Smart money just opened this bet",
+        "metric": "ask 35% / 70%",
         "name": "smart_flow",
         "short": "smart money",
         "state": "red",
@@ -729,11 +801,55 @@
             "threshPct": 70
           },
           "kind": "tug",
+          "prov": "archive \u00b7 as of 15:05 UTC",
+          "rows": [
+            {
+              "label": "opening basis",
+              "state": "green",
+              "text": "basis opening_flow (needs opening flow)"
+            },
+            {
+              "label": "ask-side share",
+              "state": "red",
+              "text": "ask-side 35% of $15.4M (needs >=70%)"
+            },
+            {
+              "label": "size",
+              "state": "green",
+              "text": "$15.4M opening (needs >=$1M)"
+            },
+            {
+              "label": "lean",
+              "state": "red",
+              "text": "lean 1.5:1 weak"
+            },
+            {
+              "label": "concentration",
+              "state": "dark",
+              "text": "expiry/strike read incomplete"
+            },
+            {
+              "label": "fresh money",
+              "state": "red",
+              "text": "opening is 43% of this side's flow (needs majority >=50%, else rolling/closing)"
+            },
+            {
+              "label": "OI held",
+              "state": "green",
+              "text": "OI unconfirmed"
+            },
+            {
+              "label": "still building",
+              "state": "red",
+              "text": "net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m)"
+            }
+          ],
           "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 35% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 lean 1.5:1 weak \u00b7 expiry/strike read incomplete \u00b7 opening is 43% of this side's flow (needs majority >=50%, else rolling/closing) \u00b7 OI unconfirmed \u00b7 net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
         }
       },
       {
         "label": "Dealers will pour fuel on the move",
+        "metric": "no gamma",
         "name": "dealer_fuel",
         "short": "dealer fuel",
         "state": "dark",
@@ -743,11 +859,20 @@
           "missing": [
             "no dealer gamma"
           ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "dealer gamma",
+              "state": "dark",
+              "text": "no dealer gamma"
+            }
+          ],
           "subtext": "derived \u00b7 no as_of"
         }
       },
       {
         "label": "The options are cheap for how much this moves",
+        "metric": "no IV",
         "name": "cheap_vol",
         "short": "cheap options",
         "state": "dark",
@@ -760,11 +885,35 @@
             "no term structure",
             "calendar fetch failed"
           ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "IV rank",
+              "state": "dark",
+              "text": "IV rank unavailable"
+            },
+            {
+              "label": "HV/IV",
+              "state": "dark",
+              "text": "realized vol unavailable"
+            },
+            {
+              "label": "term slope",
+              "state": "dark",
+              "text": "no term structure"
+            },
+            {
+              "label": "clean window",
+              "state": "dark",
+              "text": "calendar fetch failed"
+            }
+          ],
           "subtext": "derived \u00b7 no as_of"
         }
       },
       {
         "label": "You're not overpaying to get in",
+        "metric": "no contract",
         "name": "good_entry",
         "short": "entry cost",
         "state": "dark",
@@ -774,11 +923,20 @@
           "missing": [
             "no contract priced for this side"
           ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "contract",
+              "state": "dark",
+              "text": "no contract priced for this side"
+            }
+          ],
           "subtext": "derived \u00b7 no as_of"
         }
       },
       {
         "label": "No squeeze trap",
+        "metric": "checks",
         "name": "no_squeeze",
         "short": "squeeze check",
         "state": "dark",
@@ -797,6 +955,24 @@
               null,
               "Tape direction \u2014 no greek-flow"
             ]
+          ],
+          "prov": "derived \u00b7 no as_of",
+          "rows": [
+            {
+              "label": "FTDs",
+              "state": "dark",
+              "text": "no FTD history"
+            },
+            {
+              "label": "IV spike",
+              "state": "dark",
+              "text": "no IV history"
+            },
+            {
+              "label": "tape sign",
+              "state": "dark",
+              "text": "no greek-flow"
+            }
           ],
           "subtext": "no FTD history \u00b7 no IV history \u00b7 no greek-flow \u00b7 derived \u00b7 no as_of"
         }
@@ -908,6 +1084,33 @@
             "source": "archive"
           },
           "state": "RED",
+          "subs": [
+            {
+              "label": "opening basis",
+              "state": "green",
+              "text": "basis opening_flow (needs opening flow)"
+            },
+            {
+              "label": "ask-side share",
+              "state": "red",
+              "text": "ask-side 15% of $15.4M (needs >=70%)"
+            },
+            {
+              "label": "size",
+              "state": "green",
+              "text": "$15.4M opening (needs >=$1M)"
+            },
+            {
+              "label": "concentration",
+              "state": "dark",
+              "text": "expiry/strike read incomplete"
+            },
+            {
+              "label": "still building",
+              "state": "red",
+              "text": "net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m)"
+            }
+          ],
           "values": [
             "basis opening_flow (needs opening flow)",
             "ask-side 15% of $15.4M (needs >=70%)",
@@ -930,6 +1133,13 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "dealer gamma",
+              "state": "dark",
+              "text": "no dealer gamma"
+            }
+          ],
           "values": [
             "no dealer gamma"
           ]
@@ -951,6 +1161,28 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "IV rank",
+              "state": "dark",
+              "text": "IV rank unavailable"
+            },
+            {
+              "label": "HV/IV",
+              "state": "dark",
+              "text": "realized vol unavailable"
+            },
+            {
+              "label": "term slope",
+              "state": "dark",
+              "text": "no term structure"
+            },
+            {
+              "label": "clean window",
+              "state": "dark",
+              "text": "calendar fetch failed"
+            }
+          ],
           "values": [
             "IV rank unavailable",
             "realized vol unavailable",
@@ -972,6 +1204,13 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "contract",
+              "state": "dark",
+              "text": "no contract priced for this side"
+            }
+          ],
           "values": [
             "no contract priced for this side"
           ]
@@ -1020,6 +1259,48 @@
             "source": "archive"
           },
           "state": "RED",
+          "subs": [
+            {
+              "label": "opening basis",
+              "state": "green",
+              "text": "basis opening_flow (needs opening flow)"
+            },
+            {
+              "label": "ask-side share",
+              "state": "red",
+              "text": "ask-side 35% of $15.4M (needs >=70%)"
+            },
+            {
+              "label": "size",
+              "state": "green",
+              "text": "$15.4M opening (needs >=$1M)"
+            },
+            {
+              "label": "lean",
+              "state": "red",
+              "text": "lean 1.5:1 weak"
+            },
+            {
+              "label": "concentration",
+              "state": "dark",
+              "text": "expiry/strike read incomplete"
+            },
+            {
+              "label": "fresh money",
+              "state": "red",
+              "text": "opening is 43% of this side's flow (needs majority >=50%, else rolling/closing)"
+            },
+            {
+              "label": "OI held",
+              "state": "green",
+              "text": "OI unconfirmed"
+            },
+            {
+              "label": "still building",
+              "state": "red",
+              "text": "net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m)"
+            }
+          ],
           "values": [
             "basis opening_flow (needs opening flow)",
             "ask-side 35% of $15.4M (needs >=70%)",
@@ -1045,6 +1326,13 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "dealer gamma",
+              "state": "dark",
+              "text": "no dealer gamma"
+            }
+          ],
           "values": [
             "no dealer gamma"
           ]
@@ -1066,6 +1354,28 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "IV rank",
+              "state": "dark",
+              "text": "IV rank unavailable"
+            },
+            {
+              "label": "HV/IV",
+              "state": "dark",
+              "text": "realized vol unavailable"
+            },
+            {
+              "label": "term slope",
+              "state": "dark",
+              "text": "no term structure"
+            },
+            {
+              "label": "clean window",
+              "state": "dark",
+              "text": "calendar fetch failed"
+            }
+          ],
           "values": [
             "IV rank unavailable",
             "realized vol unavailable",
@@ -1087,6 +1397,13 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "contract",
+              "state": "dark",
+              "text": "no contract priced for this side"
+            }
+          ],
           "values": [
             "no contract priced for this side"
           ]
@@ -1107,6 +1424,23 @@
             "source": "derived"
           },
           "state": "DARK",
+          "subs": [
+            {
+              "label": "FTDs",
+              "state": "dark",
+              "text": "no FTD history"
+            },
+            {
+              "label": "IV spike",
+              "state": "dark",
+              "text": "no IV history"
+            },
+            {
+              "label": "tape sign",
+              "state": "dark",
+              "text": "no greek-flow"
+            }
+          ],
           "values": [
             "no FTD history",
             "no IV history",

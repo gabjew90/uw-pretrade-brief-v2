@@ -473,6 +473,8 @@ class GateResult(BaseModel):
     missing: list[str] = Field(default_factory=list)   # unknown sub-inputs, verbatim —
     # the why-panel's DARK payload (no visual is drawn, nothing fabricated)
     values: list[str] = Field(default_factory=list)
+    subs: list[dict] = Field(default_factory=list)     # {label, text, state} per sub-
+    # criterion — the why-panel metric table (data grid, not a prose run-on)
     provenance: Provenance = Field(default_factory=Provenance)
 
 

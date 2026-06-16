@@ -23,13 +23,26 @@ function Lamp({ state, anatomy }) {
   }}></span>;
 }
 
+/* why-panel = the metric TABLE (data grid, not prose): one row per sub-criterion with
+   its own pass/fail mark, value text, plus the one-line caption and a provenance footer.
+   The visual itself lives on the gate row now (data/visual-centric, operator 2026-06-16). */
 function WhyInset({ gate }) {
   const w = gate.why || {};
+  const mark = (s) => (s === "green" ? "✓" : s === "red" ? "✗" : "·");
   return (
-    <div data-why-inset="true" data-for-gate={gate.name} style={{ background: UW.inset, borderRadius: 6, padding: "10px 12px 8px", marginTop: 2 }}>
-      <MicroVisual gate={gate}></MicroVisual>
-      {w.caption && <div style={{ fontSize: 10.5, color: UW.dim, fontFamily: FONT_MONO, marginTop: 6, lineHeight: 1.5 }}>{w.caption}</div>}
-      {w.subtext && <div data-prov="true" style={{ fontSize: 9, color: UW.dim, opacity: 0.85, fontFamily: FONT_MONO, marginTop: 4, lineHeight: 1.6 }}>{w.subtext}</div>}
+    <div data-why-inset="true" data-for-gate={gate.name} style={{ background: UW.inset, borderRadius: 6, padding: "8px 12px", marginTop: 4 }}>
+      {w.caption && <div style={{ fontSize: 10.5, color: UW.dim, fontFamily: FONT_MONO, marginBottom: 6, lineHeight: 1.5 }}>{w.caption}</div>}
+      {(w.rows || []).map((r, i) => (
+        <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "2px 0", fontSize: 10.5, fontFamily: FONT_MONO }}>
+          <span style={{ color: stateColor(r.state || "dark"), width: 10, flexShrink: 0 }}>{mark(r.state)}</span>
+          <span style={{ color: UW.text, width: 110, flexShrink: 0, textTransform: "capitalize" }}>{r.label}</span>
+          <span style={{ color: UW.dim }}>{r.text}</span>
+        </div>
+      ))}
+      {(w.missing || []).map((m, i) => (
+        <div key={"m" + i} style={{ fontSize: 10.5, color: UW.dim, fontFamily: FONT_MONO, padding: "2px 0" }}>· {m}</div>
+      ))}
+      {w.prov && <div data-prov="true" style={{ fontSize: 9, color: UW.dim, opacity: 0.8, fontFamily: FONT_MONO, marginTop: 6 }}>{w.prov}</div>}
     </div>
   );
 }
@@ -60,11 +73,13 @@ function GateRow({ gate, anatomy, density, children }) {
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
         {!edge && <Lamp state={gate.state} anatomy={anatomy}></Lamp>}
-        <span style={{ fontSize: 13.5, color: gate.state === "dark" ? UW.dim : UW.text, fontFamily: FONT_BODY }}>{gate.label}</span>
-        <span className="visually-hidden">{SR_STATE[gate.state]}</span>
-        {gate.state === "dark" && <span style={{ fontSize: 9, color: UW.dim, fontFamily: FONT_MONO, marginLeft: "auto", letterSpacing: 1, flexShrink: 0 }}>NO DATA</span>}
+        <span style={{ fontSize: 13, color: gate.state === "dark" ? UW.dim : UW.text, fontFamily: FONT_BODY, textTransform: "capitalize" }}>{gate.short || gate.label}</span>
+        <span className="visually-hidden">{SR_STATE[gate.state]} {gate.label}</span>
+        <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 11, fontFamily: FONT_MONO, letterSpacing: gate.state === "dark" ? 1 : 0, color: gate.state === "dark" ? UW.dim : stateColor(gate.state) }}>
+          {gate.state === "dark" ? "NO DATA" : gate.metric}
+        </span>
       </div>
-      {children && <div style={{ marginTop: 7, marginLeft: edge ? 0 : 21 }}>{children}</div>}
+      {children && <div style={{ marginTop: 6, marginLeft: edge ? 0 : 21 }}>{children}</div>}
     </div>
   );
 }
@@ -120,12 +135,16 @@ function VerdictCard({ vm, anatomy = "dot", whyTreatment = "inline", density = "
       <div style={{ marginTop: 10 }}>
         {vm.gates.map((g) => (
           <GateRow key={g.name} gate={g} anatomy={anatomy} density={density}>
-            {(g.flow || (open && whyTreatment === "inline")) ? (
-              <React.Fragment>
-                {g.flow && <FlowSession {...g.flow} state={g.state}></FlowSession>}
-                {open && whyTreatment === "inline" && <WhyInset gate={g}></WhyInset>}
-              </React.Fragment>
-            ) : null}
+            <React.Fragment>
+              {/* a compact visual on every row (data/visual-centric board): the wide
+                  flow strip for smart_flow, a small micro-visual for the rest */}
+              {g.flow ? <FlowSession {...g.flow} state={g.state}></FlowSession>
+                : (g.state !== "dark" && (
+                    <div style={{ maxWidth: 190 }}><MicroVisual gate={g}></MicroVisual></div>
+                  ))}
+              {/* expand: the metric table + caption + sources */}
+              {open && whyTreatment === "inline" && <WhyInset gate={g}></WhyInset>}
+            </React.Fragment>
           </GateRow>
         ))}
       </div>

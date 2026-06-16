@@ -61,15 +61,17 @@ Stages never skip a boundary; each consumes the previous stage's typed output on
 5. **Present** (`pipeline/present.py`) → **view model → dumb frontend.** Per element:
    `{surface, detail, provenance, label}`. The client computes nothing.
 
-   > **Present semantics (perfect-conjunction overhaul, 2026-06-12): the default
-   > render is lights-only.** Per ticker, per direction: verdict (`PERFECT` green
-   > / `NOT NOW — n/N`), the `Waiting on:` line (no_squeeze RED named FIRST — it
-   > is a veto), ≤5 gate rows (colored lamp + plain-English label, not tappable,
-   > no numbers on the row), and exactly ONE chart: the session flow strip under
-   > `smart_flow` (cumulative net opening premium + a dot per qualifying alert,
-   > radius ∝ premium, anchored "9:30a" / "now · last buy Nm ago" / running $
-   > total). Exactly four numbers, only at PERFECT or n ≥ N−1: entry toll,
-   > needs-vs-expects, time stop, contract + max loss.
+   > **Present semantics (data/visual-centric board, operator 2026-06-16 — supersedes
+   > the 2026-06-12 lights-only render).** Per ticker, per direction: verdict
+   > (`PERFECT` green / `NOT NOW — n/N`), the `Waiting on:` line (no_squeeze RED named
+   > FIRST — it is a veto), and ≤5 gate rows. Each gate row is now DATA-FORWARD: a
+   > colored lamp + a SHORT label (`gate.short`, 2 words) + the decisive metric
+   > (`gate.metric`, e.g. "ask 36% / 70%", "IVR 76 / <30", "θ 22% / 10%") + a compact
+   > micro-visual (the wide flow strip for smart_flow, a small one for the rest). The
+   > earlier "no numbers on the row / exactly one chart" rule is intentionally REVERSED
+   > — the board is meant to read as data + visuals at a glance. Exactly four numbers
+   > (the ticket block) still only at PERFECT or n ≥ N−1: entry toll, needs-vs-expects,
+   > time stop, contract + max loss.
    >
    > **DELETED from the default render — do not reintroduce:** flow-timeline,
    > regime, and price tiles; provenance badges; per-tile `logic` lines;
@@ -77,13 +79,11 @@ Stages never skip a boundary; each consumes the previous stage's typed output on
    > gray with `NO DATA`, counted against n/N — never guessed, never fabricated
    > into a chart.
    >
-   > **The "why?" panel is the only disclosure** (one tap opens the whole panel):
-   > one micro-visual per gate, NONE for `no_squeeze` (categorical — three named
-   > checks). All visuals share one grammar: **a marker vs a green-shaded
-   > pass-zone, VALUE-ANCHORED** — real numbers at endpoints, threshold, and
-   > marker; NO gridlines, NO axis ticks, NO legends. Sub-criterion values vs
-   > thresholds, provenance, and as_of render as small text under each visual —
-   > inside the panel only.
+   > **The "why?" panel is the metric TABLE** (one tap): the gate's caption (one line
+   > naming the binding reason), then a data grid of every sub-criterion (✓/✗/· · label ·
+   > value-vs-threshold), then a provenance footer. The micro-visual itself lives on the
+   > gate row now, not in the panel. Visuals share one grammar: **a marker vs a green
+   > pass-zone, VALUE-ANCHORED** — real numbers, NO gridlines/axis-ticks/legends.
    >
    > **BANNED WORDS (CI-enforced): "Mixed", "Favorable".** Verdict vocabulary is
    > `PERFECT` / `NOT NOW — n/N` and nothing else. `tests/test_present_snapshot.py`
