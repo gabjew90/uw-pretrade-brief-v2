@@ -140,7 +140,7 @@ function VerdictCard({ vm, anatomy = "dot", whyTreatment = "inline", density = "
                   flow strip for smart_flow, a small micro-visual for the rest */}
               {g.flow ? <FlowSession {...g.flow} state={g.state}></FlowSession>
                 : (g.state !== "dark" && (
-                    <div style={{ maxWidth: 190 }}><MicroVisual gate={g}></MicroVisual></div>
+                    <div className="bareviz" style={{ maxWidth: 190 }}><MicroVisual gate={g}></MicroVisual></div>
                   ))}
               {/* expand: the metric table + caption + sources */}
               {open && whyTreatment === "inline" && <WhyInset gate={g}></WhyInset>}

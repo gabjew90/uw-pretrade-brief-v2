@@ -38,6 +38,10 @@
     .tabsMode .offCard { display: none; }
   }
 
+  /* row mini-visuals are clean geometry — their internal value labels are cramped at
+     row size and live in the metric chip + why-panel table instead */
+  .bareviz text { display: none; }
+
   /* scanning skeleton — shimmer gated on reduced motion */
   .skelBar { position: relative; overflow: hidden; }
   @media (prefers-reduced-motion: no-preference) {
