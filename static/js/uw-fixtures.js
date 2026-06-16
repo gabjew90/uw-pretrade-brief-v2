@@ -330,11 +330,11 @@ const UW_GRID = {
   asOf: "12:42 PT",
   status: "Swept 18 names · refreshed 12:42 PT · next sweep 13:00",
   rows: [
-    { ticker: "NVDA", direction: "CALLS", state: "PERFECT", green: 4, total: 4, tag: null, premium_fmt: "$5.1M", call_fmt: "$4.2M", put_fmt: "$0.9M", alerts: 6 },
-    { ticker: "ORCL", direction: "PUTS", state: "NOT NOW", green: 3, total: 4, tag: "EARNINGS THU", premium_fmt: "$3.3M", call_fmt: "$0.6M", put_fmt: "$2.7M", alerts: 5 },
-    { ticker: "AMD", direction: "CALLS", state: "NOT NOW", green: 3, total: 4, tag: null, premium_fmt: "$2.2M", call_fmt: "$1.8M", put_fmt: "$0.4M", alerts: 4 },
-    { ticker: "GME", direction: "PUTS", state: "NOT NOW", green: 3, total: 5, tag: null, premium_fmt: "$6.5M", call_fmt: "$1.4M", put_fmt: "$5.1M", alerts: 5 },
-    { ticker: "SPY", direction: "PUTS", state: "NOT NOW", green: 0, total: 5, tag: null, premium_fmt: "$15.4M", call_fmt: "$6.2M", put_fmt: "$9.2M", alerts: 4 },
+    { ticker: "NVDA", direction: "CALLS", state: "PERFECT", green: 4, total: 4, tag: null, sub: "$1.2B prem · $0.8B c / $0.4B p · P/C 0.51" },
+    { ticker: "ORCL", direction: "PUTS", state: "NOT NOW", green: 3, total: 4, tag: "EARNINGS THU", sub: "$0.6B prem · $0.2B c / $0.4B p · P/C 1.84" },
+    { ticker: "AMD", direction: "CALLS", state: "NOT NOW", green: 3, total: 4, tag: null, sub: "$0.4B prem · $0.3B c / $0.1B p · P/C 0.42" },
+    { ticker: "GME", direction: "PUTS", state: "NOT NOW", green: 3, total: 5, tag: null, sub: "$0.2B prem · $0.05B c / $0.15B p · P/C 2.10" },
+    { ticker: "SPY", direction: "PUTS", state: "NOT NOW", green: 0, total: 5, tag: null, sub: "$2.7B prem · $1.8B c / $0.9B p · P/C 0.99" },
   ],
 };
 

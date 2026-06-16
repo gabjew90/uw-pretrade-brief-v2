@@ -38,9 +38,9 @@ function ScannerLanding({ grid, onOpen }) {
                   <span style={{ fontFamily: FONT_HEAD, fontSize: 12, letterSpacing: 2, color: UW.dim }}>{r.direction}</span>
                   {r.tag && <span style={{ fontFamily: FONT_HEAD, fontSize: 10, letterSpacing: 1.5, color: UW.amber }}>{r.tag}</span>}
                 </div>
-                {r.premium_fmt && (
+                {(r.sub || r.premium_fmt) && (
                   <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: UW.dim }}>
-                    {r.premium_fmt} opening · {r.call_fmt} c / {r.put_fmt} p · {r.alerts} alerts
+                    {r.sub || `${r.premium_fmt} · ${r.call_fmt} c / ${r.put_fmt} p`}
                   </span>
                 )}
               </div>

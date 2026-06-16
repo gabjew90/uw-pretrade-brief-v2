@@ -388,10 +388,47 @@ def assemble(ticker: str, flow_raw: RawRecord, *, asof: str | None = None) -> Vi
 _GRID_TOP_N = 12
 
 
+def _grid_money(v: float) -> str:
+    return (f"${v/1e9:.1f}B" if v >= 1e9 else f"${v/1e6:.1f}M" if v >= 1e6
+            else f"${v/1e3:.0f}K" if v >= 1e3 else f"${v:.0f}")
+
+
+def _f(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def grid_from_screener(rows) -> list[dict]:
+    """Pure: UW's stock screener (`/screener/stocks`) → the hot grid, ranked by TOTAL
+    options premium today (calls + puts, full session — UW's authoritative figure, not a
+    500-alert sample). Each row carries a server-built `sub` line + a put/call ratio lean.
+    Display strings are server-built (the frontend computes nothing)."""
+    out = []
+    for x in rows or []:
+        t = x.get("ticker") if isinstance(x, dict) else None
+        if not t:
+            continue
+        cp, pp = _f(x.get("call_premium")), _f(x.get("put_premium"))
+        total = cp + pp
+        if total <= 0:
+            continue
+        pcr = x.get("put_call_ratio")
+        pcr_s = f" · P/C {_f(pcr):.2f}" if pcr is not None else ""
+        out.append({"ticker": t, "premium": total, "premium_fmt": _grid_money(total),
+                    "call_fmt": _grid_money(cp), "put_fmt": _grid_money(pp),
+                    "pcr": round(_f(pcr), 2) if pcr is not None else None,
+                    "sub": f"{_grid_money(total)} prem · {_grid_money(cp)} c / "
+                           f"{_grid_money(pp)} p{pcr_s}"})
+    out.sort(key=lambda r: r["premium"], reverse=True)
+    return out[:_GRID_TOP_N]
+
+
 def grid_from_alerts(alerts) -> list[dict]:
-    """Pure: aggregate a cross-ticker flow-alerts pull (newest session only) into the hot
-    grid — per ticker the opening-premium totals and the side they lean. Display strings
-    are server-built (the frontend computes nothing)."""
+    """Pure FALLBACK: aggregate a cross-ticker flow-alerts pull (newest session only) into
+    the hot grid — per ticker the OPENING-premium totals and the side they lean. Used only
+    when the screener is unreachable. Display strings are server-built."""
     by: dict[str, dict] = {}
     for a in session_alerts(alerts):
         d = by.setdefault(a.ticker, {"call": 0.0, "put": 0.0, "alerts": 0})
@@ -402,10 +439,6 @@ def grid_from_alerts(alerts) -> list[dict]:
             opening = False
         if opening:
             d[a.type] += float(a.total_premium or 0.0)
-
-    def money(v):
-        return (f"${v/1e9:.1f}B" if v >= 1e9 else f"${v/1e6:.1f}M" if v >= 1e6
-                else f"${v/1e3:.0f}K" if v >= 1e3 else f"${v:.0f}")
     rows = []
     for t, d in by.items():
         total = d["call"] + d["put"]
@@ -414,21 +447,32 @@ def grid_from_alerts(alerts) -> list[dict]:
         # NO side word here: the cross-ticker pull is a SAMPLE (each ticker's most recent
         # alerts only), and a sample-derived side can contradict the brief's full-session
         # direction one tap later (live-caught: grid said SPY PUTS, brief said CALLS).
-        # The scanner answers WHO is hot; the brief answers WHICH WAY.
-        rows.append({"ticker": t, "premium": total,
-                     "premium_fmt": money(total), "call_fmt": money(d["call"]),
-                     "put_fmt": money(d["put"]), "alerts": d["alerts"]})
+        rows.append({"ticker": t, "premium": total, "premium_fmt": _grid_money(total),
+                     "call_fmt": _grid_money(d["call"]), "put_fmt": _grid_money(d["put"]),
+                     "alerts": d["alerts"],
+                     "sub": f"{_grid_money(total)} opening · {_grid_money(d['call'])} c / "
+                            f"{_grid_money(d['put'])} p · {d['alerts']} alerts"})
     rows.sort(key=lambda r: r["premium"], reverse=True)
     return rows[:_GRID_TOP_N]
 
 
 def build_grid() -> dict:
-    """The hot-ticker landing grid: ONE cross-ticker flow-alerts call (newest session,
-    opening premium by side). Click-through loads the full per-ticker pipeline."""
+    """The hot-ticker landing grid. PRIMARY: UW's stock screener ranked by total options
+    premium today (one call, authoritative). FALLBACK: the latest-500 flow-alerts sample.
+    Click-through loads the full per-ticker pipeline either way."""
+    try:
+        raw = ingest("/screener/stocks", {"limit": 100}, ticker=None,
+                     priority=Priority.NORMAL)
+        rows = grid_from_screener(_rows(raw.payload))
+        if rows:
+            return {"rows": rows, "as_of": raw.fetched_at,
+                    "note": "hot: UW stock screener, ranked by today's total options "
+                            "premium. open a ticker for its full-session direction"}
+    except UWError as e:
+        log.warning("screener grid unavailable, falling back to flow-alerts: %s", e)
     try:
         raw = ingest(_FLOW_ALERTS, {"limit": 500}, ticker=None, priority=Priority.NORMAL)
-        alerts = normalize(raw)
-        rows = grid_from_alerts(alerts)
+        rows = grid_from_alerts(normalize(raw))
         return {"rows": rows, "as_of": raw.fetched_at,
                 "note": "who's hot: recent-tape sample (latest 500 alerts market-wide). "
                         "open a ticker for its full-session direction"}

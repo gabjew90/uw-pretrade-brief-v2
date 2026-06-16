@@ -80,10 +80,11 @@ def grid() -> dict:
     rows = []
     for t in dict.fromkeys(list(_VIEWS) + [r["ticker"] for r in hot_rows]):
         m = meta.get(t, {})
-        # the flow context the grid already computes (opening premium, side split, alerts)
-        row = {"ticker": t, "premium_fmt": m.get("premium_fmt"),
+        # the flow context the grid computes — a server-built sub-line (source-agnostic:
+        # screener total premium + P/C, or the flow-alerts fallback) + the raw parts
+        row = {"ticker": t, "sub": m.get("sub"), "premium_fmt": m.get("premium_fmt"),
                "call_fmt": m.get("call_fmt"), "put_fmt": m.get("put_fmt"),
-               "alerts": m.get("alerts")}
+               "pcr": m.get("pcr"), "alerts": m.get("alerts")}
         vm = _VIEWS.get(t)
         if vm is not None and vm.best and (vm.calls or vm.puts):
             d = vm.puts if vm.best == "puts" else vm.calls

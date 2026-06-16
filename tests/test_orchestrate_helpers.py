@@ -125,6 +125,28 @@ def test_grid_empty_alerts():
     assert grid_from_alerts([]) == []
 
 
+# ── grid_from_screener: the primary hot list (UW stock screener) ──────────────
+def test_grid_screener_ranks_by_total_premium():
+    from server.pipeline.orchestrate import grid_from_screener
+    rows = grid_from_screener([
+        {"ticker": "MU", "call_premium": "3.0e9", "put_premium": "1.7e9", "put_call_ratio": "0.6"},
+        {"ticker": "SPY", "call_premium": "1.8e9", "put_premium": "0.9e9", "put_call_ratio": "0.99"},
+        {"ticker": "ZERO", "call_premium": "0", "put_premium": "0"},   # no premium → dropped
+        {"call_premium": "9e9", "put_premium": "9e9"},                 # no ticker → dropped
+    ])
+    assert [r["ticker"] for r in rows] == ["MU", "SPY"]    # by total premium desc
+    assert rows[0]["premium_fmt"] == "$4.7B"
+    assert rows[0]["pcr"] == 0.6
+    assert "P/C 0.60" in rows[0]["sub"] and "prem" in rows[0]["sub"]
+    assert "side" not in rows[0]                            # the brief owns direction
+
+
+def test_grid_screener_empty():
+    from server.pipeline.orchestrate import grid_from_screener
+    assert grid_from_screener([]) == []
+    assert grid_from_screener(None) == []
+
+
 # ── _skew_expiry: nearest 3rd-Friday monthly >= 25 DTE ────────────────────────
 def test_skew_expiry_picks_3rd_friday_at_least_25d_out():
     # 2026-06-09: June 3rd Friday = 2026-06-19 (10d, too near) -> July 17 (38d)
