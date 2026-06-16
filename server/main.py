@@ -98,8 +98,8 @@ def grid() -> dict:
     as_of = clock._et(None).strftime("%H:%M ET")
     evaluated = sum(1 for r in rows if r["direction"] != "—")
     out = {"asOf": as_of,
-           "status": f"{len(rows)} hot names by opening premium · {evaluated} evaluated "
-                     "this session · open a name to run its gates (on-demand tier)",
+           "status": f"{len(rows)} hot names by today's options premium · {evaluated} "
+                     "evaluated this session · open a name to run its gates (on-demand tier)",
            "rows": rows}
     if not rows:
         # the empty screen says what the scanner is doing — never a blank list (spec §5)
