@@ -710,6 +710,34 @@ def _gate_metric(g, direction: str, signals: dict) -> str:
     return ""
 
 
+# Per-gate "what UW data is this, and how it relates to the check" — the ⓘ tooltip.
+# Authored here (the frontend renders verbatim); names the actual UW endpoints used.
+_GATE_TIPS = {
+    "smart_flow": "UW flow alerts (option-trades/flow-alerts): opening option trades — "
+                  "today's volume above prior open interest — split call vs put and "
+                  "ask-side vs bid-side. The check: new money is piling onto this side, "
+                  "aggressively (hit at the ask), and fresh (not rolling an old position).",
+    "dealer_fuel": "UW dealer gamma by strike (spot-exposures): net gamma, the flip "
+                   "(zero-crossing) and the call/put walls. The check: negative gamma with "
+                   "price past the flip means dealers hedge by amplifying the move — fuel "
+                   "for a directional weekly, with room to the wall.",
+    "cheap_vol": "UW IV rank (interpolated-iv), realized vol (volatility/realized) and the "
+                 "IV term structure. The check: the options are cheap vs the stock's own "
+                 "year, it actually moves at least as much as priced, and front vol isn't "
+                 "pumped — so you're not overpaying for the weekly.",
+    "good_entry": "UW option chain (option-contracts NBBO) + greeks (delta, theta) and the "
+                  "implied expected move. The check: the realistic weekly is survivable — "
+                  "tight spread, breakeven inside the priced move, slow theta bleed, sane "
+                  "delta.",
+    "no_squeeze": "UW fails-to-deliver (shorts/ftds), the live greek-flow tape and the "
+                  "2-session IV change. Puts-only trap check: no delivery failures "
+                  "stacking, no IV panic spike, and the tape is genuinely pushing down.",
+    "cheap_event": "UW ATM straddle (atm-chains) implied move vs this stock's own past "
+                   "earnings-day moves (earnings + daily history). The check: the market "
+                   "is underpricing the report and your expiry captures it.",
+}
+
+
 def _gate_vm(g, direction: str, signals: dict) -> dict:
     why = _why(g, direction, signals)
     # the why-panel metric TABLE (structured sub-criteria, not the prose run-on) + a
@@ -719,7 +747,7 @@ def _gate_vm(g, direction: str, signals: dict) -> dict:
     why["prov"] = _prov_note(g.provenance)
     vm = {"name": g.name, "state": g.state.lower(), "label": g.label,
           "short": SHORT.get(g.name, g.name), "metric": _gate_metric(g, direction, signals),
-          "why": why}
+          "tip": _GATE_TIPS.get(g.name, ""), "why": why}
     if g.name == "smart_flow":
         vm["flow"] = _flow_strip(direction, signals.get("flow"))
     return vm

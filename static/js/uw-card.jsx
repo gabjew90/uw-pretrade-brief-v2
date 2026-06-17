@@ -5,6 +5,32 @@ const { UW, FONT_HEAD, FONT_MONO, FONT_BODY, stateColor } = window.UW_T;
 
 const SR_STATE = { green: "condition met", red: "condition failed", dark: "no data" };
 
+/* ⓘ next to a check — tap to reveal which UW datapoint feeds it and how (text from the
+   server). Tap-toggle (phone-first; hover alone wouldn't work on mobile). */
+function InfoDot({ tip }) {
+  const [open, setOpen] = React.useState(false);
+  if (!tip) return null;
+  return (
+    <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        aria-label="what data feeds this check" aria-expanded={open} style={{
+          width: 14, height: 14, borderRadius: "50%", border: `1px solid ${UW.dim}`,
+          background: "transparent", color: UW.dim, fontFamily: FONT_MONO, fontSize: 9,
+          lineHeight: 1, cursor: "pointer", padding: 0, display: "inline-flex",
+          alignItems: "center", justifyContent: "center",
+        }}>i</button>
+      {open && (
+        <div role="tooltip" onClick={(e) => e.stopPropagation()} style={{
+          position: "absolute", top: 20, left: 0, zIndex: 20, width: 248,
+          background: UW.cardEdge, border: `1px solid ${UW.dim}`, borderRadius: 6,
+          padding: "9px 11px", fontSize: 11, lineHeight: 1.5, color: UW.text,
+          fontFamily: FONT_BODY, boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+        }}>{tip}</div>
+      )}
+    </span>
+  );
+}
+
 function Lamp({ state, anatomy }) {
   const col = stateColor(state);
   if (anatomy === "block") {
@@ -74,6 +100,7 @@ function GateRow({ gate, anatomy, density, children }) {
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
         {!edge && <Lamp state={gate.state} anatomy={anatomy}></Lamp>}
         <span style={{ fontSize: 13, color: gate.state === "dark" ? UW.dim : UW.text, fontFamily: FONT_BODY, textTransform: "capitalize" }}>{gate.short || gate.label}</span>
+        <InfoDot tip={gate.tip}></InfoDot>
         <span className="visually-hidden">{SR_STATE[gate.state]} {gate.label}</span>
         <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 11, fontFamily: FONT_MONO, letterSpacing: gate.state === "dark" ? 1 : 0, color: gate.state === "dark" ? UW.dim : stateColor(gate.state) }}>
           {gate.state === "dark" ? "NO DATA" : gate.metric}

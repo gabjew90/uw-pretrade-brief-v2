@@ -94,6 +94,7 @@
         "name": "smart_flow",
         "short": "smart money",
         "state": "red",
+        "tip": "UW flow alerts (option-trades/flow-alerts): opening option trades \u2014 today's volume above prior open interest \u2014 split call vs put and ask-side vs bid-side. The check: new money is piling onto this side, aggressively (hit at the ask), and fresh (not rolling an old position).",
         "why": {
           "caption": "the money is on the other side today ($6.2M calls vs $9.2M puts (0.7:1))",
           "data": {
@@ -141,6 +142,7 @@
         "name": "dealer_fuel",
         "short": "dealer fuel",
         "state": "dark",
+        "tip": "UW dealer gamma by strike (spot-exposures): net gamma, the flip (zero-crossing) and the call/put walls. The check: negative gamma with price past the flip means dealers hedge by amplifying the move \u2014 fuel for a directional weekly, with room to the wall.",
         "why": {
           "caption": null,
           "kind": null,
@@ -164,6 +166,7 @@
         "name": "cheap_vol",
         "short": "cheap options",
         "state": "dark",
+        "tip": "UW IV rank (interpolated-iv), realized vol (volatility/realized) and the IV term structure. The check: the options are cheap vs the stock's own year, it actually moves at least as much as priced, and front vol isn't pumped \u2014 so you're not overpaying for the weekly.",
         "why": {
           "caption": null,
           "kind": null,
@@ -205,6 +208,7 @@
         "name": "good_entry",
         "short": "entry cost",
         "state": "dark",
+        "tip": "UW option chain (option-contracts NBBO) + greeks (delta, theta) and the implied expected move. The check: the realistic weekly is survivable \u2014 tight spread, breakeven inside the priced move, slow theta bleed, sane delta.",
         "why": {
           "caption": null,
           "kind": null,
@@ -791,6 +795,7 @@
         "name": "smart_flow",
         "short": "smart money",
         "state": "red",
+        "tip": "UW flow alerts (option-trades/flow-alerts): opening option trades \u2014 today's volume above prior open interest \u2014 split call vs put and ask-side vs bid-side. The check: new money is piling onto this side, aggressively (hit at the ask), and fresh (not rolling an old position).",
         "why": {
           "caption": "$9.2M puts vs $6.2M calls (1.5:1), but only 35% was aggressive buying \u2014 needs 70% at the ask",
           "data": {
@@ -853,6 +858,7 @@
         "name": "dealer_fuel",
         "short": "dealer fuel",
         "state": "dark",
+        "tip": "UW dealer gamma by strike (spot-exposures): net gamma, the flip (zero-crossing) and the call/put walls. The check: negative gamma with price past the flip means dealers hedge by amplifying the move \u2014 fuel for a directional weekly, with room to the wall.",
         "why": {
           "caption": null,
           "kind": null,
@@ -876,6 +882,7 @@
         "name": "cheap_vol",
         "short": "cheap options",
         "state": "dark",
+        "tip": "UW IV rank (interpolated-iv), realized vol (volatility/realized) and the IV term structure. The check: the options are cheap vs the stock's own year, it actually moves at least as much as priced, and front vol isn't pumped \u2014 so you're not overpaying for the weekly.",
         "why": {
           "caption": null,
           "kind": null,
@@ -917,6 +924,7 @@
         "name": "good_entry",
         "short": "entry cost",
         "state": "dark",
+        "tip": "UW option chain (option-contracts NBBO) + greeks (delta, theta) and the implied expected move. The check: the realistic weekly is survivable \u2014 tight spread, breakeven inside the priced move, slow theta bleed, sane delta.",
         "why": {
           "caption": null,
           "kind": null,
@@ -940,6 +948,7 @@
         "name": "no_squeeze",
         "short": "squeeze check",
         "state": "dark",
+        "tip": "UW fails-to-deliver (shorts/ftds), the live greek-flow tape and the 2-session IV change. Puts-only trap check: no delivery failures stacking, no IV panic spike, and the tape is genuinely pushing down.",
         "why": {
           "caption": "unreadable this cycle \u2014 counted against the verdict, never guessed",
           "items": [
