@@ -738,11 +738,81 @@ _GATE_TIPS = {
 }
 
 
+# Per-SUB-CRITERION "what UW datapoint + how it relates" — the granular ⓘ on each row
+# of the why-panel table. Keyed by the sub label (unique across gates).
+_SUB_TIPS = {
+    # smart_flow
+    "opening basis": "flow-alerts: are the picked side's trades OPENING (today's volume > "
+                     "prior open interest)? If only closing/rolling trades exist the side "
+                     "falls back to total flow and this fails — opening bets predict, "
+                     "closing don't (Ge-Lin-Pearson).",
+    "ask-side share": "flow-alerts total_ask_side_prem vs total premium: how much hit the "
+                      "ASK (aggressive buying). >=70% = strong informed imbalance (Hu 2014).",
+    "size": "Sum of opening premium (flow-alerts total_premium on vol>OI trades). Must "
+            "clear $1M so the bet is material, not noise.",
+    "lean": "Opening premium on this side vs the other (flow-alerts). Needs >=2:1 and "
+            "$500K — the edge is in the EXTREME of signed flow, not a near-even split.",
+    "concentration": "Per-expiry/strike grouping of the opening premium (flow-alerts). "
+                     ">=60% bunched in <=2 near-dated (5-30 DTE) near-money strikes = a "
+                     "focused bet, not scattered.",
+    "OI held": "Per-contract OI history (option-contract/historic): is open interest on "
+               "the bet's strikes growing/flat (held) vs shrinking (unwinding)? Unwinding "
+               "means the 'buying' was actually closing.",
+    "fresh money": "Opening (vol>OI) premium as a share of this side's TOTAL flow. Must be "
+                   "the majority (>=50%) — else the side is mostly rolling/position "
+                   "management, not a fresh bet.",
+    "still building": "Intraday flow-alerts timeline: is the session's net premium near "
+                      "its high and the last qualifying print recent (<=90m)? A faded or "
+                      "reversed morning burst is stale (Hu's edge is ~1-day).",
+    # dealer_fuel
+    "negative gamma": "spot-exposures by strike: net dealer gamma sign. Negative = dealers "
+                      "buy as price rises / sell as it falls, AMPLIFYING the move.",
+    "flip distance": "Distance from spot to the gamma flip (zero-crossing of spot-"
+                     "exposures). Spot must be >=0.5% past it — on the flip the regime is "
+                     "unstable.",
+    "headroom": "Distance to the nearest large wall (top gamma strike) vs the expected "
+                "move — >=1 expected move of room before the move stalls at the wall.",
+    # cheap_vol
+    "IV rank": "interpolated-iv percentile: where today's IV sits vs the stock's own past "
+               "year. <30 = historically cheap (you want to BUY premium cheap, Hu-Jacobs).",
+    "HV/IV": "Realized vol (volatility/realized) vs front implied. >=1.0 means the stock "
+             "actually moves at least as much as the options charge (Goyal-Saretto).",
+    "term slope": "Front vs ~30d IV (volatility/term-structure). Flat/upward = no near-"
+                  "term event premium pumping the weekly you'd buy (Vasquez).",
+    "clean window": "earnings + macro calendar: no earnings (<=3d) and no print you'd hold "
+                    "through (<=1d) inside the hold window.",
+    # good_entry
+    "spread": "Bid-ask of the picked contract (option-contracts NBBO) as % of premium. "
+              "<=5% or the round-trip cost eats the edge.",
+    "breakeven": "Move needed to break even vs the implied expected move. <=70% of the "
+                 "priced move so the trade can actually clear its cost.",
+    "theta": "Daily theta (greeks) as % of premium. <=10%/day — a weekly bleeds fast; too "
+             "much decay loses even when the direction is right.",
+    "delta band": "Contract delta (greeks). 0.40-0.55 (0.35 floor when dealers add fuel) — "
+                  "directional enough without overpaying for deep intrinsic.",
+    # no_squeeze (puts)
+    "FTDs": "Fails-to-deliver (shorts/ftds) vs the stock's own trailing year. Elevated = "
+            "delivery stress, a squeeze precursor (SEC data, ~4-week lag).",
+    "IV spike": "Front IV change over 2 sessions (volatility/realized). A >20% spike = "
+                "panic premium, squeeze-adjacent.",
+    "tape sign": "Net greek-flow delta (greek-flow). For puts it must be negative — if the "
+                 "tape pushes UP while you buy puts, that's hedger contamination / fuel.",
+    # cheap_event (catalyst)
+    "implied vs usual": "ATM straddle implied move (atm-chains) vs this stock's mean past "
+                        "earnings-day move (earnings + daily history). <=0.9x = the market "
+                        "is underpricing the report (Milian).",
+    "expiry capture": "The picked expiry must be the first weekly AFTER the report, 5-15 "
+                      "DTE — captures the event, exits before the IV crush.",
+}
+
+
 def _gate_vm(g, direction: str, signals: dict) -> dict:
     why = _why(g, direction, signals)
     # the why-panel metric TABLE (structured sub-criteria, not the prose run-on) + a
-    # standalone provenance footer (the table replaces the joined values line)
-    why["rows"] = [{"label": s["label"], "text": s["text"], "state": s["state"]}
+    # standalone provenance footer (the table replaces the joined values line). Each row
+    # carries its own ⓘ tip (the UW datapoint behind that specific check).
+    why["rows"] = [{"label": s["label"], "text": s["text"], "state": s["state"],
+                    "tip": _SUB_TIPS.get(s["label"], "")}
                    for s in (getattr(g, "subs", None) or [])]
     why["prov"] = _prov_note(g.provenance)
     vm = {"name": g.name, "state": g.state.lower(), "label": g.label,

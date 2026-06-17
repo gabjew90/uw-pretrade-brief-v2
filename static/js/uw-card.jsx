@@ -59,9 +59,10 @@ function WhyInset({ gate }) {
     <div data-why-inset="true" data-for-gate={gate.name} style={{ background: UW.inset, borderRadius: 6, padding: "8px 12px", marginTop: 4 }}>
       {w.caption && <div style={{ fontSize: 10.5, color: UW.dim, fontFamily: FONT_MONO, marginBottom: 6, lineHeight: 1.5 }}>{w.caption}</div>}
       {(w.rows || []).map((r, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "2px 0", fontSize: 10.5, fontFamily: FONT_MONO }}>
+        <div key={i} style={{ display: "flex", gap: 7, alignItems: "center", padding: "2px 0", fontSize: 10.5, fontFamily: FONT_MONO }}>
           <span style={{ color: stateColor(r.state || "dark"), width: 10, flexShrink: 0 }}>{mark(r.state)}</span>
-          <span style={{ color: UW.text, width: 110, flexShrink: 0, textTransform: "capitalize" }}>{r.label}</span>
+          <span style={{ color: UW.text, width: 104, flexShrink: 0, textTransform: "capitalize" }}>{r.label}</span>
+          <InfoDot tip={r.tip}></InfoDot>
           <span style={{ color: UW.dim }}>{r.text}</span>
         </div>
       ))}

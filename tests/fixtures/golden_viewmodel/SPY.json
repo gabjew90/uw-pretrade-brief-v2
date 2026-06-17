@@ -110,27 +110,32 @@
             {
               "label": "opening basis",
               "state": "green",
-              "text": "basis opening_flow (needs opening flow)"
+              "text": "basis opening_flow (needs opening flow)",
+              "tip": "flow-alerts: are the picked side's trades OPENING (today's volume > prior open interest)? If only closing/rolling trades exist the side falls back to total flow and this fails \u2014 opening bets predict, closing don't (Ge-Lin-Pearson)."
             },
             {
               "label": "ask-side share",
               "state": "red",
-              "text": "ask-side 15% of $15.4M (needs >=70%)"
+              "text": "ask-side 15% of $15.4M (needs >=70%)",
+              "tip": "flow-alerts total_ask_side_prem vs total premium: how much hit the ASK (aggressive buying). >=70% = strong informed imbalance (Hu 2014)."
             },
             {
               "label": "size",
               "state": "green",
-              "text": "$15.4M opening (needs >=$1M)"
+              "text": "$15.4M opening (needs >=$1M)",
+              "tip": "Sum of opening premium (flow-alerts total_premium on vol>OI trades). Must clear $1M so the bet is material, not noise."
             },
             {
               "label": "concentration",
               "state": "dark",
-              "text": "expiry/strike read incomplete"
+              "text": "expiry/strike read incomplete",
+              "tip": "Per-expiry/strike grouping of the opening premium (flow-alerts). >=60% bunched in <=2 near-dated (5-30 DTE) near-money strikes = a focused bet, not scattered."
             },
             {
               "label": "still building",
               "state": "red",
-              "text": "net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m)"
+              "text": "net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m)",
+              "tip": "Intraday flow-alerts timeline: is the session's net premium near its high and the last qualifying print recent (<=90m)? A faded or reversed morning burst is stale (Hu's edge is ~1-day)."
             }
           ],
           "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 15% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 expiry/strike read incomplete \u00b7 net -1560% of session high, last buy 0m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
@@ -154,7 +159,8 @@
             {
               "label": "dealer gamma",
               "state": "dark",
-              "text": "no dealer gamma"
+              "text": "no dealer gamma",
+              "tip": ""
             }
           ],
           "subtext": "derived \u00b7 no as_of"
@@ -181,22 +187,26 @@
             {
               "label": "IV rank",
               "state": "dark",
-              "text": "IV rank unavailable"
+              "text": "IV rank unavailable",
+              "tip": "interpolated-iv percentile: where today's IV sits vs the stock's own past year. <30 = historically cheap (you want to BUY premium cheap, Hu-Jacobs)."
             },
             {
               "label": "HV/IV",
               "state": "dark",
-              "text": "realized vol unavailable"
+              "text": "realized vol unavailable",
+              "tip": "Realized vol (volatility/realized) vs front implied. >=1.0 means the stock actually moves at least as much as the options charge (Goyal-Saretto)."
             },
             {
               "label": "term slope",
               "state": "dark",
-              "text": "no term structure"
+              "text": "no term structure",
+              "tip": "Front vs ~30d IV (volatility/term-structure). Flat/upward = no near-term event premium pumping the weekly you'd buy (Vasquez)."
             },
             {
               "label": "clean window",
               "state": "dark",
-              "text": "calendar fetch failed"
+              "text": "calendar fetch failed",
+              "tip": "earnings + macro calendar: no earnings (<=3d) and no print you'd hold through (<=1d) inside the hold window."
             }
           ],
           "subtext": "derived \u00b7 no as_of"
@@ -220,7 +230,8 @@
             {
               "label": "contract",
               "state": "dark",
-              "text": "no contract priced for this side"
+              "text": "no contract priced for this side",
+              "tip": ""
             }
           ],
           "subtext": "derived \u00b7 no as_of"
@@ -811,42 +822,50 @@
             {
               "label": "opening basis",
               "state": "green",
-              "text": "basis opening_flow (needs opening flow)"
+              "text": "basis opening_flow (needs opening flow)",
+              "tip": "flow-alerts: are the picked side's trades OPENING (today's volume > prior open interest)? If only closing/rolling trades exist the side falls back to total flow and this fails \u2014 opening bets predict, closing don't (Ge-Lin-Pearson)."
             },
             {
               "label": "ask-side share",
               "state": "red",
-              "text": "ask-side 35% of $15.4M (needs >=70%)"
+              "text": "ask-side 35% of $15.4M (needs >=70%)",
+              "tip": "flow-alerts total_ask_side_prem vs total premium: how much hit the ASK (aggressive buying). >=70% = strong informed imbalance (Hu 2014)."
             },
             {
               "label": "size",
               "state": "green",
-              "text": "$15.4M opening (needs >=$1M)"
+              "text": "$15.4M opening (needs >=$1M)",
+              "tip": "Sum of opening premium (flow-alerts total_premium on vol>OI trades). Must clear $1M so the bet is material, not noise."
             },
             {
               "label": "lean",
               "state": "red",
-              "text": "lean 1.5:1 weak"
+              "text": "lean 1.5:1 weak",
+              "tip": "Opening premium on this side vs the other (flow-alerts). Needs >=2:1 and $500K \u2014 the edge is in the EXTREME of signed flow, not a near-even split."
             },
             {
               "label": "concentration",
               "state": "dark",
-              "text": "expiry/strike read incomplete"
+              "text": "expiry/strike read incomplete",
+              "tip": "Per-expiry/strike grouping of the opening premium (flow-alerts). >=60% bunched in <=2 near-dated (5-30 DTE) near-money strikes = a focused bet, not scattered."
             },
             {
               "label": "fresh money",
               "state": "red",
-              "text": "opening is 43% of this side's flow (needs majority >=50%, else rolling/closing)"
+              "text": "opening is 43% of this side's flow (needs majority >=50%, else rolling/closing)",
+              "tip": "Opening (vol>OI) premium as a share of this side's TOTAL flow. Must be the majority (>=50%) \u2014 else the side is mostly rolling/position management, not a fresh bet."
             },
             {
               "label": "OI held",
               "state": "green",
-              "text": "OI unconfirmed"
+              "text": "OI unconfirmed",
+              "tip": "Per-contract OI history (option-contract/historic): is open interest on the bet's strikes growing/flat (held) vs shrinking (unwinding)? Unwinding means the 'buying' was actually closing."
             },
             {
               "label": "still building",
               "state": "red",
-              "text": "net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m)"
+              "text": "net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m)",
+              "tip": "Intraday flow-alerts timeline: is the session's net premium near its high and the last qualifying print recent (<=90m)? A faded or reversed morning burst is stale (Hu's edge is ~1-day)."
             }
           ],
           "subtext": "basis opening_flow (needs opening flow) \u00b7 ask-side 35% of $15.4M (needs >=70%) \u00b7 $15.4M opening (needs >=$1M) \u00b7 lean 1.5:1 weak \u00b7 expiry/strike read incomplete \u00b7 opening is 43% of this side's flow (needs majority >=50%, else rolling/closing) \u00b7 OI unconfirmed \u00b7 net 58% of session high, last buy 5m before the session's final print (needs >=90% and <=90m) \u00b7 archive \u00b7 as of 15:05 UTC"
@@ -870,7 +889,8 @@
             {
               "label": "dealer gamma",
               "state": "dark",
-              "text": "no dealer gamma"
+              "text": "no dealer gamma",
+              "tip": ""
             }
           ],
           "subtext": "derived \u00b7 no as_of"
@@ -897,22 +917,26 @@
             {
               "label": "IV rank",
               "state": "dark",
-              "text": "IV rank unavailable"
+              "text": "IV rank unavailable",
+              "tip": "interpolated-iv percentile: where today's IV sits vs the stock's own past year. <30 = historically cheap (you want to BUY premium cheap, Hu-Jacobs)."
             },
             {
               "label": "HV/IV",
               "state": "dark",
-              "text": "realized vol unavailable"
+              "text": "realized vol unavailable",
+              "tip": "Realized vol (volatility/realized) vs front implied. >=1.0 means the stock actually moves at least as much as the options charge (Goyal-Saretto)."
             },
             {
               "label": "term slope",
               "state": "dark",
-              "text": "no term structure"
+              "text": "no term structure",
+              "tip": "Front vs ~30d IV (volatility/term-structure). Flat/upward = no near-term event premium pumping the weekly you'd buy (Vasquez)."
             },
             {
               "label": "clean window",
               "state": "dark",
-              "text": "calendar fetch failed"
+              "text": "calendar fetch failed",
+              "tip": "earnings + macro calendar: no earnings (<=3d) and no print you'd hold through (<=1d) inside the hold window."
             }
           ],
           "subtext": "derived \u00b7 no as_of"
@@ -936,7 +960,8 @@
             {
               "label": "contract",
               "state": "dark",
-              "text": "no contract priced for this side"
+              "text": "no contract priced for this side",
+              "tip": ""
             }
           ],
           "subtext": "derived \u00b7 no as_of"
@@ -970,17 +995,20 @@
             {
               "label": "FTDs",
               "state": "dark",
-              "text": "no FTD history"
+              "text": "no FTD history",
+              "tip": "Fails-to-deliver (shorts/ftds) vs the stock's own trailing year. Elevated = delivery stress, a squeeze precursor (SEC data, ~4-week lag)."
             },
             {
               "label": "IV spike",
               "state": "dark",
-              "text": "no IV history"
+              "text": "no IV history",
+              "tip": "Front IV change over 2 sessions (volatility/realized). A >20% spike = panic premium, squeeze-adjacent."
             },
             {
               "label": "tape sign",
               "state": "dark",
-              "text": "no greek-flow"
+              "text": "no greek-flow",
+              "tip": "Net greek-flow delta (greek-flow). For puts it must be negative \u2014 if the tape pushes UP while you buy puts, that's hedger contamination / fuel."
             }
           ],
           "subtext": "no FTD history \u00b7 no IV history \u00b7 no greek-flow \u00b7 derived \u00b7 no as_of"
